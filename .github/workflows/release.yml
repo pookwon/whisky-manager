@@ -34,7 +34,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore build tool binaries
+        run: pnpm rebuild esbuild
       - name: Build and package desktop app
         run: pnpm ${{ matrix.package_script }}
         env:
@@ -62,7 +64,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore build tool binaries
+        run: pnpm rebuild esbuild
       - name: Build and package extension
         run: pnpm package:extension
       - name: Upload extension artifact
