@@ -5,7 +5,13 @@ import { approve as approveExecution, reject as rejectExecution } from './approv
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
-import { DEFAULT_BOARD_ID, DEFAULT_CAFE_ID, SETTING_KEYS, parseOperatorAccounts } from './session.js'
+import {
+  DEFAULT_BOARD_ID,
+  DEFAULT_CAFE_ID,
+  DEFAULT_CAFE_URL_NAME,
+  SETTING_KEYS,
+  parseOperatorAccounts,
+} from './session.js'
 import type { DashboardSnapshot, RendererApi, SettingsView } from './ipc.js'
 
 const PAIRING_TOKEN_KEY = 'pairingToken'
@@ -111,6 +117,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         enabled: current?.enabled ?? false,
         cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
         boardId: settings.get(SETTING_KEYS.boardId) ?? DEFAULT_BOARD_ID,
+        cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       })
     },
@@ -131,9 +138,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve()
     },
 
-    setCafe(cafeId, boardId) {
+    setCafe(cafeId, boardId, cafeUrlName) {
       settings.set(SETTING_KEYS.cafeId, cafeId.trim())
       settings.set(SETTING_KEYS.boardId, boardId.trim())
+      settings.set(SETTING_KEYS.cafeUrlName, cafeUrlName.trim())
       return Promise.resolve()
     },
 

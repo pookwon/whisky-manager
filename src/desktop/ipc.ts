@@ -50,6 +50,8 @@ export interface SettingsView {
   readonly enabled: boolean
   readonly cafeId: string
   readonly boardId: string
+  /** Vanity url segment, e.g. `examplecafe`; what a person opens the cafe by. */
+  readonly cafeUrlName: string
   readonly operatorAccounts: string[]
 }
 
@@ -65,7 +67,7 @@ export interface RendererApi {
   setPolicy(policy: ApprovalPolicy): Promise<void>
   setEnabled(enabled: boolean): Promise<void>
   setOperatorAccounts(accounts: string[]): Promise<void>
-  setCafe(cafeId: string, boardId: string): Promise<void>
+  setCafe(cafeId: string, boardId: string, cafeUrlName: string): Promise<void>
   getPairingToken(): Promise<string>
   startAutomation(): Promise<void>
   stopAutomation(): Promise<void>

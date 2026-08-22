@@ -86,6 +86,8 @@ export const ko = {
       cafe: '카페',
       cafeId: '카페 ID',
       boardId: '게시판 ID',
+      cafeUrlName: '카페 주소',
+      cafeUrlNameHint: '{{url}}',
       operatorAccounts: '운영진 계정',
       operatorAccountsHint: '쉼표로 구분합니다. 이 계정 중 누구든 댓글을 달았으면 도구는 손대지 않습니다',
       pairing: '확장 페어링 토큰',

@@ -19,6 +19,7 @@ export function Settings(): React.JSX.Element {
 
   const [cafeId, setCafeId] = useState('')
   const [boardId, setBoardId] = useState('')
+  const [cafeUrlName, setCafeUrlName] = useState('')
   const [accounts, setAccounts] = useState('')
   const [token, setToken] = useState('')
 
@@ -26,6 +27,7 @@ export function Settings(): React.JSX.Element {
     if (settings === null) return
     setCafeId(settings.cafeId)
     setBoardId(settings.boardId)
+    setCafeUrlName(settings.cafeUrlName)
     setAccounts(settings.operatorAccounts.join(', '))
   }, [settings])
 
@@ -37,7 +39,7 @@ export function Settings(): React.JSX.Element {
 
   const saveCafe = (): void => {
     void act(async () => {
-      await api.setCafe(cafeId, boardId)
+      await api.setCafe(cafeId, boardId, cafeUrlName)
       await api.setOperatorAccounts(accounts.split(',').map((a) => a.trim()))
     })
   }
@@ -97,6 +99,12 @@ export function Settings(): React.JSX.Element {
             <input className="field" value={boardId} onChange={(e) => setBoardId(e.target.value)} />
           </label>
         </div>
+
+        <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          {t('settings.cafeUrlName')}
+          <input className="field" value={cafeUrlName} onChange={(e) => setCafeUrlName(e.target.value)} />
+          <span className="mt-0.5">{t('settings.cafeUrlNameHint', { url: `cafe.naver.com/${cafeUrlName}` })}</span>
+        </label>
 
         <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
           {t('settings.operatorAccounts')}

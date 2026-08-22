@@ -40,6 +40,7 @@ const settings: SettingsView = {
   enabled: false,
   cafeId: '10000000',
   boardId: '5',
+  cafeUrlName: 'examplecafe',
   operatorAccounts: [],
 }
 

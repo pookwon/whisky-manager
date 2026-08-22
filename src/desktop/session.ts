@@ -11,12 +11,15 @@ import type { ExtensionTransport } from './ws/server.js'
 export const SETTING_KEYS = {
   cafeId: 'cafeId',
   boardId: 'boardId',
+  cafeUrlName: 'cafeUrlName',
   operatorAccounts: 'operatorAccounts',
 } as const
 
 /** The whisky/cognac club's 가입인사 board, per the design spec. */
 export const DEFAULT_CAFE_ID = '10000000'
 export const DEFAULT_BOARD_ID = '5'
+/** The cafe's vanity url, which is how a person reaches it. */
+export const DEFAULT_CAFE_URL_NAME = 'examplecafe'
 
 const NICKNAME_VARIABLE = '닉네임'
 

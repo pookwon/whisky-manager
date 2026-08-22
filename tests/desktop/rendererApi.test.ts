@@ -211,6 +211,7 @@ describe('settings', () => {
       enabled: false,
       cafeId: '10000000',
       boardId: '5',
+      cafeUrlName: 'examplecafe',
       operatorAccounts: [],
     })
   })
@@ -220,7 +221,7 @@ describe('settings', () => {
 
     await api.setPolicy('SEMI')
     await api.setEnabled(true)
-    await api.setCafe('99999999', '7')
+    await api.setCafe('99999999', '7', 'othercafe')
     await api.setOperatorAccounts(['cafe-ops', 'staff-personal'])
 
     expect(await api.getSettings()).toEqual({
@@ -228,6 +229,7 @@ describe('settings', () => {
       enabled: true,
       cafeId: '99999999',
       boardId: '7',
+      cafeUrlName: 'othercafe',
       operatorAccounts: ['cafe-ops', 'staff-personal'],
     })
   })
