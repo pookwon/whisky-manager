@@ -7,6 +7,7 @@ export const TIMEOUTS = {
   loginCheckMs: 10_000,
   collectMs: 15_000,
   executeMs: 15_000,
+  commentCheckMs: 10_000,
   extensionReplyMs: 20_000,
 } as const
 
@@ -34,10 +35,17 @@ export interface ActionEnvelope {
   readonly body: string
 }
 
+export interface PostRef {
+  readonly cafeId: string
+  readonly boardId: string
+  readonly postId: string
+}
+
 export type AppMessage =
   | { type: 'HELLO_ACK'; accepted: boolean; reason: string | null }
   | { type: 'CHECK_LOGIN'; requestId: string }
   | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null }
+  | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
   | { type: 'ABORT'; requestId: string }
 
@@ -45,6 +53,7 @@ export type ExtensionMessage =
   | { type: 'HELLO'; token: string; extensionId: string; protocolVersion: number }
   | { type: 'LOGIN_STATE'; requestId: string; loggedIn: boolean; account: string | null }
   | { type: 'COLLECTED'; requestId: string; candidates: RawCandidate[] }
+  | { type: 'COMMENTS'; requestId: string; authors: string[] | null }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -55,8 +64,22 @@ export type ExtensionMessage =
     }
   | { type: 'ERROR'; requestId: string | null; code: string; message: string }
 
-const APP_MESSAGE_TYPES = new Set<string>(['HELLO_ACK', 'CHECK_LOGIN', 'COLLECT', 'EXECUTE', 'ABORT'])
-const EXTENSION_MESSAGE_TYPES = new Set<string>(['HELLO', 'LOGIN_STATE', 'COLLECTED', 'EXECUTED', 'ERROR'])
+const APP_MESSAGE_TYPES = new Set<string>([
+  'HELLO_ACK',
+  'CHECK_LOGIN',
+  'COLLECT',
+  'CHECK_COMMENTS',
+  'EXECUTE',
+  'ABORT',
+])
+const EXTENSION_MESSAGE_TYPES = new Set<string>([
+  'HELLO',
+  'LOGIN_STATE',
+  'COLLECTED',
+  'COMMENTS',
+  'EXECUTED',
+  'ERROR',
+])
 
 function messageType(value: unknown): string | null {
   if (typeof value !== 'object' || value === null) return null

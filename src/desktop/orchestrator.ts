@@ -2,7 +2,7 @@ import { evaluateGuards, type Guard } from '../shared/guards.js'
 import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { decide } from '../shared/policy.js'
-import { TIMEOUTS, type ExtensionMessage, type RawCandidate } from '../shared/protocol.js'
+import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, Limits } from '../shared/types.js'
@@ -75,6 +75,28 @@ async function collect(deps: SessionDeps): Promise<RawCandidate[] | null> {
       TIMEOUTS.collectMs,
     )
     return reply.type === 'COLLECTED' ? reply.candidates : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Re-reads the post's comments immediately before writing. Collection may be
+ * seconds old, and in parallel operation with humans a staff member can get
+ * there first. `null` means the check could not be performed.
+ */
+async function recheckComments(deps: SessionDeps, post: PostRef): Promise<string[] | null> {
+  try {
+    const reply = await deps.transport.request(
+      {
+        type: 'CHECK_COMMENTS',
+        requestId: deps.newRequestId(),
+        automationId: deps.automationId,
+        action: post,
+      },
+      TIMEOUTS.commentCheckMs,
+    )
+    return reply.type === 'COMMENTS' ? reply.authors : null
   } catch {
     return null
   }
@@ -215,6 +237,31 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
 
     deps.repo.applyPatch(executionId, { status: 'QUEUED', riskFlags: evaluation.flags })
     await deps.sleep(nextActionDelayMs(deps.limits, deps.random))
+
+    // Re-check after the wait, not before: checking first leaves the whole
+    // 8~25s window open for someone else to comment.
+    const post: PostRef = { cafeId: candidate.cafeId, boardId: candidate.boardId, postId: candidate.postId }
+    const authorsNow = await recheckComments(deps, post)
+    if (authorsNow === null) {
+      deps.repo.applyPatch(executionId, {
+        status: 'SKIPPED',
+        reason: 'COMMENT_CHECK_FAILED',
+        riskFlags: evaluation.flags,
+        resolvedAt: deps.clock.now(),
+      })
+      skipped += 1
+      continue
+    }
+    if (authorsNow.some((author) => deps.operatorAccounts.includes(author))) {
+      deps.repo.applyPatch(executionId, {
+        status: 'SKIPPED',
+        reason: 'ALREADY_COMMENTED',
+        riskFlags: evaluation.flags,
+        resolvedAt: deps.clock.now(),
+      })
+      skipped += 1
+      continue
+    }
 
     const rendered = deps.renderBody(candidate)
     const startedAt = deps.clock.now()

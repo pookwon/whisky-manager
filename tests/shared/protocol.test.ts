@@ -22,6 +22,11 @@ describe('timeouts', () => {
     expect(TIMEOUTS.executeMs).toBe(15_000)
     expect(TIMEOUTS.extensionReplyMs).toBe(20_000)
   })
+
+  it('bounds the pre-execution comment re-check', () => {
+    expect(TIMEOUTS.commentCheckMs).toBe(10_000)
+    expect(TIMEOUTS.commentCheckMs).toBeLessThan(30_000)
+  })
 })
 
 describe('isAppMessage', () => {
@@ -40,6 +45,17 @@ describe('isAppMessage', () => {
     expect(isAppMessage({ type: 'NOPE', requestId: 'r1' })).toBe(false)
   })
 
+  it('accepts a CHECK_COMMENTS message', () => {
+    expect(
+      isAppMessage({
+        type: 'CHECK_COMMENTS',
+        requestId: 'r9',
+        automationId: 'welcome-comment',
+        action: { cafeId: '10000000', boardId: '5', postId: '1001' },
+      }),
+    ).toBe(true)
+  })
+
   it('rejects a non-object', () => {
     expect(isAppMessage('EXECUTE')).toBe(false)
     expect(isAppMessage(null)).toBe(false)
@@ -51,6 +67,10 @@ describe('isExtensionMessage', () => {
     expect(
       isExtensionMessage({ type: 'HELLO', token: 't', extensionId: 'abc', protocolVersion: PROTOCOL_VERSION }),
     ).toBe(true)
+  })
+
+  it('accepts a COMMENTS reply', () => {
+    expect(isExtensionMessage({ type: 'COMMENTS', requestId: 'r9', authors: ['cafe-ops'] })).toBe(true)
   })
 
   it('rejects an app-side type', () => {

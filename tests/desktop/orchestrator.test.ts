@@ -21,6 +21,8 @@ interface FakeTransportOptions {
   loggedIn?: boolean
   candidates?: RawCandidate[]
   executeOk?: boolean
+  /** Authors returned by the pre-execution re-check. Omitted means none. */
+  commentsAtExecution?: string[] | null
 }
 
 function fakeTransport(options: FakeTransportOptions = {}) {
@@ -40,6 +42,13 @@ function fakeTransport(options: FakeTransportOptions = {}) {
           type: 'COLLECTED',
           requestId: message.requestId,
           candidates: options.candidates ?? [],
+        })
+      }
+      if (message.type === 'CHECK_COMMENTS') {
+        return Promise.resolve({
+          type: 'COMMENTS',
+          requestId: message.requestId,
+          authors: options.commentsAtExecution === undefined ? [] : options.commentsAtExecution,
         })
       }
       if (message.type === 'EXECUTE') {
@@ -242,5 +251,33 @@ describe('runSession — dedupe', () => {
       executed: 0,
       skipped: 0,
     })
+  })
+})
+
+describe('runSession — pre-execution re-check', () => {
+  it('skips when an operator commented between collection and execution', async () => {
+    // Collection saw no comments, but a staff member got there first.
+    const transport = fakeTransport({ candidates: [candidate('7001')], commentsAtExecution: ['cafe-ops'] })
+
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.status).toBe('SKIPPED')
+    expect(rows[0]?.reason).toBe('ALREADY_COMMENTED')
+  })
+
+  it('executes when the re-check finds no operator comment', async () => {
+    const transport = fakeTransport({ candidates: [candidate('7002')], commentsAtExecution: [] })
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, executed: 1, skipped: 0 })
+  })
+
+  it('does not execute when the re-check itself fails', async () => {
+    // Posting without knowing is worse than not posting.
+    const transport = fakeTransport({ candidates: [candidate('7003')], commentsAtExecution: null })
+
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.reason).toBe('COMMENT_CHECK_FAILED')
   })
 })
