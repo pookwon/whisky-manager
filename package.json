@@ -68,6 +68,7 @@
       "target": ["dmg"]
     },
     "win": {
+      "icon": "assets/whisky-manager.ico",
       "target": ["msi"],
       "artifactName": "Whisky-Manager-${version}.${ext}"
     },
