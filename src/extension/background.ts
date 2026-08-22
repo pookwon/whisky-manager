@@ -1,34 +1,51 @@
 import { charsetFromContentType, isProbeTarget } from '../shared/probe.js'
 import type { AppMessage } from '../shared/protocol.js'
 import { createBridgeClient, type Reply } from './bridgeClient.js'
-import { stubCandidates } from './stub.js'
+import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeClient.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
 const RECONNECT_ALARM = 'bridge-reconnect'
 const RECONNECT_PERIOD_MINUTES = 1
 
 /**
- * Fetches through the browser's own session and hands the decoded body back.
- * The body is decoded with the charset the response declares, because the
- * cafe's legacy pages are MS949 and `res.text()` would mangle every hangul.
+ * The cafe's vanity url. It is the one address the extension cannot derive from
+ * the numeric ids the app sends, and it is only used to read which account the
+ * browser session belongs to.
  */
+const CAFE_URL_NAME = 'examplecafe'
+
+/**
+ * Every request goes through the browser's own session, so no cookie ever
+ * leaves it. Bodies are decoded with the charset the response declares: the
+ * memo board is served as MS949 and `res.text()` would mangle every hangul.
+ */
+async function request(init: HttpRequest): Promise<HttpResponse> {
+  const response = await fetch(init.url, {
+    method: init.method ?? 'GET',
+    credentials: 'include',
+    ...(init.body === undefined ? {} : { body: init.body }),
+    ...(init.contentType === undefined ? {} : { headers: { 'Content-Type': init.contentType } }),
+  })
+  const contentType = response.headers.get('content-type')
+  const body = await response.arrayBuffer()
+  return {
+    status: response.status,
+    contentType,
+    text: new TextDecoder(charsetFromContentType(contentType)).decode(body),
+  }
+}
+
+const cafe = createCafeClient({ http: request, cafeUrlName: CAFE_URL_NAME })
+
+/** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
 async function probe(requestId: string, url: string, reply: Reply): Promise<void> {
   if (!isProbeTarget(url)) {
     reply({ type: 'PROBE_RESULT', requestId, status: 0, contentType: null, text: '', error: 'URL_NOT_ALLOWED' })
     return
   }
   try {
-    const response = await fetch(url, { credentials: 'include' })
-    const contentType = response.headers.get('content-type')
-    const body = await response.arrayBuffer()
-    reply({
-      type: 'PROBE_RESULT',
-      requestId,
-      status: response.status,
-      contentType,
-      text: new TextDecoder(charsetFromContentType(contentType)).decode(body),
-      error: null,
-    })
+    const response = await request({ url })
+    reply({ type: 'PROBE_RESULT', requestId, ...response, error: null })
   } catch (error) {
     reply({
       type: 'PROBE_RESULT',
@@ -41,7 +58,15 @@ async function probe(requestId: string, url: string, reply: Reply): Promise<void
   }
 }
 
-function handle(message: AppMessage, reply: Reply): void {
+function failed(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The extension decides nothing. Each of these runs one instruction from the
+ * app and reports what happened, so a torn-down service worker loses no state.
+ */
+async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
   switch (message.type) {
     case 'HELLO_ACK':
       if (!message.accepted) {
@@ -50,36 +75,63 @@ function handle(message: AppMessage, reply: Reply): void {
       }
       return
 
-    case 'CHECK_LOGIN':
-      reply({ type: 'LOGIN_STATE', requestId: message.requestId, loggedIn: true, account: 'stub-operator' })
+    case 'CHECK_LOGIN': {
+      const state = await cafe.checkLogin()
+      reply({
+        type: 'LOGIN_STATE',
+        requestId: message.requestId,
+        loggedIn: state.loggedIn,
+        account: state.account,
+      })
       return
+    }
 
-    case 'COLLECT':
-      reply({ type: 'COLLECTED', requestId: message.requestId, candidates: stubCandidates(message.sincePostId) })
+    case 'COLLECT': {
+      const candidates = await cafe.collect(message.source, message.sincePostId)
+      reply({ type: 'COLLECTED', requestId: message.requestId, candidates })
       return
+    }
 
-    case 'CHECK_COMMENTS':
-      reply({ type: 'COMMENTS', requestId: message.requestId, authors: [] })
+    case 'CHECK_COMMENTS': {
+      const authors = await cafe.checkComments(
+        { cafeId: message.action.cafeId, boardId: message.action.boardId },
+        message.action.postId,
+      )
+      reply({ type: 'COMMENTS', requestId: message.requestId, authors })
       return
+    }
 
-    case 'EXECUTE':
+    case 'EXECUTE': {
+      const { cafeId, boardId, postId, body } = message.action
+      const result = await cafe.execute({ cafeId, boardId }, postId, body)
       reply({
         type: 'EXECUTED',
         requestId: message.requestId,
-        ok: true,
+        ok: result.ok,
         strategy: 'FETCH',
-        commentAuthors: [],
-        error: null,
+        commentAuthors: result.commentAuthors,
+        error: result.error,
       })
       return
+    }
 
     case 'PROBE':
-      void probe(message.requestId, message.url, reply)
+      await probe(message.requestId, message.url, reply)
       return
 
     case 'ABORT':
       return
   }
+}
+
+function handle(message: AppMessage, reply: Reply): void {
+  // A thrown request must still answer, or the app waits out its whole timeout
+  // for a reply that is never coming.
+  void dispatch(message, reply).catch((error: unknown) => {
+    if ('requestId' in message) {
+      reply({ type: 'ERROR', requestId: message.requestId, code: 'EXTENSION_FAILURE', message: failed(error) })
+    }
+  })
 }
 
 const client = createBridgeClient({
