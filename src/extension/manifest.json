@@ -3,7 +3,20 @@
   "name": "Whisky Manager Bridge",
   "version": "0.0.1",
   "description": "Bridges the cafe automation desktop app to the logged-in browser session.",
-  "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["alarms", "storage"],
-  "host_permissions": ["https://cafe.naver.com/*", "https://apis.naver.com/*"]
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://cafe.naver.com/*",
+    "https://apis.naver.com/*"
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
 }

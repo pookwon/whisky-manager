@@ -8,6 +8,7 @@ export const TIMEOUTS = {
   collectMs: 15_000,
   executeMs: 15_000,
   commentCheckMs: 10_000,
+  probeMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
 
@@ -47,6 +48,8 @@ export type AppMessage =
   | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null }
   | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
+  /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
+  | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
 
 export type ExtensionMessage =
@@ -62,6 +65,15 @@ export type ExtensionMessage =
       commentAuthors: string[] | null
       error: string | null
     }
+  | {
+      type: 'PROBE_RESULT'
+      requestId: string
+      status: number
+      contentType: string | null
+      /** Body decoded with the charset the response declared. */
+      text: string
+      error: string | null
+    }
   | { type: 'ERROR'; requestId: string | null; code: string; message: string }
 
 const APP_MESSAGE_TYPES = new Set<string>([
@@ -70,6 +82,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'COLLECT',
   'CHECK_COMMENTS',
   'EXECUTE',
+  'PROBE',
   'ABORT',
 ])
 const EXTENSION_MESSAGE_TYPES = new Set<string>([
@@ -78,6 +91,7 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'COLLECTED',
   'COMMENTS',
   'EXECUTED',
+  'PROBE_RESULT',
   'ERROR',
 ])
 

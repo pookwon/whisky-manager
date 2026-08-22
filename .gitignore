@@ -10,3 +10,6 @@ dist/
 .serena/
 coverage/
 .review/
+
+# local pairing token for the diagnostic probe
+.wm-probe-token

@@ -9,7 +9,10 @@ export default defineConfig({
     outDir: 'dist/extension',
     emptyOutDir: true,
     rollupOptions: {
-      input: { background: here('src/extension/background.ts') },
+      input: {
+        background: here('src/extension/background.ts'),
+        options: here('src/extension/options.ts'),
+      },
       output: { entryFileNames: '[name].js', format: 'es' },
     },
   },
@@ -18,7 +21,9 @@ export default defineConfig({
       name: 'copy-manifest',
       closeBundle() {
         mkdirSync(here('dist/extension'), { recursive: true })
-        copyFileSync(here('src/extension/manifest.json'), here('dist/extension/manifest.json'))
+        for (const file of ['manifest.json', 'options.html']) {
+          copyFileSync(here(`src/extension/${file}`), here(`dist/extension/${file}`))
+        }
       },
     },
   ],

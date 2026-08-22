@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>Whisky Manager Bridge</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 14px/1.6 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+        max-width: 34rem; margin: 3rem auto; padding: 0 1.5rem;
+      }
+      h1 { font-size: 1.125rem; margin-bottom: 0.25rem; }
+      p { opacity: 0.7; margin-top: 0; }
+      input { width: 100%; padding: 0.5rem 0.65rem; font-family: ui-monospace, monospace; box-sizing: border-box; }
+      button { margin-top: 0.75rem; padding: 0.45rem 1.1rem; }
+      #state { margin-top: 1rem; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>페어링 토큰</h1>
+    <p>데스크톱 앱의 설정 화면에 표시된 토큰을 붙여넣으세요.</p>
+    <input id="token" type="text" autocomplete="off" spellcheck="false" placeholder="앱 설정 &gt; 확장 페어링 토큰" />
+    <button id="save" type="button">저장</button>
+    <div id="state"></div>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

@@ -76,4 +76,28 @@ describe('isExtensionMessage', () => {
   it('rejects an app-side type', () => {
     expect(isExtensionMessage({ type: 'EXECUTE', requestId: 'r1' })).toBe(false)
   })
+
+  it('accepts a PROBE_RESULT reply', () => {
+    expect(
+      isExtensionMessage({
+        type: 'PROBE_RESULT',
+        requestId: 'r10',
+        status: 200,
+        contentType: 'text/html;charset=MS949',
+        text: '<html></html>',
+        error: null,
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('probe messages', () => {
+  it('recognises PROBE as an app message', () => {
+    expect(isAppMessage({ type: 'PROBE', requestId: 'r10', url: 'https://cafe.naver.com/x' })).toBe(true)
+  })
+
+  it('keeps the two directions separate', () => {
+    expect(isExtensionMessage({ type: 'PROBE', requestId: 'r10', url: 'https://cafe.naver.com/x' })).toBe(false)
+    expect(isAppMessage({ type: 'PROBE_RESULT', requestId: 'r10' })).toBe(false)
+  })
 })

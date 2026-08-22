@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION, isAppMessage, type AppMessage, type ExtensionMessage } from '../shared/protocol.js'
+import { charsetFromContentType, isProbeTarget } from '../shared/probe.js'
 import { stubCandidates } from './stub.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
@@ -15,6 +16,40 @@ async function readToken(): Promise<string | null> {
   const stored = await chrome.storage.local.get('pairingToken')
   const token: unknown = stored.pairingToken
   return typeof token === 'string' ? token : null
+}
+
+/**
+ * Fetches through the browser's own session and hands the decoded body back.
+ * The body is decoded with the charset the response declares, because the
+ * cafe's legacy pages are MS949 and `res.text()` would mangle every hangul.
+ */
+async function probe(requestId: string, url: string): Promise<void> {
+  if (!isProbeTarget(url)) {
+    send({ type: 'PROBE_RESULT', requestId, status: 0, contentType: null, text: '', error: 'URL_NOT_ALLOWED' })
+    return
+  }
+  try {
+    const response = await fetch(url, { credentials: 'include' })
+    const contentType = response.headers.get('content-type')
+    const body = await response.arrayBuffer()
+    send({
+      type: 'PROBE_RESULT',
+      requestId,
+      status: response.status,
+      contentType,
+      text: new TextDecoder(charsetFromContentType(contentType)).decode(body),
+      error: null,
+    })
+  } catch (error) {
+    send({
+      type: 'PROBE_RESULT',
+      requestId,
+      status: 0,
+      contentType: null,
+      text: '',
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 function handle(message: AppMessage): void {
@@ -47,6 +82,10 @@ function handle(message: AppMessage): void {
         commentAuthors: [],
         error: null,
       })
+      return
+
+    case 'PROBE':
+      void probe(message.requestId, message.url)
       return
 
     case 'ABORT':
@@ -91,6 +130,13 @@ async function connect(): Promise<void> {
 chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: RECONNECT_PERIOD_MINUTES })
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RECONNECT_ALARM) void connect()
+})
+/** Saving a token in the options page should pair immediately, not in a minute. */
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || changes.pairingToken === undefined) return
+  socket?.close()
+  socket = null
+  void connect()
 })
 chrome.runtime.onStartup.addListener(() => void connect())
 chrome.runtime.onInstalled.addListener(() => void connect())
