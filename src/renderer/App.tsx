@@ -19,8 +19,13 @@ export function App(): React.JSX.Element {
   const error = useApp((s) => s.error)
 
   useEffect(() => {
-    void refresh()
-    const timer = setInterval(() => void refresh(), REFRESH_MS)
+    // A failed background poll is logged, not surfaced: the next tick retries
+    // in five seconds and a persistent banner would just be noise.
+    const tick = (): void => {
+      refresh().catch(console.error)
+    }
+    tick()
+    const timer = setInterval(tick, REFRESH_MS)
     return () => clearInterval(timer)
   }, [refresh])
 
