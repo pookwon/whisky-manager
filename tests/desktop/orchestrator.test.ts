@@ -281,3 +281,26 @@ describe('runSession — pre-execution re-check', () => {
     expect(rows[0]?.reason).toBe('COMMENT_CHECK_FAILED')
   })
 })
+
+describe('runSession — watermark', () => {
+  it('reports the furthest post it finished handling', async () => {
+    const transport = fakeTransport({ candidates: [candidate('8001'), candidate('8003'), candidate('8002')] })
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, lastProcessedPostId: '8003' })
+  })
+
+  it('reports null when nothing was collected', async () => {
+    expect(await runSession(deps({ transport: fakeTransport({ candidates: [] }) }))).toMatchObject({
+      opened: true,
+      lastProcessedPostId: null,
+    })
+  })
+
+  it('does not advance past the candidate that hit the session cap', async () => {
+    const many = [candidate('9001'), candidate('9002'), candidate('9003')]
+    const limits = { ...PROFILES.production, perSessionCap: 1 }
+    const transport = fakeTransport({ candidates: many })
+
+    // 9001 executes, 9002 is claimed then parked by the cap, 9003 is untouched.
+    expect(await runSession(deps({ transport, limits }))).toMatchObject({ lastProcessedPostId: '9002' })
+  })
+})

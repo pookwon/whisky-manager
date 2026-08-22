@@ -1,6 +1,7 @@
 import { evaluateGuards, type Guard } from '../shared/guards.js'
 import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
+import { laterPostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
 import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
@@ -47,6 +48,8 @@ export type SessionOutcome =
       awaitingApproval: number
       failed: number
       expired: number
+      /** Furthest post this session finished handling, for the watermark. */
+      lastProcessedPostId: string | null
     }
 
 async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> {
@@ -155,6 +158,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   let awaitingApproval = 0
   let failed = 0
   let expired = 0
+  let lastProcessedPostId: string | null = null
 
   const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
   let dailyCount = deps.repo.countSuccessSince(deps.automationId, dailyStart)
@@ -173,6 +177,9 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       postedAt: raw.postedAt,
       detectedAt: now,
     })
+    // Advance per post handled, not once after collection: if the app dies
+    // mid-session, a collection-time advance would skip everything in between.
+    lastProcessedPostId = laterPostId(lastProcessedPostId, raw.postId)
     if (executionId === null) continue
 
     const candidate: Candidate = {
@@ -297,5 +304,5 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     if (nextStatus === 'FAILED') failed += 1
   }
 
-  return { opened: true, executed, skipped, awaitingApproval, failed, expired }
+  return { opened: true, executed, skipped, awaitingApproval, failed, expired, lastProcessedPostId }
 }
