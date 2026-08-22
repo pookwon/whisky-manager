@@ -1,5 +1,6 @@
 {
   "name": "whisky-manager",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Naver cafe management automation for the whisky/cognac club",
@@ -13,6 +14,10 @@
     "start": "pnpm build:all && electron .",
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:all": "pnpm build && pnpm build:renderer && pnpm build:extension",
+    "package:app": "pnpm build:all && electron-builder --publish never",
+    "package:app:mac": "pnpm build:all && electron-builder --mac dmg --publish never",
+    "package:app:win": "pnpm build:all && electron-builder --win nsis --publish never",
+    "package:extension": "pnpm build:extension && node scripts/package-extension.mjs",
     "probe": "pnpm build && node scripts/probe.mjs",
     "generate:cp949": "node scripts/generate-cp949.mjs",
     "dry-run": "pnpm build && node scripts/dry-run.mjs"
@@ -29,6 +34,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "^0.31.10",
     "electron": "^43.4.1",
+    "electron-builder": "26.15.3",
     "eslint": "^9.39.5",
     "iconv-lite": "^0.7.3",
     "tailwindcss": "^4.3.3",
@@ -49,5 +55,25 @@
     "ws": "^8.21.3",
     "zustand": "^5.0.15"
   },
-  "main": "dist/desktop/main.js"
+  "main": "dist/desktop/main.js",
+  "build": {
+    "appId": "com.examplecafe.whisky-manager",
+    "productName": "Whisky Manager",
+    "asar": true,
+    "asarUnpack": ["**/*.node"],
+    "files": ["dist/**/*", "drizzle/**/*", "package.json", "!**/*.map"],
+    "directories": { "output": "release" },
+    "mac": {
+      "category": "public.app-category.business",
+      "target": ["dmg"]
+    },
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "Whisky-Manager-${version}-Setup.${ext}"
+    },
+    "linux": {
+      "category": "Office",
+      "target": ["AppImage"]
+    }
+  }
 }
