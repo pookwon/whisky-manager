@@ -25,6 +25,7 @@
 | [설계 스펙](docs/superpowers/specs/2026-08-22-naver-cafe-automation-design.md) | 아키텍처, 자동화 모델, 승인 정책, 안전장치, 데이터 모델 |
 | [기술 스택](docs/tech-stack.md) | 채택 버전과 근거, 기각한 대안, 버전 정책 |
 | [구현 계획 A — 기반](docs/superpowers/plans/2026-08-22-naver-cafe-foundation.md) | Phase 0~2. 13개 태스크, TDD 사이클 |
+| [구현 계획 C1 — 데스크톱 헤드리스](docs/superpowers/plans/2026-08-22-desktop-headless.md) | Phase 4 전반. 세션 루프, 승인·재시도, Electron 셸 |
 
 계획 B(가입인사 모듈)와 C(UI·배포)는 아직 작성하지 않았다. 이유는 아래 참조.
 
@@ -67,6 +68,7 @@ pnpm lint
 pnpm build         # 데스크톱 (dist/)
 pnpm build:extension   # MV3 확장 (dist/extension/)
 pnpm db:generate   # 스키마 변경 후 마이그레이션 생성
+pnpm start         # Electron 실행 (렌더러는 C2에서 채워짐)
 ```
 
 ## 진행 상태
@@ -77,7 +79,7 @@ pnpm db:generate   # 스키마 변경 후 마이그레이션 생성
 - [x] Phase 1 정책 엔진
 - [x] Phase 2 프로토콜·페어링·DB
 - [ ] Phase 3 가입인사 모듈 — **선행 작업 필요**
-- [ ] Phase 4 데스크톱 UI
+- [~] Phase 4 데스크톱 — 헤드리스 계층 완료, 렌더러 UI 남음
 - [ ] Phase 5 배포
 
 ### Phase 3 선행 작업
