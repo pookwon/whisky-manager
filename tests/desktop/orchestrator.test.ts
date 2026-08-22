@@ -304,3 +304,47 @@ describe('runSession — watermark', () => {
     expect(await runSession(deps({ transport, limits }))).toMatchObject({ lastProcessedPostId: '9002' })
   })
 })
+
+describe('runSession — queued backlog', () => {
+  async function parkOne(postId: string): Promise<string> {
+    await runSession(deps({ transport: fakeTransport({ candidates: [candidate(postId)], executeOk: false }) }))
+    const parked = repo.listUnresolved('welcome-comment')[0]
+    expect(parked?.status).toBe('RETRY_WAIT')
+    repo.applyPatch(parked!.id, { status: 'QUEUED' })
+    return parked!.id
+  }
+
+  it('executes a previously queued row before collecting anything new', async () => {
+    await parkOne('4100')
+
+    expect(await runSession(deps({ transport: fakeTransport({ candidates: [] }) }))).toMatchObject({
+      opened: true,
+      executed: 1,
+    })
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+
+  it('resends the same text rather than re-rendering', async () => {
+    const id = await parkOne('4200')
+
+    await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [] }),
+        // A different renderer would produce different text if it were consulted.
+        renderBody: () => ({ templateId: 'tpl-2', body: 'DIFFERENT' }),
+      }),
+    )
+
+    expect(repo.getById(id)?.status).toBe('SUCCESS')
+    expect(db.select().from(executions).all()[0]?.renderedText).toBe('nick님 환영합니다')
+  })
+
+  it('counts a queued row against the session cap', async () => {
+    await parkOne('4300')
+
+    const limits = { ...PROFILES.production, perSessionCap: 1 }
+    expect(
+      await runSession(deps({ transport: fakeTransport({ candidates: [candidate('4301')] }), limits })),
+    ).toMatchObject({ opened: true, executed: 1 })
+  })
+})

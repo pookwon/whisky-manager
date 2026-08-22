@@ -3,7 +3,7 @@ import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.
 import type { Clock, Random } from '../shared/ports.js'
 import { laterPostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
-import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
+import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, Limits } from '../shared/types.js'
@@ -52,6 +52,23 @@ export type SessionOutcome =
       lastProcessedPostId: string | null
     }
 
+interface ExecutionJob {
+  readonly executionId: string
+  readonly cafeId: string
+  readonly boardId: string
+  readonly postId: string
+  readonly body: string
+  readonly templateId: string | null
+  readonly priorAttempts: number
+}
+
+type JobResult = 'EXECUTED' | 'SKIPPED' | 'EXPIRED' | 'FAILED' | 'RETRY' | 'STOP'
+
+interface Counters {
+  readonly dailyCount: number
+  readonly sessionCount: number
+}
+
 async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> {
   try {
     const reply = await deps.transport.request(
@@ -65,7 +82,7 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
   }
 }
 
-async function collect(deps: SessionDeps): Promise<RawCandidate[] | null> {
+async function collect(deps: SessionDeps) {
   try {
     const reply = await deps.transport.request(
       {
@@ -91,12 +108,7 @@ async function collect(deps: SessionDeps): Promise<RawCandidate[] | null> {
 async function recheckComments(deps: SessionDeps, post: PostRef): Promise<string[] | null> {
   try {
     const reply = await deps.transport.request(
-      {
-        type: 'CHECK_COMMENTS',
-        requestId: deps.newRequestId(),
-        automationId: deps.automationId,
-        action: post,
-      },
+      { type: 'CHECK_COMMENTS', requestId: deps.newRequestId(), automationId: deps.automationId, action: post },
       TIMEOUTS.commentCheckMs,
     )
     return reply.type === 'COMMENTS' ? reply.authors : null
@@ -107,8 +119,7 @@ async function recheckComments(deps: SessionDeps, post: PostRef): Promise<string
 
 async function execute(
   deps: SessionDeps,
-  candidate: Candidate,
-  body: string,
+  job: ExecutionJob,
 ): Promise<Extract<ExtensionMessage, { type: 'EXECUTED' }> | null> {
   try {
     const reply = await deps.transport.request(
@@ -116,12 +127,7 @@ async function execute(
         type: 'EXECUTE',
         requestId: deps.newRequestId(),
         automationId: deps.automationId,
-        action: {
-          cafeId: candidate.cafeId,
-          boardId: candidate.boardId,
-          postId: candidate.postId,
-          body,
-        },
+        action: { cafeId: job.cafeId, boardId: job.boardId, postId: job.postId, body: job.body },
       },
       TIMEOUTS.executeMs,
     )
@@ -129,6 +135,94 @@ async function execute(
   } catch {
     return null
   }
+}
+
+/**
+ * Everything from the gate to the recorded outcome, shared by backlog rows and
+ * freshly collected candidates so both obey the same caps, pacing and re-check.
+ */
+async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters): Promise<JobResult> {
+  const gate = checkGates(
+    { killed: deps.isKilled(), dailyCount: counters.dailyCount, sessionCount: counters.sessionCount },
+    deps.limits,
+  )
+  if (!gate.allowed) {
+    const now = deps.clock.now()
+    if (gate.reason === 'SESSION_CAP_REACHED') {
+      // Left QUEUED so the next session picks it up from the backlog.
+      return 'STOP'
+    }
+    if (gate.reason === 'KILLED') {
+      deps.repo.applyPatch(job.executionId, {
+        status: transition('QUEUED', { type: 'KILLED' }, deps.limits),
+        reason: 'KILLED',
+        resolvedAt: now,
+      })
+      return 'STOP'
+    }
+    deps.repo.applyPatch(job.executionId, {
+      status: transition('QUEUED', { type: 'DAILY_CAP_EXCEEDED' }, deps.limits),
+      reason: 'DAILY_CAP_EXCEEDED',
+      resolvedAt: now,
+    })
+    return 'EXPIRED'
+  }
+
+  await deps.sleep(nextActionDelayMs(deps.limits, deps.random))
+
+  // Re-check after the wait, not before: checking first leaves the whole
+  // 8~25s window open for someone else to comment.
+  const authorsNow = await recheckComments(deps, {
+    cafeId: job.cafeId,
+    boardId: job.boardId,
+    postId: job.postId,
+  })
+  if (authorsNow === null) {
+    deps.repo.applyPatch(job.executionId, {
+      status: 'SKIPPED',
+      reason: 'COMMENT_CHECK_FAILED',
+      resolvedAt: deps.clock.now(),
+    })
+    return 'SKIPPED'
+  }
+  if (authorsNow.some((author) => deps.operatorAccounts.includes(author))) {
+    deps.repo.applyPatch(job.executionId, {
+      status: 'SKIPPED',
+      reason: 'ALREADY_COMMENTED',
+      resolvedAt: deps.clock.now(),
+    })
+    return 'SKIPPED'
+  }
+
+  const startedAt = deps.clock.now()
+  const result = await execute(deps, job)
+  const attempts = job.priorAttempts + 1
+  const finishedAt = deps.clock.now()
+
+  if (result !== null && result.ok) {
+    deps.repo.applyPatch(job.executionId, {
+      status: transition('QUEUED', { type: 'EXECUTION_SUCCEEDED' }, deps.limits),
+      strategy: result.strategy,
+      templateId: job.templateId,
+      renderedText: job.body,
+      attempts,
+      executedAt: startedAt,
+      resolvedAt: finishedAt,
+    })
+    return 'EXECUTED'
+  }
+
+  const nextStatus = transition('QUEUED', { type: 'EXECUTION_FAILED', attempts }, deps.limits)
+  deps.repo.applyPatch(job.executionId, {
+    status: nextStatus,
+    templateId: job.templateId,
+    renderedText: job.body,
+    attempts,
+    reason: result?.error ?? 'NO_REPLY',
+    executedAt: startedAt,
+    resolvedAt: nextStatus === 'FAILED' ? finishedAt : null,
+  })
+  return nextStatus === 'FAILED' ? 'FAILED' : 'RETRY'
 }
 
 export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
@@ -150,9 +244,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     return { opened: false, reason: 'STALE_BACKLOG' }
   }
 
-  const raws = await collect(deps)
-  if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
-
   let executed = 0
   let skipped = 0
   let awaitingApproval = 0
@@ -163,8 +254,58 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
   let dailyCount = deps.repo.countSuccessSince(deps.automationId, dailyStart)
 
+  const tally = (result: JobResult): void => {
+    if (result === 'EXECUTED') {
+      executed += 1
+      dailyCount += 1
+    } else if (result === 'SKIPPED') {
+      skipped += 1
+    } else if (result === 'EXPIRED') {
+      expired += 1
+    } else if (result === 'FAILED') {
+      failed += 1
+    }
+  }
+
+  const summary = (): SessionOutcome => ({
+    opened: true,
+    executed,
+    skipped,
+    awaitingApproval,
+    failed,
+    expired,
+    lastProcessedPostId,
+  })
+
+  // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
+  // older than anything we are about to collect.
+  for (const row of deps.repo.listQueued(deps.automationId)) {
+    const result = await runJob(
+      deps,
+      {
+        executionId: row.id,
+        cafeId: row.cafeId,
+        boardId: row.boardId,
+        postId: row.targetPostId,
+        body: row.renderedText,
+        templateId: row.templateId,
+        priorAttempts: row.attempts,
+      },
+      { dailyCount, sessionCount: executed },
+    )
+    if (result === 'STOP') return summary()
+    tally(result)
+  }
+
+  const raws = await collect(deps)
+  if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
+
   for (const raw of raws) {
     const now = deps.clock.now()
+
+    // Advance per post handled, not once after collection: if the app dies
+    // mid-session, a collection-time advance would skip everything in between.
+    lastProcessedPostId = laterPostId(lastProcessedPostId, raw.postId)
 
     const executionId = await deps.dedupe.claim({
       automationId: deps.automationId,
@@ -177,9 +318,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       postedAt: raw.postedAt,
       detectedAt: now,
     })
-    // Advance per post handled, not once after collection: if the app dies
-    // mid-session, a collection-time advance would skip everything in between.
-    lastProcessedPostId = laterPostId(lastProcessedPostId, raw.postId)
     if (executionId === null) continue
 
     const candidate: Candidate = {
@@ -219,90 +357,32 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       continue
     }
 
-    const gate = checkGates({ killed: deps.isKilled(), dailyCount, sessionCount: executed }, deps.limits)
-    if (!gate.allowed) {
-      if (gate.reason === 'SESSION_CAP_REACHED') {
-        deps.repo.applyPatch(executionId, { status: 'QUEUED', riskFlags: evaluation.flags })
-        break
-      }
-      if (gate.reason === 'KILLED') {
-        deps.repo.applyPatch(executionId, {
-          status: transition('QUEUED', { type: 'KILLED' }, deps.limits),
-          reason: 'KILLED',
-          resolvedAt: now,
-        })
-        break
-      }
-      deps.repo.applyPatch(executionId, {
-        status: transition('QUEUED', { type: 'DAILY_CAP_EXCEEDED' }, deps.limits),
-        reason: 'DAILY_CAP_EXCEEDED',
-        resolvedAt: now,
-      })
-      expired += 1
-      continue
-    }
-
-    deps.repo.applyPatch(executionId, { status: 'QUEUED', riskFlags: evaluation.flags })
-    await deps.sleep(nextActionDelayMs(deps.limits, deps.random))
-
-    // Re-check after the wait, not before: checking first leaves the whole
-    // 8~25s window open for someone else to comment.
-    const post: PostRef = { cafeId: candidate.cafeId, boardId: candidate.boardId, postId: candidate.postId }
-    const authorsNow = await recheckComments(deps, post)
-    if (authorsNow === null) {
-      deps.repo.applyPatch(executionId, {
-        status: 'SKIPPED',
-        reason: 'COMMENT_CHECK_FAILED',
-        riskFlags: evaluation.flags,
-        resolvedAt: deps.clock.now(),
-      })
-      skipped += 1
-      continue
-    }
-    if (authorsNow.some((author) => deps.operatorAccounts.includes(author))) {
-      deps.repo.applyPatch(executionId, {
-        status: 'SKIPPED',
-        reason: 'ALREADY_COMMENTED',
-        riskFlags: evaluation.flags,
-        resolvedAt: deps.clock.now(),
-      })
-      skipped += 1
-      continue
-    }
-
+    // Persist the decision and the text before executing, so a crash leaves a
+    // row the next session can pick up from the backlog.
     const rendered = deps.renderBody(candidate)
-    const startedAt = deps.clock.now()
-    const result = await execute(deps, candidate, rendered.body)
-    const attempts = 1
-    const finishedAt = deps.clock.now()
-
-    if (result !== null && result.ok) {
-      deps.repo.applyPatch(executionId, {
-        status: transition('QUEUED', { type: 'EXECUTION_SUCCEEDED' }, deps.limits),
-        strategy: result.strategy,
-        templateId: rendered.templateId,
-        renderedText: rendered.body,
-        attempts,
-        executedAt: startedAt,
-        resolvedAt: finishedAt,
-      })
-      executed += 1
-      dailyCount += 1
-      continue
-    }
-
-    const nextStatus = transition('QUEUED', { type: 'EXECUTION_FAILED', attempts }, deps.limits)
     deps.repo.applyPatch(executionId, {
-      status: nextStatus,
+      status: 'QUEUED',
+      riskFlags: evaluation.flags,
       templateId: rendered.templateId,
       renderedText: rendered.body,
-      attempts,
-      reason: result?.error ?? 'NO_REPLY',
-      executedAt: startedAt,
-      resolvedAt: nextStatus === 'FAILED' ? finishedAt : null,
     })
-    if (nextStatus === 'FAILED') failed += 1
+
+    const result = await runJob(
+      deps,
+      {
+        executionId,
+        cafeId: candidate.cafeId,
+        boardId: candidate.boardId,
+        postId: candidate.postId,
+        body: rendered.body,
+        templateId: rendered.templateId,
+        priorAttempts: 0,
+      },
+      { dailyCount, sessionCount: executed },
+    )
+    if (result === 'STOP') break
+    tally(result)
   }
 
-  return { opened: true, executed, skipped, awaitingApproval, failed, expired, lastProcessedPostId }
+  return summary()
 }

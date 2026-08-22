@@ -97,3 +97,44 @@ describe('listUnresolved', () => {
     expect(unresolved.map((r) => r.targetPostId).sort()).toEqual(['1001', '1002'])
   })
 })
+
+describe('listQueued', () => {
+  it('returns rows ready to execute with the text already decided', async () => {
+    const a = await claim('1001', 1_000)
+    const b = await claim('1002', 1_000)
+
+    repo.applyPatch(a, { status: 'QUEUED', renderedText: 'hello', templateId: 'tpl-1', attempts: 1 })
+    repo.applyPatch(b, { status: 'AWAITING_APPROVAL' })
+
+    const queued = repo.listQueued(AUTOMATION)
+    expect(queued).toHaveLength(1)
+    expect(queued[0]).toMatchObject({
+      id: a,
+      cafeId: '10000000',
+      boardId: '5',
+      targetPostId: '1001',
+      renderedText: 'hello',
+      templateId: 'tpl-1',
+      attempts: 1,
+    })
+  })
+
+  it('omits queued rows that have no text yet', async () => {
+    const a = await claim('1003', 1_000)
+    repo.applyPatch(a, { status: 'QUEUED' })
+    expect(repo.listQueued(AUTOMATION)).toEqual([])
+  })
+})
+
+describe('listByStatus', () => {
+  it('returns rows in the requested status with their detection time', async () => {
+    const a = await claim('1001', 1_000)
+    const b = await claim('1002', 1_000)
+    repo.applyPatch(a, { status: 'RETRY_WAIT' })
+    repo.applyPatch(b, { status: 'AWAITING_APPROVAL' })
+
+    const retries = repo.listByStatus(AUTOMATION, 'RETRY_WAIT')
+    expect(retries).toHaveLength(1)
+    expect(retries[0]).toMatchObject({ id: a, targetPostId: '1001', detectedAt: 2_000 })
+  })
+})

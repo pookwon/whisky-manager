@@ -41,12 +41,26 @@ export interface UnresolvedRow {
   readonly targetPostedAt: number
   readonly status: ExecutionStatus
   readonly attempts: number
+  /** Approval expiry is measured from detection, not from the post's date. */
+  readonly detectedAt: number
+}
+
+export interface QueuedRow {
+  readonly id: string
+  readonly cafeId: string
+  readonly boardId: string
+  readonly targetPostId: string
+  readonly renderedText: string
+  readonly templateId: string | null
+  readonly attempts: number
 }
 
 export interface ExecutionsRepo {
   applyPatch(id: string, patch: ExecutionPatch): void
   countSuccessSince(automationId: string, sinceMs: number): number
   listUnresolved(automationId: string): UnresolvedRow[]
+  listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
+  listQueued(automationId: string): QueuedRow[]
   getById(id: string): ExecutionRow | undefined
 }
 
@@ -56,6 +70,26 @@ function parseFlags(raw: string): RiskFlag[] {
     return Array.isArray(parsed) ? (parsed as RiskFlag[]) : []
   } catch {
     return []
+  }
+}
+
+interface RawRow {
+  id: string
+  targetPostId: string
+  targetPostedAt: number
+  status: ExecutionStatus
+  attempts: number
+  detectedAt: number
+}
+
+function toUnresolvedRow(r: RawRow): UnresolvedRow {
+  return {
+    id: r.id,
+    targetPostId: r.targetPostId,
+    targetPostedAt: r.targetPostedAt,
+    status: r.status,
+    attempts: r.attempts,
+    detectedAt: r.detectedAt,
   }
 }
 
@@ -98,13 +132,41 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
           and(eq(executions.automationId, automationId), inArray(executions.status, [...UNRESOLVED_STATUSES])),
         )
         .all()
-        .map((r) => ({
-          id: r.id,
-          targetPostId: r.targetPostId,
-          targetPostedAt: r.targetPostedAt,
-          status: r.status,
-          attempts: r.attempts,
-        }))
+        .map(toUnresolvedRow)
+    },
+
+    listByStatus(automationId, status) {
+      return db
+        .select()
+        .from(executions)
+        .where(and(eq(executions.automationId, automationId), eq(executions.status, status)))
+        .all()
+        .map(toUnresolvedRow)
+    },
+
+    listQueued(automationId) {
+      return db
+        .select()
+        .from(executions)
+        .where(and(eq(executions.automationId, automationId), eq(executions.status, 'QUEUED')))
+        .all()
+        .flatMap((r) =>
+          // A queued row with no text yet belongs to the session that claimed
+          // it; that session renders and executes it in the same pass.
+          r.renderedText === null
+            ? []
+            : [
+                {
+                  id: r.id,
+                  cafeId: r.cafeId,
+                  boardId: r.boardId,
+                  targetPostId: r.targetPostId,
+                  renderedText: r.renderedText,
+                  templateId: r.templateId,
+                  attempts: r.attempts,
+                },
+              ],
+        )
     },
 
     getById(id) {
