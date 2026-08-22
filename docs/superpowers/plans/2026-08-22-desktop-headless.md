@@ -1682,7 +1682,8 @@ describe('createSessionLoop', () => {
   })
 
   it('schedules the next session using the jittered interval', () => {
-    const setTimer = vi.fn(() => 1)
+    // Typed params so the assertion can read the delay argument.
+    const setTimer = vi.fn((_fn: () => void, _ms: number) => 1)
     const loop = createSessionLoop(loopDeps({ setTimer }))
 
     loop.start()
