@@ -58,6 +58,7 @@ export interface QueuedRow {
 export interface ExecutionsRepo {
   applyPatch(id: string, patch: ExecutionPatch): void
   countSuccessSince(automationId: string, sinceMs: number): number
+  countExecutedSince(automationId: string, sinceMs: number): number
   listUnresolved(automationId: string): UnresolvedRow[]
   listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
   listQueued(automationId: string): QueuedRow[]
@@ -121,6 +122,16 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
             gte(executions.resolvedAt, sinceMs),
           ),
         )
+        .all().length
+    },
+
+    countExecutedSince(automationId, sinceMs) {
+      // Every row we actually sent to naver, whatever the outcome. Volume caps
+      // guard request count, so a failed attempt still consumed the budget.
+      return db
+        .select()
+        .from(executions)
+        .where(and(eq(executions.automationId, automationId), gte(executions.executedAt, sinceMs)))
         .all().length
     },
 

@@ -9,6 +9,8 @@ import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, Limits } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
+import { sweepApprovals } from './approvals.js'
+import { promoteRetries } from './retries.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface SessionDeps {
@@ -170,6 +172,17 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters):
 
   await deps.sleep(nextActionDelayMs(deps.limits, deps.random))
 
+  // The operator can hit the tray during the 8~25s wait. Checking only at the
+  // gate would let that job through anyway.
+  if (deps.isKilled()) {
+    deps.repo.applyPatch(job.executionId, {
+      status: transition('QUEUED', { type: 'KILLED' }, deps.limits),
+      reason: 'KILLED',
+      resolvedAt: deps.clock.now(),
+    })
+    return 'STOP'
+  }
+
   // Re-check after the wait, not before: checking first leaves the whole
   // 8~25s window open for someone else to comment.
   const authorsNow = await recheckComments(deps, {
@@ -239,6 +252,12 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   if (login === 'OUT') return { opened: false, reason: 'NOT_LOGGED_IN' }
   if (login === 'UNKNOWN') return { opened: false, reason: 'LOGIN_CHECK_FAILED' }
 
+  // Maintenance runs before the brake on purpose. A stale RETRY_WAIT row would
+  // otherwise trip the brake every session, and the sweep that retires it would
+  // never get to run — a permanent deadlock.
+  sweepApprovals(deps.repo, deps.automationId, deps.limits, openedAt)
+  promoteRetries(deps.repo, deps.automationId, deps.limits, openedAt)
+
   const unresolved = deps.repo.listUnresolved(deps.automationId)
   if (hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
     return { opened: false, reason: 'STALE_BACKLOG' }
@@ -250,14 +269,20 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   let failed = 0
   let expired = 0
   let lastProcessedPostId: string | null = null
+  /** Requests actually sent this session. Caps count attempts, not successes. */
+  let attempted = 0
 
   const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
-  let dailyCount = deps.repo.countSuccessSince(deps.automationId, dailyStart)
+  let dailyCount = deps.repo.countExecutedSince(deps.automationId, dailyStart)
 
   const tally = (result: JobResult): void => {
+    // EXECUTED, FAILED and RETRY all mean a request reached naver.
+    if (result === 'EXECUTED' || result === 'FAILED' || result === 'RETRY') {
+      attempted += 1
+      dailyCount += 1
+    }
     if (result === 'EXECUTED') {
       executed += 1
-      dailyCount += 1
     } else if (result === 'SKIPPED') {
       skipped += 1
     } else if (result === 'EXPIRED') {
@@ -291,7 +316,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         templateId: row.templateId,
         priorAttempts: row.attempts,
       },
-      { dailyCount, sessionCount: executed },
+      { dailyCount, sessionCount: attempted },
     )
     if (result === 'STOP') return summary()
     tally(result)
@@ -378,7 +403,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         templateId: rendered.templateId,
         priorAttempts: 0,
       },
-      { dailyCount, sessionCount: executed },
+      { dailyCount, sessionCount: attempted },
     )
     if (result === 'STOP') break
     tally(result)

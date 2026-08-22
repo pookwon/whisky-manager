@@ -231,9 +231,13 @@ describe('runSession — caps and failures', () => {
     expect(unresolved[0]?.attempts).toBe(1)
   })
 
-  it('does not open when unresolved work has grown stale', async () => {
-    const first = fakeTransport({ candidates: [candidate('5001', MON_10_00 - 30 * HOUR)], executeOk: false })
-    await runSession(deps({ transport: first }))
+  it('does not open when an approval request has gone stale', async () => {
+    // A retry that ages out is retired by the sweep, so the brake never sees it.
+    // What the brake is actually for is work a human has left sitting: an
+    // approval request older than the backlog limit but younger than its TTL.
+    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), existingCommentAuthors: null }
+    await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
+    expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
     expect(await runSession(deps({ transport: fakeTransport({ candidates: [] }) }))).toEqual({
       opened: false,
@@ -346,5 +350,89 @@ describe('runSession — queued backlog', () => {
     expect(
       await runSession(deps({ transport: fakeTransport({ candidates: [candidate('4301')] }), limits })),
     ).toMatchObject({ opened: true, executed: 1 })
+  })
+})
+
+describe('runSession — maintenance runs before the brake', () => {
+  it('promotes a fresh retry so the backlog actually drains', async () => {
+    await runSession(deps({ transport: fakeTransport({ candidates: [candidate('5100')], executeOk: false }) }))
+    expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('RETRY_WAIT')
+
+    // No manual promotion this time: the session must do it itself.
+    expect(await runSession(deps({ transport: fakeTransport({ candidates: [] }) }))).toMatchObject({
+      opened: true,
+      executed: 1,
+    })
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+
+  it('expires a stale retry instead of letting it block every future session', async () => {
+    const old = MON_10_00 - 30 * HOUR
+    await runSession(
+      deps({ transport: fakeTransport({ candidates: [candidate('5200', old)], executeOk: false }) }),
+    )
+    expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('RETRY_WAIT')
+
+    // Sweeping before the brake is what keeps this from deadlocking forever.
+    const outcome = await runSession(deps({ transport: fakeTransport({ candidates: [] }) }))
+    expect(outcome).toMatchObject({ opened: true })
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+
+  it('expires an approval request that outlived its ttl', async () => {
+    const flagged = { ...candidate('5300'), existingCommentAuthors: null }
+    await runSession(deps({ transport: fakeTransport({ candidates: [flagged] }), policy: 'SEMI' }))
+    expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
+
+    const muchLater = new FakeClock(MON_10_00 + 60 * HOUR)
+    await runSession(deps({ clock: muchLater, transport: fakeTransport({ candidates: [] }) }))
+
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+})
+
+describe('runSession — kill switch during the pacing wait', () => {
+  it('does not execute a job killed while it was waiting', async () => {
+    let killed = false
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [candidate('6100')] }),
+        // The operator hits the tray while the session is sleeping.
+        sleep: () => {
+          killed = true
+          return Promise.resolve()
+        },
+        isKilled: () => killed,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0 })
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.status).toBe('CANCELLED')
+  })
+})
+
+describe('runSession — caps count attempts, not successes', () => {
+  it('counts a failed execution against the daily cap', async () => {
+    // One failure, then a second session with a cap of 1 must refuse to send.
+    await runSession(deps({ transport: fakeTransport({ candidates: [candidate('6200')], executeOk: false }) }))
+
+    const limits = { ...PROFILES.production, dailyCap: 1 }
+    const outcome = await runSession(
+      deps({ transport: fakeTransport({ candidates: [candidate('6201')] }), limits }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0 })
+  })
+
+  it('counts a failed execution against the session cap', async () => {
+    const limits = { ...PROFILES.production, perSessionCap: 1 }
+    const transport = fakeTransport({ candidates: [candidate('6300'), candidate('6301')], executeOk: false })
+
+    const outcome = await runSession(deps({ transport, limits }))
+
+    // The first attempt used the only slot even though it failed.
+    expect(outcome).toMatchObject({ opened: true, executed: 0, failed: 0 })
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(2)
   })
 })
