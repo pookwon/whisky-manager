@@ -1,0 +1,128 @@
+# 기술 스택
+
+- 확인 기준일: 2026-08-22
+- 버전은 npm 레지스트리에서 직접 조회했고, 호환성 판단은 패키지의 `peerDependencies`와 `exports`를 근거로 한다. 추정치를 적지 않는다.
+
+## 1. 확정 스택
+
+| 영역 | 채택 | 확인된 최신 | 상태 |
+|---|---|---|---|
+| 언어 | TypeScript **5.9.3** | 7.0.2 | **의도적으로 고정** — 3절 |
+| 패키지 매니저 | pnpm workspace 9.15 | — | 설치 완료 |
+| 린터 | ESLint 9.39 + typescript-eslint 8.67 | — | 설치 완료 |
+| 테스트 | Vitest **4.1.11** | 4.1.11 | 설치·검증 완료 |
+| 번들러 | Vite **8.2.2** | 8.2.2 | 설치·검증 완료 |
+| 데스크톱 셸 | Electron 43.4.1 | 43.4.1 | Phase 4 도입 |
+| 로컬 DB | better-sqlite3 13.0.3 | 13.0.3 | Phase 2 도입 |
+| ORM | drizzle-orm 0.45.2 + drizzle-kit 0.31.10 | 동일 | Phase 2 도입 |
+| 통신 | ws 8.21.3 | 8.21.3 | Phase 2 도입 |
+| 확장 | MV3 + Vite 수동 manifest | — | Phase 2 도입 |
+| UI | React 19.2.8 + Tailwind 4.3.3 + Zustand 5.0.15 | 동일 | Phase 4 도입 |
+| i18n | i18next 26.4.0 | 26.4.0 | Phase 4 도입 |
+| 통합 테스트 | @playwright/test 1.62.1 | 1.62.1 | Phase 3 도입 |
+| 배포 | electron-builder 26.15.3 + electron-updater 6.8.9 | 동일 | Phase 5 도입 |
+
+현재 저장소에 설치된 것은 언어·린터·테스트·번들러까지다. 나머지는 해당 Phase에서 들어온다.
+
+## 2. 영역별 선택 근거
+
+### 데스크톱 앱 — Electron
+
+Tauri는 번들이 10MB 대로 Electron(150MB 대)보다 압도적으로 작다. 그럼에도 Electron을 택한 이유는 **유지보수 인원이 적을수록 언어를 하나로 유지하는 이득이 크기** 때문이다. Tauri는 Rust를 요구하고, 이는 나중에 다른 사람이 인수인계받을 때 실질적인 벽이 된다. 사내 소수 인원용 툴에서 번들 크기는 비용이 아니다.
+
+트레이 상주, 자동 업데이트, Windows 인스톨러 레시피가 성숙한 것도 Electron 쪽이다.
+
+### 확장 — MV3 + Vite 수동 manifest
+
+WXT를 검토했으나 채택하지 않았다. Phase 0~2의 확장은 백그라운드 서비스 워커 하나뿐이고 UI가 없다. WXT의 주된 가치인 content script·popup HMR이 적용되지 않는 구간에서 프레임워크 위험을 감수할 이유가 없다.
+
+옵션 페이지가 등장하는 Phase 4에서 재검토한다.
+
+**매니페스트에 `cookies` 권한을 넣지 않는다.** 세션 쿠키를 브라우저 밖으로 반출하지 않는다는 원칙의 코드 수준 강제이며, 테스트가 이를 감시한다.
+
+### 통신 — localhost WebSocket + `ws`
+
+Native Messaging은 크롬이 확장 ID로 접근을 제어해줘 보안상 우수하지만, **브라우저가 호스트 프로세스를 스폰하는 모델**이라 트레이 상주 앱과 결합하려면 별도 브릿지 프로세스가 필요하다. 소수 인원 내부 도구에서 그 복잡도는 정당화되지 않는다.
+
+대신 두 겹으로 막는다 — 페어링 토큰(타이밍 안전 비교)과 TOFU 방식 origin 고정. 통신 계층은 인터페이스로 감싸 향후 교체가 가능하다.
+
+**서비스 워커 수명 주의사항:** MV3 서비스 워커는 30초 유휴 시 종료된다. WebSocket 메시지 송수신은 유휴 타이머를 리셋하므로(Chrome 116+) 세션 진행 중에는 살아 있지만, 세션 사이 45~75분 동안에는 워커가 죽고 소켓도 함께 끊긴다. 그래서 확장에 `chrome.alarms` 재연결 하트비트가 필요하다. 확장의 유일한 타이머다.
+
+### 로컬 DB — better-sqlite3 + Drizzle
+
+Drizzle을 쓰는 이유는 Phase 6에서 Postgres로 확장할 때 **스키마 정의와 쿼리 작성 방식이 그대로 이어지기** 때문이다. 지금 짜는 SQLite 스키마가 그때의 출발점이 된다.
+
+드라이버로 Node 내장 `node:sqlite`를 쓰면 네이티브 모듈을 피할 수 있지 않느냐는 검토가 있었으나, **drizzle-orm 0.45.2에는 `node:sqlite` 드라이버가 존재하지 않는다.** `exports`가 제공하는 Node 쪽 SQLite 드라이버는 `better-sqlite3`, `libsql`, `sql-js`, `sqlite-proxy`뿐이다. 따라서 `better-sqlite3`가 유일하게 합리적인 선택이다.
+
+`libsql`은 원격 동기화가 딸려오지만 Phase 6 전까지 불필요하고, 로컬 파일 DB만 쓰는 지금은 의존성만 늘린다.
+
+### UI — React + Tailwind + Zustand
+
+서버 상태가 없고 전부 로컬 IPC라 TanStack Query 같은 서버 상태 계층이 필요 없다. Zustand로 충분하다.
+
+색상 3개 이내, 라이트·다크 양쪽 지원, 사용자 노출 문자열 하드코딩 금지(i18next)를 지킨다.
+
+### 테스트 — Vitest + Playwright
+
+판단 로직이 전부 순수 함수이므로 Vitest 단위 테스트로 전 분기를 덮는다. 시계와 난수를 포트로 주입해 45~75분 주기 같은 로직도 실제 시간을 기다리지 않고 결정적으로 검증한다.
+
+Playwright는 카페를 모사한 로컬 목 페이지에 확장을 로드해 돌리는 용도다. **실계정 대상 자동 E2E는 만들지 않는다** — 반복 실행 자체가 리스크다.
+
+## 3. 버전 정책
+
+### TypeScript는 5.9에 고정한다
+
+최신은 7.0.2지만 채택하지 않는다. 근거는 명확하다.
+
+```
+typescript-eslint@8.67.0
+  peerDependencies.typescript: ">=4.8.4 <6.1.0"
+```
+
+**TypeScript 7은 typescript-eslint가 아직 지원하지 않는다.** 올리면 린트가 깨진다. TS 7은 Go 기반으로 재작성된 컴파일러라 생태계 전반의 적응에 시간이 걸린다.
+
+재검토 조건: `typescript-eslint`의 peer 범위가 TS 7을 포함할 때.
+
+### Vitest 4 · Vite 8은 올렸다
+
+계획서 초안은 Vitest 2 / Vite 5를 기준으로 작성됐다. 새로 시작하는 저장소에서 두 단계 뒤처진 메이저를 고정할 이유가 없어 최신으로 올렸고, 실제로 전 파이프라인이 통과하는 것을 확인했다.
+
+Vitest 4는 Vite 6 이상을 요구하므로(`@vitest/mocker`의 peer) Vite를 명시적 devDependency로 추가해야 한다. 전이 의존으로 끌려온 Vite 5로는 동작하지 않는다.
+
+```
+pnpm typecheck  OK
+pnpm test       1 passed
+pnpm lint       OK
+pnpm build      OK
+```
+
+### 나머지는 도입 시점에 최신으로
+
+Electron, better-sqlite3, Drizzle 등은 아직 설치하지 않았다. 해당 Phase 착수 시점에 다시 조회해 최신을 쓴다. 지금 버전을 고정해두면 그때 이미 낡아 있다.
+
+## 4. 기각한 대안
+
+| 대안 | 기각 사유 |
+|---|---|
+| Tauri | Rust 진입장벽이 소수 인원 인수인계에서 실질 비용. 번들 크기 이득은 사내 툴에서 무의미 |
+| Playwright로 브라우저 제어 | Chrome 정책상 기본 프로필에서 `--remote-debugging-port`가 무시된다. 기존 로그인 세션을 쓸 수 없다 |
+| 쿠키를 앱으로 반출 | 원칙 훼손에 더해, Node HTTP 클라이언트는 TLS 핑거프린트가 크롬과 달라 **탐지 측면에서 오히려 불리하다** |
+| Native Messaging | 트레이 상주 앱과 모델이 어긋나 브릿지 프로세스가 추가로 필요 |
+| WXT | Phase 0~2에서 그 가치(HMR)가 적용되지 않는다. Phase 4에서 재검토 |
+| `node:sqlite` | drizzle-orm 0.45.2에 드라이버가 없다 |
+| TypeScript 7 | typescript-eslint 미지원 |
+| TanStack Query 등 서버 상태 계층 | 서버 상태가 없다. 전부 로컬 IPC |
+
+## 5. 열린 항목
+
+| 항목 | 언제 결정 | 결정에 필요한 것 |
+|---|---|---|
+| better-sqlite3의 Electron ABI 재빌드 필요 여부 | Phase 2 | 실제 Electron 버전에 설치해 동작 확인 |
+| 확장 번들러를 WXT로 바꿀지 | Phase 4 | 옵션 페이지 요구사항 확정 |
+| 온라인 DB — Supabase vs Neon | Phase 6 | 통계 요건 구체화 |
+
+## 6. 아직 확인 못 한 것
+
+가입인사 게시판의 JSON 엔드포인트 파라미터와 응답 스키마는 **로그인 세션이 있어야 확인된다.** `apis.naver.com/cafe-web/cafe2/ArticleListV2dot1.json`이 실재하는 엔드포인트임은 확인했으나(카페 에러 envelope로 응답), 그 이상은 추측이 된다.
+
+Phase 3 착수 조건은 운영 계정으로 로그인한 크롬의 DevTools Network에서 목록 조회와 댓글 작성 요청을 캡처하는 것이다.

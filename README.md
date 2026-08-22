@@ -23,6 +23,7 @@
 | 문서 | 내용 |
 |---|---|
 | [설계 스펙](docs/superpowers/specs/2026-08-22-naver-cafe-automation-design.md) | 아키텍처, 자동화 모델, 승인 정책, 안전장치, 데이터 모델 |
+| [기술 스택](docs/tech-stack.md) | 채택 버전과 근거, 기각한 대안, 버전 정책 |
 | [구현 계획 A — 기반](docs/superpowers/plans/2026-08-22-naver-cafe-foundation.md) | Phase 0~2. 13개 태스크, TDD 사이클 |
 
 계획 B(가입인사 모듈)와 C(UI·배포)는 아직 작성하지 않았다. 이유는 아래 참조.
