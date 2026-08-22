@@ -25,13 +25,13 @@ export interface SessionLoop {
   runOnce(): Promise<void>
 }
 
+/** Consecutive login-check failures tolerated before halting. */
+const LOGIN_FAILURE_LIMIT = 3
+
 /**
  * Owns the cadence. The extension has no business timer, so everything about
  * when work happens lives here and a torn-down service worker loses nothing.
  */
-/** Consecutive login-check failures tolerated before halting. */
-const LOGIN_FAILURE_LIMIT = 3
-
 export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
   let timer: TimerHandle | null = null
   let running = false
