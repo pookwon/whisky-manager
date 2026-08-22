@@ -71,7 +71,7 @@ pnpm build
 
 - [x] 설계 스펙 확정
 - [x] 구현 계획 A (Phase 0~2)
-- [x] Phase 0 모노레포 스캐폴딩
+- [x] Phase 0 단일 패키지 스캐폴딩
 - [ ] Phase 1 정책 엔진
 - [ ] Phase 2 프로토콜·페어링·DB
 - [ ] Phase 3 가입인사 모듈 — **선행 작업 필요**

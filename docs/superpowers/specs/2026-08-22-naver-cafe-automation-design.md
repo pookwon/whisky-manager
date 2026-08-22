@@ -115,35 +115,50 @@ localhost WebSocket을 사용한다. Native Messaging이 크롬의 확장 ID 기
 
 ## 5. 자동화 모델
 
-### 5.1 핵심 추상화
+### 5.1 경계 — 무엇을 일반화하고 무엇을 하지 않는가
 
-각 자동화 기능은 아래 인터페이스를 구현하는 독립 모듈이다. 레지스트리에 등록하면 정책 설정 UI, 승인 큐, 이력 기록, 통계가 자동으로 적용된다. 자동화 종류에 따른 조건 분기(`switch`/`else if`)는 어디에도 두지 않는다.
+**일반화하는 것: 판단 계층.** 승인 정책, 총량 게이트, 세션 스케줄러, 상태 기계는 어떤 자동화를 돌리든 동일하게 적용된다. 자동화 종류에 따른 조건 분기(`switch`/`else if`)를 두지 않는다. 이들은 `src/shared`에 순수 함수로 두며, 자동화가 하나뿐인 지금도 그 자체로 성립한다.
+
+**일반화하지 않는 것: 기능 모듈.** `Automation` 인터페이스를 정의하고 레지스트리에 등록하는 플러그인 구조는 **2번째 자동화가 실제로 생길 때까지 만들지 않는다.**
+
+초안에서는 만들려 했으나 설계 리뷰에서 그 인터페이스가 2번째 기능부터 이미 맞지 않는다는 것이 드러났다.
+
+- `Action`을 `{ cafeId, boardId, postId, body }`로 고정하면 "텍스트로 댓글 달기" 외에는 표현할 수 없다. 등업 승인/거부, 글 삭제, 정기 공지 게시는 들어가지 않는다
+- `Candidate`에 글 제목·본문이 없어 스팸 판정 같은 내용 기반 자동화가 불가능하다
+- 정기 공지는 감시 대상이 없어 `source`/`parse` 모델 자체가 성립하지 않는다
+- 미활동 회원 정리는 전체 스캔이라 "한 페이지 → 후보들"이라는 `parse` 형태에 맞지 않는다
+
+즉 추상화 비용은 지불하면서 그 대가로 얻으려던 확장성은 실제로 얻지 못한다. **하나의 사례에서 뽑은 인터페이스는 두 번째 사례를 만나면 대개 틀린다.** 2번째 자동화가 생기면 두 구현의 실제 공통점을 보고 추출한다.
+
+**대신 지금 지키는 경계**
+
+기능 모듈은 한 폴더(`src/shared/automations/welcome-comment/`)에 모으고, 평범한 함수를 내보낸다.
 
 ```ts
-interface Automation {
-  id: string                     // 'cafe-welcome-comment'
-  name: string                   // i18n 키
-  defaultPolicy: ApprovalPolicy  // AUTO | SEMI | MANUAL
-  defaultLimits: Partial<Limits> // 미지정 시 프로파일 기본값 사용
+// 확장에서 실행 — 순수 함수라 HTML 픽스처로 테스트 가능
+export function parseWelcomePosts(page: RawPage): Candidate[]
 
-  // --- 확장에서 실행 ---
-  source: SourceSpec                                  // 감시 대상 + selector/엔드포인트 정의
-  parse(page: RawPage): Candidate[]                   // 순수 함수
-  execute(action: Action): Promise<ExecutionResult>   // 실행 전략은 5.5절
-
-  // --- 앱에서 실행 ---
-  guards: Guard[]
-  render(candidate: Candidate, template: Template): Action
-}
-
-type Guard = (candidate: Candidate, ctx: GuardContext) => RiskFlag | null
+// 앱에서 실행
+export const welcomeGuards: Guard[]
+export function renderWelcomeComment(candidate: Candidate, template: Template): Action
 ```
 
-`packages/automations`는 앱과 확장 **양쪽이 임포트**한다. 한 기능의 정의가 한 파일에 모여 있되, 각 멤버의 실행 위치는 위와 같이 나뉜다.
+인터페이스도 레지스트리도 없다. 판단(shared)과 수집·실행(모듈)의 경계만 지킨다. 이 경계는 인터페이스 없이도 파일 배치와 의존 방향으로 유지된다.
 
-`parse`가 순수 함수인 것이 중요하다. 실행은 확장에서 일어나지만, 저장해둔 HTML 픽스처로 앱 쪽 테스트에서 그대로 검증할 수 있다.
+`Action`은 **의미 수준**으로 유지한다 — "이 글에 이 텍스트로 댓글". 엔드포인트, CSRF 토큰, DOM selector 같은 실행 세부는 확장의 실행 함수 안에 갇히고 앱은 알지 못한다.
 
-`Action`은 **의미 수준**으로 유지한다 — "이 글에 이 텍스트로 댓글". 엔드포인트, CSRF 토큰, DOM selector 같은 실행 세부는 `execute` 안에 갇히고 앱은 알지 못한다.
+**`Candidate`는 글 내용을 포함한다.**
+
+```ts
+interface Candidate {
+  automationId, cafeId, boardId, postId
+  title: string | null
+  bodyText: string | null      // 치환 변수 추출과 향후 내용 기반 판정에 필요
+  authorNickname, authorId, postedAt
+}
+```
+
+닉네임 추출이 제목이 아닌 본문에 의존할 수 있고, 내용 없이 수집하면 나중에 다시 긁어야 한다. 수집 시점에 함께 가져오는 편이 요청 수도 적다.
 
 ### 5.2 승인 정책
 
@@ -340,11 +355,13 @@ executions                       -- 한 글 = 한 행. 중복 방지와 통계�
   reason            TEXT         -- 스킵·실패·만료 사유
   template_id       TEXT
   rendered_text     TEXT         -- 실제로 나간 텍스트
+  target_title      TEXT         -- 원글 제목
   attempts          INTEGER      -- 실행 시도 횟수. 최초 0
   detected_at       INTEGER      -- 감지·선점 시각
+  executed_at       INTEGER      -- 실제 실행을 시도한 시각. 시도 전이면 NULL
   resolved_at       INTEGER      -- 종결 상태로 확정된 시각. 미종결이면 NULL
   deleted_at        INTEGER      -- 긴급 회수로 삭제한 시각 (5.6절)
-  UNIQUE (automation_id, target_post_id)   -- 중복 방지의 실체
+  UNIQUE (cafe_id, automation_id, target_post_id)   -- 중복 방지의 실체
 
 templates
   id, automation_id, body, enabled, created_at
@@ -389,7 +406,9 @@ app_settings
 
 `reason`은 자유 텍스트가 아니라 **enum**이다(`ALREADY_COMMENTED`, `VARIABLE_EXTRACTION_FAILED`, `DAILY_CAP_EXCEEDED`, `APPROVAL_TIMEOUT`, `KILLED`, `ENDPOINT_MISMATCH` 등). 통계 집계의 축이 되므로 자유 텍스트면 쓸모가 없다.
 
-이 한 테이블에서 나오는 통계: 일별·주별 처리량, 성공률, `FETCH`/`DOM` 전략 비율(엔드포인트 건강도), 스킵·실패 사유 분포, 계정별 집계, 그리고 `target_posted_at → resolved_at` 차이로 **응답 지연**.
+이 한 테이블에서 나오는 통계: 일별·주별 처리량, 성공률, `FETCH`/`DOM` 전략 비율(엔드포인트 건강도), 스킵·실패 사유 분포, 계정별 집계, `target_posted_at → executed_at` 차이로 **응답 지연**, `executed_at` 분포로 **시간대별 처리량**.
+
+`resolved_at`만으로는 실제 실행 시점을 알 수 없다. 승인 대기나 재시도를 거치면 종결 시각과 실행 시각이 크게 벌어지기 때문에 둘을 따로 기록한다.
 
 ### 7.2 중복 방지 계층
 
@@ -400,6 +419,8 @@ interface DedupeStore {
   claim(automationId: string, postId: string): Promise<boolean>  // 원자적 선점
 }
 ```
+
+선점 키에 `cafe_id`가 들어가는 것이 중요하다. 카페마다 글 ID가 독립적으로 매겨지므로, 빼면 카페 A의 1001번 글과 카페 B의 1001번 글이 같은 글로 취급된다. 다중 카페는 1차 범위 밖이지만 이 제약을 나중에 바꾸려면 데이터 마이그레이션이 필요하므로 지금 넣는다.
 
 `claim`이 "확인 후 기록"이 아니라 **원자적 선점**인 것이 핵심이다. 로컬 구현은 `UNIQUE` 제약 위반을 `false`로 변환하면 되고, 공유 저장소로 갈 때도 같은 의미가 성립한다. 이 인터페이스만 지키면 다중 PC 확장은 구현체 교체로 끝난다.
 
@@ -414,7 +435,7 @@ interface DedupeStore {
 | 데스크톱 앱 | Electron + TypeScript | Tauri는 번들이 훨씬 작지만 Rust 진입장벽이 소수 인원 인수인계에서 실질 비용. 언어를 TS로 통일하는 이득이 더 크다. 트레이·자동 업데이트·Windows 인스톨러 레시피가 검증됨 |
 | 확장 | MV3 + TypeScript, WXT | Vite 기반, MV3와 HMR 지원. 착수 시점에 프로젝트 상태를 재확인하고 미심쩍으면 Vite + 수동 manifest로 대체 (구조 영향 없음) |
 | 통신 | localhost WebSocket + 토큰 페어링 | 4.5절 |
-| 로컬 DB | SQLite (better-sqlite3) + Drizzle ORM | Drizzle을 쓰면 Phase 6에서 Postgres로 확장할 때 스키마 정의와 쿼리 작성 방식이 그대로 이어진다 |
+| 로컬 DB | SQLite (better-sqlite3) + Drizzle ORM | 타입 있는 스키마 정의와 마이그레이션 도구를 얻는다. Phase 6의 Postgres 전환도 같은 도구를 쓸 수 있으나 **무변경 이식은 검증된 바 없다** — boolean·JSON·upsert·격리수준은 방언 차이가 있다 |
 | UI | React + Tailwind + Zustand | |
 | i18n | i18next | 사용자 노출 문자열 하드코딩 금지 |
 | 자동 업데이트 | electron-updater | |
@@ -425,20 +446,37 @@ UI는 색상 3개 이내, 라이트/다크 양쪽 지원을 준수한다. 앱은
 
 ## 9. 프로젝트 구조
 
+**단일 패키지다.** pnpm 워크스페이스도, 패키지 분할도 두지 않는다.
+
 ```
-pnpm workspace
-├── packages/core        // Automation 인터페이스, 정책 엔진, guards, 총량 게이트 — 순수 TS
-├── packages/protocol    // 앱↔확장 메시지 타입. 양쪽이 공유하는 단일 진실
-├── packages/automations // 자동화 모듈. cafe-welcome-comment/ 가 첫 번째. 앱·확장 양쪽이 임포트
-├── apps/desktop         // Electron 메인(DB, WS 서버, 정책 실행) + 렌더러(React UI)
-└── apps/extension       // MV3 service worker(수집/실행/WS) + content script(DOM 폴백)
+whisky-manager/
+├── package.json          하나
+├── tsconfig.json         타입체크 (src + tests)
+├── tsconfig.build.json   데스크톱 빌드 (src/extension 제외)
+├── vitest.config.ts
+├── src/
+│   ├── shared/           순수 TS — 타입, 포트, 스케줄러, 게이트, guards, 정책, 상태 기계, 프로토콜
+│   │   └── automations/welcome-comment/   기능 모듈 (5.1절)
+│   ├── desktop/          Electron 메인 — DB, WS 서버, 오케스트레이터, 트레이, 렌더러
+│   └── extension/        MV3 — service worker(수집/실행/WS), content script(DOM 폴백)
+└── tests/
+    ├── shared/
+    ├── desktop/
+    └── extension/
 ```
 
-**의존성 경계**
+**왜 나누지 않는가.** 초안은 패키지 5개(core / protocol / automations / desktop / extension)로 나눴다. 소수 인원이 유지보수한다는 명시적 요구에 비추면 그 대가가 이득보다 크다 — package.json 5개, tsconfig 5개, 패키지 간 빌드 순서 의존, 테스트에서 소스를 참조하기 위한 별칭 우회. 실제로 초안 계획서는 그 별칭 우회를 이미 필요로 했다.
 
-- `packages/core` — Electron·브라우저·DB 어디에도 의존하지 않는다. 이 경계가 무너지면 테스트 전략 전체가 무너진다
-- `packages/automations` — 앱과 확장 양쪽이 임포트하므로 **Node 전용 모듈(`better-sqlite3` 등)과 브라우저 전용 API를 모두 배제한다.** `Template` 같은 타입이 DB 계층과 얽히면 네이티브 모듈이 확장 번들로 끌려 들어간다. 순수 타입과 순수 함수만 둔다
-- 공유 타입(`Candidate`, `Action`, `ExecutionResult`, `SourceSpec`, `RawPage`, `GuardContext`, `Limits`, `Template`, `RiskFlag`)의 구체 정의는 구현 계획 단계에서 `packages/protocol`과 `packages/core`에 확정한다. 이 스펙은 각 타입의 역할과 실행 위치까지만 규정한다
+패키지 경계가 주는 강제력은 나중에 이 코드를 외부에 배포할 때 의미가 생긴다. 사내 도구에는 그런 계기가 없다.
+
+**의존 방향은 폴더 배치로 지킨다**
+
+- `src/shared`는 Electron·브라우저·DB 어디에도 의존하지 않는다. 앱과 확장 양쪽이 임포트하므로 **Node 전용 모듈(`better-sqlite3` 등)과 브라우저 전용 API를 모두 배제한다.** 이 경계가 무너지면 테스트 전략 전체가 무너지고, 네이티브 모듈이 확장 번들로 끌려 들어간다
+- `src/desktop`은 `src/shared`를 임포트한다. 반대 방향은 없다
+- `src/extension`은 `src/shared`를 임포트한다. `src/desktop`은 임포트하지 않는다
+- 임포트는 상대 경로를 쓴다. 경로 별칭을 두면 tsc·vite·vitest 세 곳에 같은 설정을 중복해야 한다
+
+공유 타입(`Candidate`, `Action`, `ExecutionResult`, `RawPage`, `GuardContext`, `Limits`, `Template`, `RiskFlag`)의 구체 정의는 구현 계획 단계에서 `src/shared`에 확정한다. 이 스펙은 각 타입의 역할과 실행 위치까지만 규정한다.
 
 ## 10. 테스트 전략
 
@@ -460,8 +498,8 @@ pnpm workspace
 
 | Phase | 내용 | 완료 기준 |
 |---|---|---|
-| 0 | 모노레포 스캐폴딩, TS/ESLint/Vitest 설정 | `pnpm build`, `pnpm test` 통과 |
-| 1 | `packages/core` — 정책 엔진, guards, 총량 게이트, 워터마크 | 단위 테스트 커버리지 80%+. UI·DB·브라우저 없이 전부 검증 |
+| 0 | 단일 패키지 스캐폴딩, TS/ESLint/Vitest 설정 | `pnpm build`, `pnpm test`, `pnpm lint`, `pnpm typecheck` 통과 |
+| 1 | `src/shared` — 정책 엔진, guards, 총량 게이트, 워터마크 | 단위 테스트 커버리지 80%+. UI·DB·브라우저 없이 전부 검증 |
 | 2 | 프로토콜 + WS 페어링 + SQLite 스키마/마이그레이션 + `DedupeStore` | 확장 스텁과 앱이 왕복 통신, 이력이 DB에 기록됨, `claim` 동시성 테스트 통과 |
 | 3 | 엔드포인트 확정(DevTools 관찰) → 가입인사 모듈 수집·파서 + 댓글 실행(fetch/DOM 폴백) + 로그인 만료 감지 | 실제 응답 픽스처로 파서 테스트 통과, 실행 전략 3경로 통과, 로컬 목 페이지 통합 테스트 통과 |
 | 4 | 데스크톱 UI — 대시보드, 승인 큐, 기능별 정책 설정, 템플릿 편집, 긴급 회수 | 세 정책 모드 전환이 실제로 동작, 긴급 회수로 지정 구간 댓글이 실제 삭제됨 |

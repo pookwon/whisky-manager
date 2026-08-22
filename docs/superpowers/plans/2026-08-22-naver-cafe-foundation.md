@@ -2,267 +2,119 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 모노레포와 순수 정책 엔진, 앱↔확장 프로토콜·페어링, SQLite 상태 저장을 구축해 확장 스텁이 보낸 후보가 정책 판정을 거쳐 DB에 기록되고 실행 지시로 돌아오는 왕복을 완성한다.
+**Goal:** 판단 계층(정책·게이트·스케줄러·상태 기계)과 앱↔확장 프로토콜·페어링, SQLite 상태 저장을 구축해 확장 스텁이 보낸 후보가 정책 판정을 거쳐 DB에 기록되고 실행 지시로 돌아오는 왕복을 완성한다.
 
-**Architecture:** 판단·스케줄은 전부 Electron 앱(Node)에, 수집·실행은 확장에 둔다. 앱의 판단 로직은 `packages/core`에 순수 함수로 격리하고 시계·난수를 포트로 주입해 브라우저·DB·네이버 없이 전부 단위 테스트한다. 앱과 확장은 `packages/protocol`의 판별 유니온 메시지로만 통신한다.
+**Architecture:** 판단과 스케줄은 전부 Electron 앱(Node)에, 수집과 실행은 확장에 둔다. 판단 로직은 `src/shared`에 순수 함수로 격리하고 시계·난수를 포트로 주입해 브라우저·DB·네이버 없이 전부 단위 테스트한다. 앱과 확장은 `src/shared/protocol.ts`의 판별 유니온 메시지로만 통신한다.
 
-**Tech Stack:** pnpm workspace, TypeScript 5, Vitest, Electron, better-sqlite3, Drizzle ORM, `ws`, Vite (확장 번들)
+**Tech Stack:** 단일 pnpm 패키지, TypeScript 5.9, Vitest 4, Vite 8, Electron, better-sqlite3, Drizzle ORM, `ws`
 
 **설계 근거:** `docs/superpowers/specs/2026-08-22-naver-cafe-automation-design.md`
+**스택 근거:** `docs/tech-stack.md`
+
+## 개정 이력
+
+초안은 pnpm 워크스페이스에 패키지 5개로 나누고 `Automation` 플러그인 인터페이스를 먼저 세웠다. 설계 리뷰 후 두 가지를 철회했다.
+
+- **패키지 분할 철회** — 소수 인원 유지보수 요구와 상충한다. 단일 패키지 + 폴더 경계로 간다
+- **`Automation` 인터페이스 철회** — 2번째 기능(등업 승인, 글 삭제, 정기 공지)부터 이미 맞지 않는다. 비용만 지불하고 확장성은 못 얻는다. 2번째 자동화가 생길 때 실제 공통점을 보고 추출한다
+
+판단 계층은 자동화 종류와 무관하므로 그대로 일반화해 둔다.
 
 ## Global Constraints
 
-- **확장 매니페스트에 `cookies` 권한을 넣지 않는다.** 세션 쿠키를 브라우저 밖으로 반출하지 않는다는 원칙의 코드 수준 강제다 (스펙 4.4절)
-- `packages/core`는 Electron·브라우저·DB 어디에도 의존하지 않는다
-- `packages/automations`는 앱과 확장 양쪽이 임포트하므로 Node 전용 모듈(`better-sqlite3` 등)과 브라우저 전용 API를 모두 배제한다
-- `production` 프로파일 값: 세션 주기 45~75분, 세션 내 간격 8~25초, 세션당 상한 15건, 일일 상한 200건, 운영 시간대 08:00~24:00, 주말 세션 주기 배율 1.5
-- `debug` 프로파일 값: 세션 주기 2~4분, 세션 내 간격 3~8초, 세션당 상한 5건
+- **확장 매니페스트에 `cookies` 권한을 넣지 않는다.** 세션 쿠키를 브라우저 밖으로 반출하지 않는다는 원칙의 코드 수준 강제다 (스펙 4.4절). Task 12의 테스트가 감시한다
+- `src/shared`는 Electron·브라우저·DB 어디에도 의존하지 않는다. 앱과 확장 양쪽이 임포트하므로 Node 전용 모듈과 브라우저 전용 API를 모두 배제한다
+- 의존 방향은 단방향이다 — `src/shared` ← `src/desktop`, `src/shared` ← `src/extension`. 역방향과 desktop↔extension 직접 참조는 없다
+- **임포트는 상대 경로를 쓴다.** 경로 별칭은 tsc·vite·vitest 세 곳에 설정을 중복시킨다
+- `production` 프로파일: 세션 주기 45~75분, 세션 내 간격 8~25초, 세션당 상한 15건, 일일 상한 200건, 운영 시간대 08:00~24:00, 주말 세션 주기 배율 1.5
+- `debug` 프로파일: 세션 주기 2~4분, 세션 내 간격 3~8초, 세션당 상한 5건
 - 타임아웃: 로그인 확인 10초, 목록 수집 15초, 댓글 실행 15초, 확장 응답 전반 20초. **무한 대기는 어디에도 없다**
 - 재시도 최대 3회. 승인 큐 만료 48시간. 백로그 브레이크 24시간
-- 커밋 메시지에 AI 서명·공동저자·이모지를 넣지 않는다
-- 코드와 주석은 영어, 커밋 메시지는 conventional commits
-
-## 확장 번들러 결정
-
-스펙 8절은 WXT를 후보로 두되 "착수 시점에 상태를 재확인하고 미심쩍으면 Vite + 수동 manifest로 대체"를 허용했다. **이 계획은 Vite + 수동 manifest를 택한다.**
-
-Phase 0~2에서 확장은 백그라운드 서비스 워커 하나뿐이고 UI가 없다. WXT의 주된 가치인 content script·popup HMR이 적용되지 않는 구간이므로 프레임워크 위험을 감수할 이유가 없다. 옵션 페이지가 등장하는 Phase 4에서 재검토한다.
+- TypeScript는 5.9에 고정한다. typescript-eslint 8.67의 peer가 `<6.1.0`이라 TS 7을 쓰면 린트가 깨진다
+- 커밋 메시지에 AI 서명·공동저자·이모지를 넣지 않는다. 코드와 주석은 영어, 커밋 메시지는 conventional commits
 
 ## File Structure
 
 ```
-pnpm-workspace.yaml
-package.json                          루트 스크립트, devDependencies
-tsconfig.base.json                    공통 컴파일러 옵션
-eslint.config.js
-
-packages/core/                        순수 TS. 의존성 없음
-  src/types.ts                        도메인 타입, 상태 enum, Limits
-  src/ports.ts                        Clock / Random 포트 인터페이스
-  src/schedule.ts                     세션 주기·지터·운영 시간대·주말 배율
-  src/limits.ts                       총량 게이트, 백로그 브레이크
-  src/guards.ts                       Guard 타입, 평가기
-  src/policy.ts                       승인 정책 → 처분 결정
-  src/statusMachine.ts                상태 전이
-  src/profiles.ts                     production / debug 프로파일 값
-  src/index.ts                        배럴
-
-packages/protocol/                    앱↔확장 공유 메시지 타입
-  src/messages.ts
-  src/index.ts
-
-packages/automations/                 Automation 인터페이스와 레지스트리만. 구현체는 Phase 3
-  src/types.ts
-  src/registry.ts
-  src/index.ts
-
-apps/desktop/
-  src/main/db/schema.ts               Drizzle 스키마
-  src/main/db/client.ts               DB 연결·마이그레이션
-  src/main/db/dedupeStore.ts          DedupeStore 구현
-  src/main/db/executionsRepo.ts       executions 읽기/쓰기
-  src/main/ws/pairing.ts              토큰 생성·검증, TOFU origin 고정
-  src/main/ws/server.ts               WebSocket 서버
-  src/main/orchestrator.ts            세션 조립 — core + DB + WS 연결
-  src/main/index.ts                   Electron 엔트리, 트레이
-  drizzle.config.ts
-
-apps/extension/
-  manifest.json                       MV3. cookies 권한 없음
-  src/background.ts                   WS 클라이언트 + alarms 재연결 하트비트
-  src/stub.ts                         Phase 2 검증용 가짜 후보 생성기
-  vite.config.ts
+whisky-manager/
+├── package.json              하나
+├── tsconfig.json             타입체크 (src + tests)
+├── tsconfig.build.json       데스크톱 빌드 (src/extension 제외)
+├── vitest.config.ts
+├── eslint.config.js
+├── drizzle.config.ts         Task 8
+├── drizzle/                  생성된 마이그레이션
+├── src/
+│   ├── shared/               순수 TS. 의존성 없음
+│   │   ├── types.ts          도메인 타입, 상태 enum, Limits, Candidate
+│   │   ├── ports.ts          Clock / Random 포트
+│   │   ├── profiles.ts       production / debug 값
+│   │   ├── schedule.ts       세션 주기·지터·운영 시간대·주말 배율
+│   │   ├── limits.ts         총량 게이트, 백로그 브레이크
+│   │   ├── guards.ts         Guard 타입, 평가기
+│   │   ├── policy.ts         승인 정책 → 처분 결정
+│   │   ├── statusMachine.ts  상태 전이
+│   │   ├── protocol.ts       앱↔확장 메시지 계약, 타임아웃 예산
+│   │   └── index.ts          배럴
+│   ├── desktop/
+│   │   ├── db/schema.ts      Drizzle 스키마
+│   │   ├── db/client.ts      연결·마이그레이션
+│   │   ├── db/dedupeStore.ts 원자적 선점
+│   │   ├── db/executionsRepo.ts
+│   │   ├── ws/pairing.ts     토큰 생성·검증, TOFU
+│   │   ├── ws/server.ts      WebSocket 서버
+│   │   └── orchestrator.ts   세션 조립
+│   └── extension/
+│       ├── manifest.json     MV3. cookies 권한 없음
+│       ├── background.ts     WS 클라이언트 + alarms 재연결
+│       └── stub.ts           Phase 2 검증용. Phase 3에서 교체
+└── tests/
+    ├── shared/
+    ├── desktop/
+    └── extension/
 ```
+
+`src/shared/automations/welcome-comment/`는 Phase 3에서 생긴다. 이 계획의 범위 밖이다.
 
 ---
 
-### Task 1: 모노레포 스캐폴딩과 툴체인
+### Task 1: 단일 패키지 스캐폴딩 — **완료됨**
 
-**Files:**
-- Create: `pnpm-workspace.yaml`, `package.json`, `tsconfig.base.json`, `eslint.config.js`, `.gitignore`
-- Create: `packages/core/package.json`, `packages/core/tsconfig.json`, `packages/core/vitest.config.ts`
-- Create: `packages/core/src/index.ts`, `packages/core/tests/smoke.test.ts`
+이 태스크는 이미 저장소에 반영되어 있다. 아래는 확인용이며, 새로 만들 것은 없다.
 
-**Interfaces:**
-- Consumes: 없음
-- Produces: `pnpm build`, `pnpm test`, `pnpm lint` 루트 스크립트. `@ncafe/core` 워크스페이스 패키지
+**Files:** `package.json`, `tsconfig.json`, `tsconfig.build.json`, `vitest.config.ts`, `eslint.config.js`, `.gitignore`, `src/shared/index.ts`, `tests/shared/smoke.test.ts`
 
-- [ ] **Step 1: 워크스페이스 파일 생성**
+**Produces:** `pnpm build` / `test` / `lint` / `typecheck` 스크립트
 
-`pnpm-workspace.yaml`:
-
-```yaml
-packages:
-  - "packages/*"
-  - "apps/*"
-```
-
-`package.json`:
-
-```json
-{
-  "name": "ncafe-automation",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "lint": "eslint .",
-    "typecheck": "pnpm -r typecheck"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "eslint": "^9.0.0",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.0.0",
-    "vitest": "^2.0.0"
-  },
-  "packageManager": "pnpm@9.12.0"
-}
-```
-
-`tsconfig.base.json`:
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "declaration": true,
-    "sourceMap": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "verbatimModuleSyntax": true
-  }
-}
-```
-
-`eslint.config.js`:
-
-```js
-import tseslint from 'typescript-eslint'
-
-export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**'] },
-  ...tseslint.configs.recommended,
-)
-```
-
-`.gitignore`:
-
-```
-node_modules/
-dist/
-*.tsbuildinfo
-.env
-*.db
-*.db-journal
-```
-
-- [ ] **Step 2: core 패키지 생성**
-
-`packages/core/package.json`:
-
-```json
-{
-  "name": "@ncafe/core",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
-  }
-}
-```
-
-`packages/core/tsconfig.json`:
-
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src/**/*"]
-}
-```
-
-`packages/core/vitest.config.ts`:
-
-```ts
-import { defineConfig } from 'vitest/config'
-
-export default defineConfig({
-  test: {
-    include: ['tests/**/*.test.ts'],
-    coverage: { provider: 'v8', include: ['src/**/*.ts'], thresholds: { lines: 80, functions: 80, branches: 80 } },
-  },
-})
-```
-
-`packages/core/src/index.ts`:
-
-```ts
-export const CORE_PACKAGE_NAME = '@ncafe/core'
-```
-
-- [ ] **Step 3: 스모크 테스트 작성**
-
-`packages/core/tests/smoke.test.ts`:
-
-```ts
-import { describe, expect, it } from 'vitest'
-import { CORE_PACKAGE_NAME } from '../src/index.js'
-
-describe('core package', () => {
-  it('exposes its package name', () => {
-    expect(CORE_PACKAGE_NAME).toBe('@ncafe/core')
-  })
-})
-```
-
-- [ ] **Step 4: 설치하고 전체 파이프라인 통과 확인**
+- [x] **Step 1: 파이프라인 확인**
 
 ```bash
-pnpm install
-pnpm typecheck && pnpm test && pnpm lint
+pnpm install && pnpm typecheck && pnpm test && pnpm lint && pnpm build
 ```
 
-Expected: 세 명령 모두 exit 0. `core` 테스트 1 passed.
+Expected: 네 명령 모두 exit 0. 테스트 1 passed. `dist/shared/index.js` 생성.
 
-- [ ] **Step 5: 커밋**
-
-```bash
-git add pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json eslint.config.js .gitignore packages/core
-git commit -m "chore: scaffold pnpm monorepo with typescript and vitest"
-```
+실패하면 다음 태스크로 넘어가지 말고 여기서 고친다.
 
 ---
 
 ### Task 2: 도메인 타입과 포트
 
 **Files:**
-- Create: `packages/core/src/types.ts`, `packages/core/src/ports.ts`, `packages/core/src/profiles.ts`
-- Modify: `packages/core/src/index.ts`
-- Test: `packages/core/tests/profiles.test.ts`
+- Create: `src/shared/types.ts`, `src/shared/ports.ts`, `src/shared/profiles.ts`
+- Modify: `src/shared/index.ts`
+- Test: `tests/shared/profiles.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1의 `@ncafe/core` 패키지
+- Consumes: 없음
 - Produces:
-  - `ApprovalPolicy`, `ExecutionStatus`, `UNRESOLVED_STATUSES`, `RiskFlag`, `SkipReason`, `GateBlockReason`, `Candidate`, `Limits`, `Profile`
-  - `Clock` (`now`, `parts`, `atHour`, `addDays`), `Random` (`intInclusive`)
+  - `ApprovalPolicy`, `ExecutionStatus`, `UNRESOLVED_STATUSES`, `isUnresolved`, `RiskFlag`, `SkipReason`, `GateBlockReason`, `ExecutionStrategy`, `Candidate`, `Template`, `Limits`, `Profile`
+  - `Clock` (`now`, `parts`, `atHour`, `addDays`), `TimeParts`, `Random` (`intInclusive`)
   - `PROFILES: Record<Profile, Limits>`
 
 - [ ] **Step 1: 타입 정의 작성**
 
-`packages/core/src/types.ts`:
+`src/shared/types.ts`:
 
 ```ts
 export type ApprovalPolicy = 'AUTO' | 'SEMI' | 'MANUAL'
@@ -303,10 +155,21 @@ export interface Candidate {
   readonly cafeId: string
   readonly boardId: string
   readonly postId: string
+  readonly title: string | null
+  /**
+   * Post body text. Needed because variable extraction may depend on it, and
+   * because collecting it later would mean a second round of requests.
+   */
+  readonly bodyText: string | null
   readonly authorNickname: string | null
   readonly authorId: string | null
   /** Epoch milliseconds when the source post was written. */
   readonly postedAt: number
+}
+
+export interface Template {
+  readonly id: string
+  readonly body: string
 }
 
 export interface Limits {
@@ -331,7 +194,7 @@ export type Profile = 'production' | 'debug'
 
 - [ ] **Step 2: 포트 정의 작성**
 
-`packages/core/src/ports.ts`:
+`src/shared/ports.ts`:
 
 ```ts
 export interface TimeParts {
@@ -342,8 +205,8 @@ export interface TimeParts {
 }
 
 /**
- * All time reading goes through this port so tests can drive the scheduler
- * with a fake calendar instead of waiting for real clocks.
+ * All time reading goes through this port so tests can drive the scheduler with
+ * a fake calendar instead of waiting for real clocks.
  */
 export interface Clock {
   now(): number
@@ -361,13 +224,13 @@ export interface Random {
 
 - [ ] **Step 3: 프로파일 값 작성**
 
-`packages/core/src/profiles.ts`:
+`src/shared/profiles.ts`:
 
 ```ts
 import type { Limits, Profile } from './types.js'
 
-const MINUTE = 60_000
 const SECOND = 1_000
+const MINUTE = 60_000
 const HOUR = 3_600_000
 
 const SHARED = {
@@ -403,12 +266,12 @@ export const PROFILES: Record<Profile, Limits> = {
 
 - [ ] **Step 4: 실패하는 테스트 작성**
 
-`packages/core/tests/profiles.test.ts`:
+`tests/shared/profiles.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { PROFILES } from '../src/profiles.js'
-import { isUnresolved } from '../src/types.js'
+import { PROFILES } from '../../src/shared/profiles.js'
+import { isUnresolved } from '../../src/shared/types.js'
 
 describe('profiles', () => {
   it('uses the production session interval from the spec', () => {
@@ -446,14 +309,14 @@ describe('isUnresolved', () => {
 - [ ] **Step 5: 테스트 실행**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
-Expected: 5 passed.
+Expected: 6 passed (스모크 1 + 신규 5).
 
 - [ ] **Step 6: 배럴 갱신**
 
-`packages/core/src/index.ts`:
+`src/shared/index.ts`:
 
 ```ts
 export * from './types.js'
@@ -461,11 +324,17 @@ export * from './ports.js'
 export * from './profiles.js'
 ```
 
+기존 `PROJECT_NAME` export와 `tests/shared/smoke.test.ts`는 삭제한다. 스모크 테스트는 역할을 다했다.
+
+```bash
+rm tests/shared/smoke.test.ts
+```
+
 - [ ] **Step 7: 커밋**
 
 ```bash
-git add packages/core
-git commit -m "feat(core): add domain types, clock/random ports, and profile limits"
+git add -A
+git commit -m "feat: add domain types, clock/random ports, and profile limits"
 ```
 
 ---
@@ -473,9 +342,9 @@ git commit -m "feat(core): add domain types, clock/random ports, and profile lim
 ### Task 3: 세션 스케줄러
 
 **Files:**
-- Create: `packages/core/src/schedule.ts`
-- Create: `packages/core/tests/fakes.ts`, `packages/core/tests/schedule.test.ts`
-- Modify: `packages/core/src/index.ts`
+- Create: `src/shared/schedule.ts`
+- Create: `tests/fakes.ts`, `tests/shared/schedule.test.ts`
+- Modify: `src/shared/index.ts`
 
 **Interfaces:**
 - Consumes: `Clock`, `Random`, `Limits` (Task 2)
@@ -484,14 +353,14 @@ git commit -m "feat(core): add domain types, clock/random ports, and profile lim
   - `nextActiveStart(epochMs, limits, clock): number`
   - `nextSessionStart(previousSessionEndMs, limits, clock, random): number`
   - `nextActionDelayMs(limits, random): number`
-  - 테스트 픽스처 `FakeClock`, `SequenceRandom` (from `tests/fakes.ts`)
+  - 테스트 픽스처 `FakeClock`, `SequenceRandom` (`tests/fakes.ts`)
 
 - [ ] **Step 1: 테스트 픽스처 작성**
 
-`packages/core/tests/fakes.ts`:
+`tests/fakes.ts`:
 
 ```ts
-import type { Clock, Random, TimeParts } from '../src/ports.js'
+import type { Clock, Random, TimeParts } from '../src/shared/ports.js'
 
 const DAY_MS = 86_400_000
 
@@ -538,13 +407,18 @@ export class SequenceRandom implements Random {
 
 - [ ] **Step 2: 실패하는 테스트 작성**
 
-`packages/core/tests/schedule.test.ts`:
+`tests/shared/schedule.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { PROFILES } from '../src/profiles.js'
-import { isWithinActiveHours, nextActionDelayMs, nextActiveStart, nextSessionStart } from '../src/schedule.js'
-import { FakeClock, SequenceRandom } from './fakes.js'
+import { PROFILES } from '../../src/shared/profiles.js'
+import {
+  isWithinActiveHours,
+  nextActionDelayMs,
+  nextActiveStart,
+  nextSessionStart,
+} from '../../src/shared/schedule.js'
+import { FakeClock, SequenceRandom } from '../fakes.js'
 
 const limits = PROFILES.production
 // 2026-08-24 is a Monday.
@@ -570,14 +444,12 @@ describe('isWithinActiveHours', () => {
 
 describe('nextActiveStart', () => {
   it('returns today 08:00 when the window has not opened yet', () => {
-    const clock = new FakeClock(MON_03_00)
-    expect(nextActiveStart(MON_03_00, limits, clock)).toBe(Date.UTC(2026, 7, 24, 8, 0, 0))
+    expect(nextActiveStart(MON_03_00, limits, new FakeClock(MON_03_00))).toBe(Date.UTC(2026, 7, 24, 8, 0, 0))
   })
 
   it('returns tomorrow 08:00 when the window has already closed', () => {
-    const clock = new FakeClock(MON_23_30)
     const after = Date.UTC(2026, 7, 25, 1, 0, 0)
-    expect(nextActiveStart(after, limits, clock)).toBe(Date.UTC(2026, 7, 25, 8, 0, 0))
+    expect(nextActiveStart(after, limits, new FakeClock(after))).toBe(Date.UTC(2026, 7, 25, 8, 0, 0))
   })
 })
 
@@ -603,8 +475,7 @@ describe('nextSessionStart', () => {
 
 describe('nextActionDelayMs', () => {
   it('draws from the action interval range', () => {
-    const random = new SequenceRandom([12_000])
-    expect(nextActionDelayMs(limits, random)).toBe(12_000)
+    expect(nextActionDelayMs(limits, new SequenceRandom([12_000]))).toBe(12_000)
   })
 })
 ```
@@ -612,21 +483,21 @@ describe('nextActionDelayMs', () => {
 - [ ] **Step 3: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
-Expected: FAIL — `Failed to resolve import "../src/schedule.js"`
+Expected: FAIL — `Failed to resolve import "../../src/shared/schedule.js"`
 
 - [ ] **Step 4: 스케줄러 구현**
 
-`packages/core/src/schedule.ts`:
+`src/shared/schedule.ts`:
 
 ```ts
 import type { Clock, Random } from './ports.js'
 import type { Limits } from './types.js'
 
-const SATURDAY = 6
 const SUNDAY = 0
+const SATURDAY = 6
 
 export function isWithinActiveHours(epochMs: number, limits: Limits, clock: Clock): boolean {
   const { hour } = clock.parts(epochMs)
@@ -634,9 +505,8 @@ export function isWithinActiveHours(epochMs: number, limits: Limits, clock: Cloc
 }
 
 /**
- * The next moment the operating window is open. If `epochMs` already sits
- * inside the window this still returns the upcoming boundary, so callers
- * should check `isWithinActiveHours` first when they mean "now".
+ * The next moment the operating window opens. Callers that mean "now" should
+ * check `isWithinActiveHours` first; this always returns a future boundary.
  */
 export function nextActiveStart(epochMs: number, limits: Limits, clock: Clock): number {
   const { hour } = clock.parts(epochMs)
@@ -661,10 +531,9 @@ export function nextSessionStart(
   const multiplier = isWeekend(previousSessionEndMs, clock) ? limits.weekendIntervalMultiplier : 1
   const candidate = previousSessionEndMs + Math.round(base * multiplier)
 
-  if (isWithinActiveHours(candidate, limits, clock)) {
-    return candidate
-  }
-  return nextActiveStart(candidate, limits, clock)
+  return isWithinActiveHours(candidate, limits, clock)
+    ? candidate
+    : nextActiveStart(candidate, limits, clock)
 }
 
 export function nextActionDelayMs(limits: Limits, random: Random): number {
@@ -675,22 +544,18 @@ export function nextActionDelayMs(limits: Limits, random: Random): number {
 - [ ] **Step 5: 테스트 통과 확인**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
 Expected: 모든 테스트 PASS.
 
 - [ ] **Step 6: 배럴 갱신 후 커밋**
 
-`packages/core/src/index.ts`에 추가:
-
-```ts
-export * from './schedule.js'
-```
+`src/shared/index.ts`에 `export * from './schedule.js'` 추가.
 
 ```bash
-git add packages/core
-git commit -m "feat(core): add session scheduler with jitter, active hours, and weekend pacing"
+git add -A
+git commit -m "feat: add session scheduler with jitter, active hours, and weekend pacing"
 ```
 
 ---
@@ -698,28 +563,28 @@ git commit -m "feat(core): add session scheduler with jitter, active hours, and 
 ### Task 4: 총량 게이트와 백로그 브레이크
 
 **Files:**
-- Create: `packages/core/src/limits.ts`
-- Create: `packages/core/tests/limits.test.ts`
-- Modify: `packages/core/src/index.ts`
+- Create: `src/shared/limits.ts`
+- Create: `tests/shared/limits.test.ts`
+- Modify: `src/shared/index.ts`
 
 **Interfaces:**
-- Consumes: `Limits`, `GateBlockReason`, `Candidate` (Task 2)
+- Consumes: `Limits`, `GateBlockReason` (Task 2), `Clock` (Task 2)
 - Produces:
   - `GateContext { killed, dailyCount, sessionCount }`
   - `GateVerdict = { allowed: true } | { allowed: false; reason: GateBlockReason }`
-  - `checkGates(ctx: GateContext, limits: Limits): GateVerdict`
-  - `hasStaleBacklog(unresolved: readonly { postedAt: number }[], nowMs: number, limits: Limits): boolean`
+  - `checkGates(ctx, limits): GateVerdict`
+  - `hasStaleBacklog(unresolved: readonly { postedAt: number }[], nowMs, limits): boolean`
   - `dailyWindowStart(epochMs, limits, clock): number`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`packages/core/tests/limits.test.ts`:
+`tests/shared/limits.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { PROFILES } from '../src/profiles.js'
-import { checkGates, dailyWindowStart, hasStaleBacklog } from '../src/limits.js'
-import { FakeClock } from './fakes.js'
+import { checkGates, dailyWindowStart, hasStaleBacklog } from '../../src/shared/limits.js'
+import { PROFILES } from '../../src/shared/profiles.js'
+import { FakeClock } from '../fakes.js'
 
 const limits = PROFILES.production
 const HOUR = 3_600_000
@@ -795,14 +660,14 @@ describe('dailyWindowStart', () => {
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
-Expected: FAIL — `Failed to resolve import "../src/limits.js"`
+Expected: FAIL — `Failed to resolve import "../../src/shared/limits.js"`
 
 - [ ] **Step 3: 게이트 구현**
 
-`packages/core/src/limits.ts`:
+`src/shared/limits.ts`:
 
 ```ts
 import type { Clock } from './ports.js'
@@ -833,7 +698,8 @@ export function checkGates(ctx: GateContext, limits: Limits): GateVerdict {
 
 /**
  * The brake watches age, not volume. A large backlog that arrived overnight is
- * normal; a backlog containing days-old posts means something is broken.
+ * normal at 100~150 signups a day; a backlog holding days-old posts means
+ * something is broken.
  */
 export function hasStaleBacklog(
   unresolved: readonly { postedAt: number }[],
@@ -845,8 +711,8 @@ export function hasStaleBacklog(
 
 /**
  * Daily counting is anchored to the operating window start, not midnight, so a
- * 23:00 execution and an 08:00 execution the next morning fall on different days
- * the way an operator would expect.
+ * 23:00 execution and an 08:00 execution the next morning land on different
+ * days the way an operator would expect.
  */
 export function dailyWindowStart(epochMs: number, limits: Limits, clock: Clock): number {
   const { hour } = clock.parts(epochMs)
@@ -860,22 +726,18 @@ export function dailyWindowStart(epochMs: number, limits: Limits, clock: Clock):
 - [ ] **Step 4: 테스트 통과 확인**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
 Expected: 모든 테스트 PASS.
 
 - [ ] **Step 5: 배럴 갱신 후 커밋**
 
-`packages/core/src/index.ts`에 추가:
-
-```ts
-export * from './limits.js'
-```
+`src/shared/index.ts`에 `export * from './limits.js'` 추가.
 
 ```bash
-git add packages/core
-git commit -m "feat(core): add volume gates and age-based backlog brake"
+git add -A
+git commit -m "feat: add volume gates and age-based backlog brake"
 ```
 
 ---
@@ -883,9 +745,9 @@ git commit -m "feat(core): add volume gates and age-based backlog brake"
 ### Task 5: Guard 평가와 승인 정책
 
 **Files:**
-- Create: `packages/core/src/guards.ts`, `packages/core/src/policy.ts`
-- Create: `packages/core/tests/guards.test.ts`, `packages/core/tests/policy.test.ts`
-- Modify: `packages/core/src/index.ts`
+- Create: `src/shared/guards.ts`, `src/shared/policy.ts`
+- Create: `tests/shared/guards.test.ts`, `tests/shared/policy.test.ts`
+- Modify: `src/shared/index.ts`
 
 **Interfaces:**
 - Consumes: `Candidate`, `RiskFlag`, `SkipReason`, `ApprovalPolicy` (Task 2)
@@ -898,19 +760,21 @@ git commit -m "feat(core): add volume gates and age-based backlog brake"
 
 - [ ] **Step 1: guards 실패 테스트 작성**
 
-`packages/core/tests/guards.test.ts`:
+`tests/shared/guards.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import type { Candidate } from '../src/types.js'
-import type { Guard, GuardContext } from '../src/guards.js'
-import { evaluateGuards, operatorAlreadyCommentedGuard } from '../src/guards.js'
+import type { Guard, GuardContext } from '../../src/shared/guards.js'
+import { evaluateGuards, operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
+import type { Candidate } from '../../src/shared/types.js'
 
 const candidate: Candidate = {
-  automationId: 'cafe-welcome-comment',
+  automationId: 'welcome-comment',
   cafeId: '10000000',
   boardId: '5',
   postId: '1001',
+  title: '가입인사 드립니다',
+  bodyText: '안녕하세요, 위스키 좋아합니다.',
   authorNickname: '신입회원',
   authorId: 'member-1',
   postedAt: 1_700_000_000_000,
@@ -931,8 +795,10 @@ describe('operatorAlreadyCommentedGuard', () => {
   })
 
   it('skips when an operator account already commented', () => {
-    const outcome = operatorAlreadyCommentedGuard(candidate, ctx({ existingCommentAuthors: ['cafe-ops'] }))
-    expect(outcome).toEqual({ kind: 'SKIP', reason: 'ALREADY_COMMENTED' })
+    expect(operatorAlreadyCommentedGuard(candidate, ctx({ existingCommentAuthors: ['cafe-ops'] }))).toEqual({
+      kind: 'SKIP',
+      reason: 'ALREADY_COMMENTED',
+    })
   })
 
   it('skips when any listed staff account commented, not just the executing one', () => {
@@ -948,8 +814,10 @@ describe('operatorAlreadyCommentedGuard', () => {
   })
 
   it('raises a risk flag when the comment check could not be performed', () => {
-    const outcome = operatorAlreadyCommentedGuard(candidate, ctx({ existingCommentAuthors: null }))
-    expect(outcome).toEqual({ kind: 'RISK', flag: 'COMMENT_CHECK_FAILED' })
+    expect(operatorAlreadyCommentedGuard(candidate, ctx({ existingCommentAuthors: null }))).toEqual({
+      kind: 'RISK',
+      flag: 'COMMENT_CHECK_FAILED',
+    })
   })
 })
 
@@ -980,11 +848,11 @@ describe('evaluateGuards', () => {
 
 - [ ] **Step 2: policy 실패 테스트 작성**
 
-`packages/core/tests/policy.test.ts`:
+`tests/shared/policy.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { decide } from '../src/policy.js'
+import { decide } from '../../src/shared/policy.js'
 
 const clean = { skip: null, flags: [] } as const
 const flagged = { skip: null, flags: ['STRUCTURE_CHANGED'] } as const
@@ -1023,14 +891,14 @@ describe('decide', () => {
 - [ ] **Step 3: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
-Expected: FAIL — `Failed to resolve import "../src/guards.js"`
+Expected: FAIL — `Failed to resolve import "../../src/shared/guards.js"`
 
 - [ ] **Step 4: guards 구현**
 
-`packages/core/src/guards.ts`:
+`src/shared/guards.ts`:
 
 ```ts
 import type { Candidate, RiskFlag, SkipReason } from './types.js'
@@ -1057,7 +925,8 @@ export interface GuardEvaluation {
 
 /**
  * A post any staff member already greeted is done, whichever account they used.
- * Checking only the executing account double-comments during parallel operation.
+ * Checking only the executing account double-comments during parallel operation
+ * with humans, which is exactly what the Phase 5 ramp-up looks like.
  */
 export const operatorAlreadyCommentedGuard: Guard = (_candidate, ctx) => {
   if (ctx.existingCommentAuthors === null) {
@@ -1088,7 +957,7 @@ export function evaluateGuards(
 
 - [ ] **Step 5: policy 구현**
 
-`packages/core/src/policy.ts`:
+`src/shared/policy.ts`:
 
 ```ts
 import type { GuardEvaluation } from './guards.js'
@@ -1117,26 +986,19 @@ export function decide(policy: ApprovalPolicy, evaluation: GuardEvaluation): Dis
 }
 ```
 
-- [ ] **Step 6: 테스트 통과 확인**
+- [ ] **Step 6: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
 Expected: 모든 테스트 PASS.
 
-- [ ] **Step 7: 배럴 갱신 후 커밋**
-
-`packages/core/src/index.ts`에 추가:
-
-```ts
-export * from './guards.js'
-export * from './policy.js'
-```
+`src/shared/index.ts`에 `export * from './guards.js'`, `export * from './policy.js'` 추가.
 
 ```bash
-git add packages/core
-git commit -m "feat(core): add guard evaluation and approval policy resolution"
+git add -A
+git commit -m "feat: add guard evaluation and approval policy resolution"
 ```
 
 ---
@@ -1144,25 +1006,21 @@ git commit -m "feat(core): add guard evaluation and approval policy resolution"
 ### Task 6: 상태 기계
 
 **Files:**
-- Create: `packages/core/src/statusMachine.ts`
-- Create: `packages/core/tests/statusMachine.test.ts`
-- Modify: `packages/core/src/index.ts`
+- Create: `src/shared/statusMachine.ts`
+- Create: `tests/shared/statusMachine.test.ts`
+- Modify: `src/shared/index.ts`
 
 **Interfaces:**
 - Consumes: `ExecutionStatus`, `Limits` (Task 2), `Disposition` (Task 5)
-- Produces:
-  - `StatusEvent` 유니온
-  - `InvalidTransitionError`
-  - `initialStatus(disposition: Disposition): ExecutionStatus`
-  - `transition(current: ExecutionStatus, event: StatusEvent, limits: Pick<Limits, 'maxAttempts'>): ExecutionStatus`
+- Produces: `StatusEvent`, `InvalidTransitionError`, `initialStatus(disposition)`, `transition(current, event, limits)`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`packages/core/tests/statusMachine.test.ts`:
+`tests/shared/statusMachine.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { InvalidTransitionError, initialStatus, transition } from '../src/statusMachine.js'
+import { InvalidTransitionError, initialStatus, transition } from '../../src/shared/statusMachine.js'
 
 const limits = { maxAttempts: 3 }
 
@@ -1251,14 +1109,14 @@ describe('invalid transitions', () => {
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
-Expected: FAIL — `Failed to resolve import "../src/statusMachine.js"`
+Expected: FAIL — `Failed to resolve import "../../src/shared/statusMachine.js"`
 
 - [ ] **Step 3: 상태 기계 구현**
 
-`packages/core/src/statusMachine.ts`:
+`src/shared/statusMachine.ts`:
 
 ```ts
 import type { Disposition } from './policy.js'
@@ -1297,7 +1155,10 @@ export function transition(
   event: StatusEvent,
   limits: Pick<Limits, 'maxAttempts'>,
 ): ExecutionStatus {
-  if (event.type === 'KILLED' && (current === 'AWAITING_APPROVAL' || current === 'QUEUED' || current === 'RETRY_WAIT')) {
+  if (
+    event.type === 'KILLED' &&
+    (current === 'AWAITING_APPROVAL' || current === 'QUEUED' || current === 'RETRY_WAIT')
+  ) {
     return 'CANCELLED'
   }
 
@@ -1329,25 +1190,19 @@ export function transition(
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [ ] **Step 4: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/core test
+pnpm test
 ```
 
 Expected: 모든 테스트 PASS.
 
-- [ ] **Step 5: 배럴 갱신 후 커밋**
-
-`packages/core/src/index.ts`에 추가:
-
-```ts
-export * from './statusMachine.js'
-```
+`src/shared/index.ts`에 `export * from './statusMachine.js'` 추가.
 
 ```bash
-git add packages/core
-git commit -m "feat(core): add execution status machine with retry and kill transitions"
+git add -A
+git commit -m "feat: add execution status machine with retry and kill transitions"
 ```
 
 ---
@@ -1355,64 +1210,25 @@ git commit -m "feat(core): add execution status machine with retry and kill tran
 ### Task 7: 앱↔확장 프로토콜
 
 **Files:**
-- Create: `packages/protocol/package.json`, `packages/protocol/tsconfig.json`, `packages/protocol/vitest.config.ts`
-- Create: `packages/protocol/src/messages.ts`, `packages/protocol/src/index.ts`
-- Test: `packages/protocol/tests/messages.test.ts`
+- Create: `src/shared/protocol.ts`
+- Create: `tests/shared/protocol.test.ts`
+- Modify: `src/shared/index.ts`
 
 **Interfaces:**
-- Consumes: 없음 (프로토콜은 core에 의존하지 않는다 — 확장이 core를 임포트하지 않아도 되게 하기 위함)
+- Consumes: `ExecutionStrategy` (Task 2)
 - Produces:
-  - `PROTOCOL_VERSION`, `SourceRef`, `RawCandidate`, `ActionEnvelope`
+  - `PROTOCOL_VERSION`, `TIMEOUTS`
+  - `SourceRef`, `RawCandidate`, `ActionEnvelope`
   - `AppMessage`, `ExtensionMessage`
-  - `TIMEOUTS`
-  - `isAppMessage(value): value is AppMessage`, `isExtensionMessage(value): value is ExtensionMessage`
+  - `isAppMessage(value)`, `isExtensionMessage(value)`
 
-- [ ] **Step 1: 패키지 생성**
+- [ ] **Step 1: 실패하는 테스트 작성**
 
-`packages/protocol/package.json`:
-
-```json
-{
-  "name": "@ncafe/protocol",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
-  }
-}
-```
-
-`packages/protocol/tsconfig.json`:
-
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src/**/*"]
-}
-```
-
-`packages/protocol/vitest.config.ts`:
-
-```ts
-import { defineConfig } from 'vitest/config'
-
-export default defineConfig({ test: { include: ['tests/**/*.test.ts'] } })
-```
-
-- [ ] **Step 2: 실패하는 테스트 작성**
-
-`packages/protocol/tests/messages.test.ts`:
+`tests/shared/protocol.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { PROTOCOL_VERSION, TIMEOUTS, isAppMessage, isExtensionMessage } from '../src/messages.js'
+import { PROTOCOL_VERSION, TIMEOUTS, isAppMessage, isExtensionMessage } from '../../src/shared/protocol.js'
 
 describe('protocol version', () => {
   it('is a positive integer', () => {
@@ -1423,10 +1239,10 @@ describe('protocol version', () => {
 
 describe('timeouts', () => {
   it('keeps every fetch-bearing timeout under the MV3 service worker limit', () => {
-    // A service worker is torn down when a fetch takes longer than 30s, so we cut first.
+    // A service worker is torn down when a fetch takes longer than 30s.
+    expect(TIMEOUTS.loginCheckMs).toBeLessThan(30_000)
     expect(TIMEOUTS.collectMs).toBeLessThan(30_000)
     expect(TIMEOUTS.executeMs).toBeLessThan(30_000)
-    expect(TIMEOUTS.loginCheckMs).toBeLessThan(30_000)
   })
 
   it('matches the values fixed in the design spec', () => {
@@ -1443,7 +1259,7 @@ describe('isAppMessage', () => {
       isAppMessage({
         type: 'EXECUTE',
         requestId: 'r1',
-        automationId: 'cafe-welcome-comment',
+        automationId: 'welcome-comment',
         action: { cafeId: '10000000', boardId: '5', postId: '1001', body: 'hello' },
       }),
     ).toBe(true)
@@ -1472,20 +1288,21 @@ describe('isExtensionMessage', () => {
 })
 ```
 
-- [ ] **Step 3: 테스트 실행해 실패 확인**
+- [ ] **Step 2: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm install
-pnpm --filter @ncafe/protocol test
+pnpm test
 ```
 
-Expected: FAIL — `Failed to resolve import "../src/messages.js"`
+Expected: FAIL — `Failed to resolve import "../../src/shared/protocol.js"`
 
-- [ ] **Step 4: 프로토콜 구현**
+- [ ] **Step 3: 프로토콜 구현**
 
-`packages/protocol/src/messages.ts`:
+`src/shared/protocol.ts`:
 
 ```ts
+import type { ExecutionStrategy } from './types.js'
+
 export const PROTOCOL_VERSION = 1
 
 /** No call may wait forever. Every value stays under the MV3 30s fetch ceiling. */
@@ -1503,6 +1320,8 @@ export interface SourceRef {
 
 export interface RawCandidate {
   readonly postId: string
+  readonly title: string | null
+  readonly bodyText: string | null
   readonly authorNickname: string | null
   readonly authorId: string | null
   readonly postedAt: number
@@ -1533,27 +1352,14 @@ export type ExtensionMessage =
       type: 'EXECUTED'
       requestId: string
       ok: boolean
-      strategy: 'FETCH' | 'DOM' | null
+      strategy: ExecutionStrategy | null
       commentAuthors: string[] | null
       error: string | null
     }
   | { type: 'ERROR'; requestId: string | null; code: string; message: string }
 
-const APP_MESSAGE_TYPES = new Set<AppMessage['type']>([
-  'HELLO_ACK',
-  'CHECK_LOGIN',
-  'COLLECT',
-  'EXECUTE',
-  'ABORT',
-])
-
-const EXTENSION_MESSAGE_TYPES = new Set<ExtensionMessage['type']>([
-  'HELLO',
-  'LOGIN_STATE',
-  'COLLECTED',
-  'EXECUTED',
-  'ERROR',
-])
+const APP_MESSAGE_TYPES = new Set<string>(['HELLO_ACK', 'CHECK_LOGIN', 'COLLECT', 'EXECUTE', 'ABORT'])
+const EXTENSION_MESSAGE_TYPES = new Set<string>(['HELLO', 'LOGIN_STATE', 'COLLECTED', 'EXECUTED', 'ERROR'])
 
 function messageType(value: unknown): string | null {
   if (typeof value !== 'object' || value === null) return null
@@ -1563,131 +1369,77 @@ function messageType(value: unknown): string | null {
 
 export function isAppMessage(value: unknown): value is AppMessage {
   const type = messageType(value)
-  return type !== null && APP_MESSAGE_TYPES.has(type as AppMessage['type'])
+  return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   const type = messageType(value)
-  return type !== null && EXTENSION_MESSAGE_TYPES.has(type as ExtensionMessage['type'])
+  return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
 }
 ```
 
-`packages/protocol/src/index.ts`:
-
-```ts
-export * from './messages.js'
-```
-
-- [ ] **Step 5: 테스트 통과 확인**
+- [ ] **Step 4: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/protocol test
+pnpm test
 ```
 
 Expected: 모든 테스트 PASS.
 
-- [ ] **Step 6: 커밋**
+`src/shared/index.ts`에 `export * from './protocol.js'` 추가.
 
 ```bash
-git add packages/protocol pnpm-lock.yaml
-git commit -m "feat(protocol): define app-extension message contract and timeout budget"
+git add -A
+git commit -m "feat: define app-extension message contract and timeout budget"
 ```
 
 ---
 
-### Task 8: 데스크톱 앱 스캐폴딩과 DB 스키마
+### Task 8: DB 스키마와 클라이언트
 
 **Files:**
-- Create: `apps/desktop/package.json`, `apps/desktop/tsconfig.json`, `apps/desktop/vitest.config.ts`, `apps/desktop/drizzle.config.ts`
-- Create: `apps/desktop/src/main/db/schema.ts`, `apps/desktop/src/main/db/client.ts`
-- Test: `apps/desktop/tests/db/client.test.ts`
+- Create: `drizzle.config.ts`, `src/desktop/db/schema.ts`, `src/desktop/db/client.ts`
+- Modify: `package.json` (의존성, `db:generate` 스크립트)
+- Test: `tests/desktop/db/client.test.ts`
 
 **Interfaces:**
 - Consumes: `ExecutionStatus`, `ExecutionStrategy` (Task 2)
-- Produces:
-  - 테이블 `executions`, `templates`, `automationSettings`, `watermarks`, `appSettings`
-  - `openDatabase(filePath: string): AppDatabase`
-  - `type AppDatabase = BetterSQLite3Database<typeof schema>`
+- Produces: 테이블 `executions`, `templates`, `automationSettings`, `watermarks`, `appSettings`, `openDatabase(filePath, options): AppDatabase`, `type AppDatabase`
 
-- [ ] **Step 1: 패키지 생성**
+- [ ] **Step 1: 의존성 추가**
 
-`apps/desktop/package.json`:
+```bash
+pnpm add better-sqlite3 drizzle-orm ws
+pnpm add -D @types/better-sqlite3 @types/ws drizzle-kit
+```
+
+`package.json`의 `scripts`에 추가:
 
 ```json
-{
-  "name": "@ncafe/desktop",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "db:generate": "drizzle-kit generate"
-  },
-  "dependencies": {
-    "@ncafe/core": "workspace:*",
-    "@ncafe/protocol": "workspace:*",
-    "better-sqlite3": "^11.0.0",
-    "drizzle-orm": "^0.36.0",
-    "ws": "^8.18.0"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/ws": "^8.5.12",
-    "drizzle-kit": "^0.28.0",
-    "electron": "^33.0.0"
-  }
-}
+"db:generate": "drizzle-kit generate"
 ```
 
-`apps/desktop/tsconfig.json`:
+- [ ] **Step 2: drizzle 설정 작성**
 
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src", "types": ["node"] },
-  "include": ["src/**/*"]
-}
-```
-
-`apps/desktop/vitest.config.ts`:
-
-```ts
-import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
-
-// Point workspace deps at source so tests never depend on build ordering.
-export default defineConfig({
-  test: { include: ['tests/**/*.test.ts'], environment: 'node' },
-  resolve: {
-    alias: {
-      '@ncafe/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
-      '@ncafe/protocol': fileURLToPath(new URL('../../packages/protocol/src/index.ts', import.meta.url)),
-    },
-  },
-})
-```
-
-`apps/desktop/drizzle.config.ts`:
+`drizzle.config.ts`:
 
 ```ts
 import type { Config } from 'drizzle-kit'
 
 export default {
-  schema: './src/main/db/schema.ts',
+  schema: './src/desktop/db/schema.ts',
   out: './drizzle',
   dialect: 'sqlite',
 } satisfies Config
 ```
 
-- [ ] **Step 2: 스키마 작성**
+- [ ] **Step 3: 스키마 작성**
 
-`apps/desktop/src/main/db/schema.ts`:
+`src/desktop/db/schema.ts`:
 
 ```ts
-import type { ExecutionStatus, ExecutionStrategy } from '@ncafe/core'
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import type { ExecutionStatus, ExecutionStrategy } from '../../shared/types.js'
 
 /**
  * One post is one row for its whole life. The approval queue is a status, not a
@@ -1701,6 +1453,7 @@ export const executions = sqliteTable(
     cafeId: text('cafe_id').notNull(),
     boardId: text('board_id').notNull(),
     targetPostId: text('target_post_id').notNull(),
+    targetTitle: text('target_title'),
     targetAuthor: text('target_author'),
     targetAuthorId: text('target_author_id'),
     targetPostedAt: integer('target_posted_at').notNull(),
@@ -1713,10 +1466,19 @@ export const executions = sqliteTable(
     renderedText: text('rendered_text'),
     attempts: integer('attempts').notNull().default(0),
     detectedAt: integer('detected_at').notNull(),
+    executedAt: integer('executed_at'),
     resolvedAt: integer('resolved_at'),
     deletedAt: integer('deleted_at'),
   },
-  (table) => [uniqueIndex('executions_automation_post_unique').on(table.automationId, table.targetPostId)],
+  (table) => [
+    // cafe_id belongs in the key: post ids are numbered per cafe, so without it
+    // cafe A's post 1001 and cafe B's post 1001 collide.
+    uniqueIndex('executions_cafe_automation_post_unique').on(
+      table.cafeId,
+      table.automationId,
+      table.targetPostId,
+    ),
+  ],
 )
 
 export const templates = sqliteTable('templates', {
@@ -1738,11 +1500,18 @@ export const watermarks = sqliteTable(
   'watermarks',
   {
     automationId: text('automation_id').notNull(),
+    cafeId: text('cafe_id').notNull(),
     boardId: text('board_id').notNull(),
     lastSeenPostId: text('last_seen_post_id').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
-  (table) => [uniqueIndex('watermarks_automation_board_unique').on(table.automationId, table.boardId)],
+  (table) => [
+    uniqueIndex('watermarks_cafe_automation_board_unique').on(
+      table.cafeId,
+      table.automationId,
+      table.boardId,
+    ),
+  ],
 )
 
 export const appSettings = sqliteTable('app_settings', {
@@ -1751,11 +1520,11 @@ export const appSettings = sqliteTable('app_settings', {
 })
 ```
 
-> drizzle-kit이 세 번째 인자의 반환 형태를 문제 삼으면 배열 대신 객체 형태(`(table) => ({ postUnique: uniqueIndex(...) })`)로 바꾼다. 두 형태 모두 동작하는 버전이 있고 권장 형태가 버전에 따라 다르다.
+> drizzle-kit이 세 번째 인자의 배열 반환을 문제 삼으면 객체 형태(`(table) => ({ postUnique: uniqueIndex(...) })`)로 바꾼다. 권장 형태가 버전에 따라 다르다.
 
-- [ ] **Step 3: DB 클라이언트 작성**
+- [ ] **Step 4: DB 클라이언트 작성**
 
-`apps/desktop/src/main/db/client.ts`:
+`src/desktop/db/client.ts`:
 
 ```ts
 import Database from 'better-sqlite3'
@@ -1782,18 +1551,17 @@ export function openDatabase(filePath: string, options: OpenDatabaseOptions = {}
 }
 ```
 
-- [ ] **Step 4: 마이그레이션 생성**
+- [ ] **Step 5: 마이그레이션 생성**
 
 ```bash
-pnpm install
-pnpm --filter @ncafe/desktop db:generate
+pnpm db:generate
 ```
 
-Expected: `apps/desktop/drizzle/` 아래에 `.sql` 마이그레이션과 `meta/` 디렉터리가 생성된다.
+Expected: `drizzle/` 아래에 `.sql` 마이그레이션과 `meta/`가 생성된다.
 
-- [ ] **Step 5: 실패하는 테스트 작성**
+- [ ] **Step 6: 실패하는 테스트 작성**
 
-`apps/desktop/tests/db/client.test.ts`:
+`tests/desktop/db/client.test.ts`:
 
 ```ts
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -1801,16 +1569,40 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase, type AppDatabase } from '../../src/main/db/client.js'
-import { executions } from '../../src/main/db/schema.js'
+import { openDatabase, type AppDatabase } from '../../../src/desktop/db/client.js'
+import { executions } from '../../../src/desktop/db/schema.js'
 
-const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
+const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url))
 
 let dir: string
 let db: AppDatabase
 
+const row = {
+  id: 'e1',
+  automationId: 'welcome-comment',
+  cafeId: '10000000',
+  boardId: '5',
+  targetPostId: '1001',
+  targetTitle: null,
+  targetAuthor: null,
+  targetAuthorId: null,
+  targetPostedAt: 1,
+  actorAccount: null,
+  status: 'QUEUED' as const,
+  strategy: null,
+  riskFlags: '[]',
+  reason: null,
+  templateId: null,
+  renderedText: null,
+  attempts: 0,
+  detectedAt: 1,
+  executedAt: null,
+  resolvedAt: null,
+  deletedAt: null,
+}
+
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'ncafe-db-'))
+  dir = mkdtempSync(join(tmpdir(), 'wm-db-'))
   db = openDatabase(join(dir, 'test.db'), { migrationsFolder: MIGRATIONS })
 })
 
@@ -1823,47 +1615,30 @@ describe('openDatabase', () => {
     expect(db.select().from(executions).all()).toEqual([])
   })
 
-  it('enforces one row per automation and post', () => {
-    const row = {
-      id: 'e1',
-      automationId: 'cafe-welcome-comment',
-      cafeId: '10000000',
-      boardId: '5',
-      targetPostId: '1001',
-      targetAuthor: null,
-      targetAuthorId: null,
-      targetPostedAt: 1,
-      actorAccount: null,
-      status: 'QUEUED' as const,
-      strategy: null,
-      riskFlags: '[]',
-      reason: null,
-      templateId: null,
-      renderedText: null,
-      attempts: 0,
-      detectedAt: 1,
-      resolvedAt: null,
-      deletedAt: null,
-    }
+  it('enforces one row per cafe, automation and post', () => {
     db.insert(executions).values(row).run()
     expect(() => db.insert(executions).values({ ...row, id: 'e2' }).run()).toThrow(/UNIQUE/i)
+  })
+
+  it('treats the same post id in a different cafe as a separate row', () => {
+    db.insert(executions).values(row).run()
+    db.insert(executions).values({ ...row, id: 'e3', cafeId: '99999999' }).run()
+    expect(db.select().from(executions).all()).toHaveLength(2)
   })
 })
 ```
 
-- [ ] **Step 6: 테스트 실행**
+- [ ] **Step 7: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
-Expected: 2 passed. 실패하면 Step 4의 마이그레이션이 생성되지 않은 것이다.
-
-- [ ] **Step 7: 커밋**
+Expected: 3 passed. 실패하면 Step 5의 마이그레이션이 생성되지 않은 것이다.
 
 ```bash
-git add apps/desktop pnpm-lock.yaml
-git commit -m "feat(desktop): add sqlite schema and migrated database client"
+git add -A
+git commit -m "feat: add sqlite schema and migrated database client"
 ```
 
 ---
@@ -1871,19 +1646,16 @@ git commit -m "feat(desktop): add sqlite schema and migrated database client"
 ### Task 9: DedupeStore — 원자적 선점
 
 **Files:**
-- Create: `apps/desktop/src/main/db/dedupeStore.ts`
-- Test: `apps/desktop/tests/db/dedupeStore.test.ts`
+- Create: `src/desktop/db/dedupeStore.ts`
+- Test: `tests/desktop/db/dedupeStore.test.ts`
 
 **Interfaces:**
 - Consumes: `AppDatabase` (Task 8)
-- Produces:
-  - `ClaimInput { automationId, cafeId, boardId, postId, authorNickname, authorId, postedAt, detectedAt }`
-  - `DedupeStore { claim(input): Promise<string | null> }`
-  - `createSqliteDedupeStore(db: AppDatabase, newId: () => string): DedupeStore`
+- Produces: `ClaimInput`, `DedupeStore { claim(input): Promise<string | null> }`, `createSqliteDedupeStore(db, newId)`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`apps/desktop/tests/db/dedupeStore.test.ts`:
+`tests/desktop/db/dedupeStore.test.ts`:
 
 ```ts
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -1891,20 +1663,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase, type AppDatabase } from '../../src/main/db/client.js'
-import { createSqliteDedupeStore, type ClaimInput } from '../../src/main/db/dedupeStore.js'
-import { executions } from '../../src/main/db/schema.js'
+import { openDatabase, type AppDatabase } from '../../../src/desktop/db/client.js'
+import { createSqliteDedupeStore, type ClaimInput } from '../../../src/desktop/db/dedupeStore.js'
+import { executions } from '../../../src/desktop/db/schema.js'
 
-const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
+const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url))
 
 let dir: string
 let db: AppDatabase
 
 const input: ClaimInput = {
-  automationId: 'cafe-welcome-comment',
+  automationId: 'welcome-comment',
   cafeId: '10000000',
   boardId: '5',
   postId: '1001',
+  title: '가입인사',
   authorNickname: '신입회원',
   authorId: 'member-1',
   postedAt: 1_700_000_000_000,
@@ -1912,7 +1685,7 @@ const input: ClaimInput = {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'ncafe-dedupe-'))
+  dir = mkdtempSync(join(tmpdir(), 'wm-dedupe-'))
   db = openDatabase(join(dir, 'test.db'), { migrationsFolder: MIGRATIONS })
 })
 
@@ -1920,12 +1693,14 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+function store() {
+  let counter = 0
+  return createSqliteDedupeStore(db, () => `id-${++counter}`)
+}
+
 describe('createSqliteDedupeStore', () => {
   it('claims an unseen post and returns its execution id', async () => {
-    let counter = 0
-    const store = createSqliteDedupeStore(db, () => `id-${++counter}`)
-
-    await expect(store.claim(input)).resolves.toBe('id-1')
+    await expect(store().claim(input)).resolves.toBe('id-1')
 
     const rows = db.select().from(executions).all()
     expect(rows).toHaveLength(1)
@@ -1934,31 +1709,23 @@ describe('createSqliteDedupeStore', () => {
   })
 
   it('returns null for a post already claimed', async () => {
-    let counter = 0
-    const store = createSqliteDedupeStore(db, () => `id-${++counter}`)
-
-    await store.claim(input)
-    await expect(store.claim(input)).resolves.toBeNull()
+    const s = store()
+    await s.claim(input)
+    await expect(s.claim(input)).resolves.toBeNull()
     expect(db.select().from(executions).all()).toHaveLength(1)
   })
 
   it('lets exactly one of many concurrent claims win', async () => {
-    let counter = 0
-    const store = createSqliteDedupeStore(db, () => `id-${++counter}`)
-
-    const results = await Promise.all(Array.from({ length: 10 }, () => store.claim(input)))
-    const winners = results.filter((r) => r !== null)
-
-    expect(winners).toHaveLength(1)
+    const s = store()
+    const results = await Promise.all(Array.from({ length: 10 }, () => s.claim(input)))
+    expect(results.filter((r) => r !== null)).toHaveLength(1)
     expect(db.select().from(executions).all()).toHaveLength(1)
   })
 
-  it('treats the same post id in a different automation as a separate claim', async () => {
-    let counter = 0
-    const store = createSqliteDedupeStore(db, () => `id-${++counter}`)
-
-    await store.claim(input)
-    await expect(store.claim({ ...input, automationId: 'other-automation' })).resolves.not.toBeNull()
+  it('treats the same post id in a different cafe as a separate claim', async () => {
+    const s = store()
+    await s.claim(input)
+    await expect(s.claim({ ...input, cafeId: '99999999' })).resolves.not.toBeNull()
     expect(db.select().from(executions).all()).toHaveLength(2)
   })
 })
@@ -1967,14 +1734,14 @@ describe('createSqliteDedupeStore', () => {
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
 Expected: FAIL — `Failed to resolve import ".../dedupeStore.js"`
 
 - [ ] **Step 3: DedupeStore 구현**
 
-`apps/desktop/src/main/db/dedupeStore.ts`:
+`src/desktop/db/dedupeStore.ts`:
 
 ```ts
 import type { AppDatabase } from './client.js'
@@ -1985,6 +1752,7 @@ export interface ClaimInput {
   readonly cafeId: string
   readonly boardId: string
   readonly postId: string
+  readonly title: string | null
   readonly authorNickname: string | null
   readonly authorId: string | null
   readonly postedAt: number
@@ -2019,6 +1787,7 @@ export function createSqliteDedupeStore(db: AppDatabase, newId: () => string): D
             cafeId: input.cafeId,
             boardId: input.boardId,
             targetPostId: input.postId,
+            targetTitle: input.title,
             targetAuthor: input.authorNickname,
             targetAuthorId: input.authorId,
             targetPostedAt: input.postedAt,
@@ -2033,6 +1802,7 @@ export function createSqliteDedupeStore(db: AppDatabase, newId: () => string): D
             renderedText: null,
             attempts: 0,
             detectedAt: input.detectedAt,
+            executedAt: null,
             resolvedAt: null,
             deletedAt: null,
           })
@@ -2047,19 +1817,15 @@ export function createSqliteDedupeStore(db: AppDatabase, newId: () => string): D
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [ ] **Step 4: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
-Expected: 모든 테스트 PASS.
-
-- [ ] **Step 5: 커밋**
-
 ```bash
-git add apps/desktop
-git commit -m "feat(desktop): add atomic dedupe store backed by unique constraint"
+git add -A
+git commit -m "feat: add atomic dedupe store backed by unique constraint"
 ```
 
 ---
@@ -2067,23 +1833,17 @@ git commit -m "feat(desktop): add atomic dedupe store backed by unique constrain
 ### Task 10: executions 리포지토리
 
 **Files:**
-- Create: `apps/desktop/src/main/db/executionsRepo.ts`
-- Test: `apps/desktop/tests/db/executionsRepo.test.ts`
+- Create: `src/desktop/db/executionsRepo.ts`
+- Test: `tests/desktop/db/executionsRepo.test.ts`
 
 **Interfaces:**
-- Consumes: `AppDatabase` (Task 8), `ExecutionStatus`, `RiskFlag`, `UNRESOLVED_STATUSES` (Task 2)
-- Produces:
-  - `ExecutionPatch { status, strategy?, reason?, riskFlags?, templateId?, renderedText?, actorAccount?, attempts?, resolvedAt? }`
-  - `ExecutionsRepo`:
-    - `applyPatch(id: string, patch: ExecutionPatch): void`
-    - `countSuccessSince(automationId: string, sinceMs: number): number`
-    - `listUnresolved(automationId: string): UnresolvedRow[]`
-    - `getById(id: string): ExecutionRow | undefined`
-  - `createExecutionsRepo(db: AppDatabase): ExecutionsRepo`
+- Consumes: `AppDatabase` (Task 8), `UNRESOLVED_STATUSES`, `ExecutionStatus`, `ExecutionStrategy`, `RiskFlag` (Task 2)
+- Produces: `ExecutionPatch`, `ExecutionRow`, `UnresolvedRow`, `ExecutionsRepo`, `createExecutionsRepo(db)`
+  - `applyPatch(id, patch)`, `countSuccessSince(automationId, sinceMs)`, `listUnresolved(automationId)`, `getById(id)`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`apps/desktop/tests/db/executionsRepo.test.ts`:
+`tests/desktop/db/executionsRepo.test.ts`:
 
 ```ts
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -2091,12 +1851,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase, type AppDatabase } from '../../src/main/db/client.js'
-import { createSqliteDedupeStore } from '../../src/main/db/dedupeStore.js'
-import { createExecutionsRepo, type ExecutionsRepo } from '../../src/main/db/executionsRepo.js'
+import { openDatabase, type AppDatabase } from '../../../src/desktop/db/client.js'
+import { createSqliteDedupeStore } from '../../../src/desktop/db/dedupeStore.js'
+import { createExecutionsRepo, type ExecutionsRepo } from '../../../src/desktop/db/executionsRepo.js'
 
-const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
-const AUTOMATION = 'cafe-welcome-comment'
+const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url))
+const AUTOMATION = 'welcome-comment'
 
 let dir: string
 let db: AppDatabase
@@ -2110,6 +1870,7 @@ async function claim(postId: string, postedAt: number): Promise<string> {
     cafeId: '10000000',
     boardId: '5',
     postId,
+    title: null,
     authorNickname: 'nick',
     authorId: 'member',
     postedAt,
@@ -2120,7 +1881,7 @@ async function claim(postId: string, postedAt: number): Promise<string> {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'ncafe-repo-'))
+  dir = mkdtempSync(join(tmpdir(), 'wm-repo-'))
   db = openDatabase(join(dir, 'test.db'), { migrationsFolder: MIGRATIONS })
   repo = createExecutionsRepo(db)
   counter = 0
@@ -2131,14 +1892,21 @@ afterEach(() => {
 })
 
 describe('applyPatch', () => {
-  it('writes status, strategy and risk flags', async () => {
+  it('writes status, strategy, timestamps and risk flags', async () => {
     const id = await claim('1001', 1_000)
-    repo.applyPatch(id, { status: 'SUCCESS', strategy: 'FETCH', riskFlags: [], resolvedAt: 2_000 })
+    repo.applyPatch(id, {
+      status: 'SUCCESS',
+      strategy: 'FETCH',
+      riskFlags: [],
+      executedAt: 1_900,
+      resolvedAt: 2_000,
+    })
 
-    const row = repo.getById(id)
-    expect(row?.status).toBe('SUCCESS')
-    expect(row?.strategy).toBe('FETCH')
-    expect(row?.resolvedAt).toBe(2_000)
+    const found = repo.getById(id)
+    expect(found?.status).toBe('SUCCESS')
+    expect(found?.strategy).toBe('FETCH')
+    expect(found?.executedAt).toBe(1_900)
+    expect(found?.resolvedAt).toBe(2_000)
   })
 
   it('serialises risk flags as json', async () => {
@@ -2175,7 +1943,6 @@ describe('listUnresolved', () => {
 
     const unresolved = repo.listUnresolved(AUTOMATION)
     expect(unresolved.map((r) => r.targetPostId).sort()).toEqual(['1001', '1002'])
-    expect(unresolved.every((r) => typeof r.targetPostedAt === 'number')).toBe(true)
   })
 })
 ```
@@ -2183,18 +1950,23 @@ describe('listUnresolved', () => {
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
 Expected: FAIL — `Failed to resolve import ".../executionsRepo.js"`
 
 - [ ] **Step 3: 리포지토리 구현**
 
-`apps/desktop/src/main/db/executionsRepo.ts`:
+`src/desktop/db/executionsRepo.ts`:
 
 ```ts
-import { UNRESOLVED_STATUSES, type ExecutionStatus, type ExecutionStrategy, type RiskFlag } from '@ncafe/core'
 import { and, eq, gte, inArray } from 'drizzle-orm'
+import {
+  UNRESOLVED_STATUSES,
+  type ExecutionStatus,
+  type ExecutionStrategy,
+  type RiskFlag,
+} from '../../shared/types.js'
 import type { AppDatabase } from './client.js'
 import { executions } from './schema.js'
 
@@ -2207,6 +1979,7 @@ export interface ExecutionPatch {
   readonly renderedText?: string | null
   readonly actorAccount?: string | null
   readonly attempts?: number
+  readonly executedAt?: number | null
   readonly resolvedAt?: number | null
 }
 
@@ -2220,6 +1993,7 @@ export interface ExecutionRow {
   readonly reason: string | null
   readonly riskFlags: RiskFlag[]
   readonly attempts: number
+  readonly executedAt: number | null
   readonly resolvedAt: number | null
 }
 
@@ -2258,6 +2032,7 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
       if (patch.renderedText !== undefined) values.renderedText = patch.renderedText
       if (patch.actorAccount !== undefined) values.actorAccount = patch.actorAccount
       if (patch.attempts !== undefined) values.attempts = patch.attempts
+      if (patch.executedAt !== undefined) values.executedAt = patch.executedAt
       if (patch.resolvedAt !== undefined) values.resolvedAt = patch.resolvedAt
 
       db.update(executions).set(values).where(eq(executions.id, id)).run()
@@ -2281,50 +2056,49 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
       return db
         .select()
         .from(executions)
-        .where(and(eq(executions.automationId, automationId), inArray(executions.status, [...UNRESOLVED_STATUSES])))
+        .where(
+          and(eq(executions.automationId, automationId), inArray(executions.status, [...UNRESOLVED_STATUSES])),
+        )
         .all()
-        .map((row) => ({
-          id: row.id,
-          targetPostId: row.targetPostId,
-          targetPostedAt: row.targetPostedAt,
-          status: row.status,
-          attempts: row.attempts,
+        .map((r) => ({
+          id: r.id,
+          targetPostId: r.targetPostId,
+          targetPostedAt: r.targetPostedAt,
+          status: r.status,
+          attempts: r.attempts,
         }))
     },
 
     getById(id) {
-      const row = db.select().from(executions).where(eq(executions.id, id)).get()
-      if (row === undefined) return undefined
+      const r = db.select().from(executions).where(eq(executions.id, id)).get()
+      if (r === undefined) return undefined
       return {
-        id: row.id,
-        automationId: row.automationId,
-        targetPostId: row.targetPostId,
-        targetPostedAt: row.targetPostedAt,
-        status: row.status,
-        strategy: row.strategy,
-        reason: row.reason,
-        riskFlags: parseFlags(row.riskFlags),
-        attempts: row.attempts,
-        resolvedAt: row.resolvedAt,
+        id: r.id,
+        automationId: r.automationId,
+        targetPostId: r.targetPostId,
+        targetPostedAt: r.targetPostedAt,
+        status: r.status,
+        strategy: r.strategy,
+        reason: r.reason,
+        riskFlags: parseFlags(r.riskFlags),
+        attempts: r.attempts,
+        executedAt: r.executedAt,
+        resolvedAt: r.resolvedAt,
       }
     },
   }
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [ ] **Step 4: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
-Expected: 모든 테스트 PASS.
-
-- [ ] **Step 5: 커밋**
-
 ```bash
-git add apps/desktop
-git commit -m "feat(desktop): add executions repository with status patching and queries"
+git add -A
+git commit -m "feat: add executions repository with status patching and queries"
 ```
 
 ---
@@ -2332,29 +2106,28 @@ git commit -m "feat(desktop): add executions repository with status patching and
 ### Task 11: 페어링과 WebSocket 브리지
 
 **Files:**
-- Create: `apps/desktop/src/main/ws/pairing.ts`, `apps/desktop/src/main/ws/server.ts`
-- Test: `apps/desktop/tests/ws/pairing.test.ts`, `apps/desktop/tests/ws/server.test.ts`
+- Create: `src/desktop/ws/pairing.ts`, `src/desktop/ws/server.ts`
+- Test: `tests/desktop/ws/pairing.test.ts`, `tests/desktop/ws/server.test.ts`
 
 **Interfaces:**
 - Consumes: `AppMessage`, `ExtensionMessage`, `PROTOCOL_VERSION`, `isExtensionMessage` (Task 7)
 - Produces:
-  - `PairingState { token, boundExtensionId }`, `generateToken()`, `extensionIdFromOrigin(origin)`
-  - `HelloAttempt { token, origin, protocolVersion }`, `PairingVerdict`, `verifyHello(state, attempt)`
-  - `ExtensionTransport { isConnected(): boolean; request(message: AppMessage, timeoutMs: number): Promise<ExtensionMessage> }`
-  - `createBridgeServer(options): Promise<BridgeServer>` where `BridgeServer extends ExtensionTransport { port: number; close(): Promise<void> }`
+  - `PairingState`, `HelloAttempt`, `PairingVerdict`, `generateToken()`, `extensionIdFromOrigin(origin)`, `verifyHello(state, attempt)`
+  - `ExtensionTransport { isConnected(): boolean; request(message, timeoutMs): Promise<ExtensionMessage> }`
+  - `BridgeServer extends ExtensionTransport { port: number; close(): Promise<void> }`, `createBridgeServer(options)`
 
 - [ ] **Step 1: pairing 실패 테스트 작성**
 
-`apps/desktop/tests/ws/pairing.test.ts`:
+`tests/desktop/ws/pairing.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { PROTOCOL_VERSION } from '@ncafe/protocol'
-import { extensionIdFromOrigin, generateToken, verifyHello } from '../../src/main/ws/pairing.js'
+import { PROTOCOL_VERSION } from '../../../src/shared/protocol.js'
+import { extensionIdFromOrigin, generateToken, verifyHello } from '../../../src/desktop/ws/pairing.js'
 
 const TOKEN = 'correct-horse-battery-staple'
-const ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 const EXT_ID = 'abcdefghijklmnopabcdefghijklmnop'
+const ORIGIN = `chrome-extension://${EXT_ID}`
 
 function attempt(overrides: Partial<Parameters<typeof verifyHello>[1]> = {}) {
   return { token: TOKEN, origin: ORIGIN, protocolVersion: PROTOCOL_VERSION, ...overrides }
@@ -2363,8 +2136,7 @@ function attempt(overrides: Partial<Parameters<typeof verifyHello>[1]> = {}) {
 describe('generateToken', () => {
   it('produces a long, url-safe, non-repeating token', () => {
     const a = generateToken()
-    const b = generateToken()
-    expect(a).not.toBe(b)
+    expect(a).not.toBe(generateToken())
     expect(a.length).toBeGreaterThanOrEqual(32)
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/)
   })
@@ -2412,9 +2184,9 @@ describe('verifyHello — trust on first use', () => {
   })
 
   it('rejects a non-extension origin', () => {
-    expect(
-      verifyHello({ token: TOKEN, boundExtensionId: null }, attempt({ origin: 'https://evil.example' })),
-    ).toEqual({ accepted: false, reason: 'BAD_ORIGIN' })
+    expect(verifyHello({ token: TOKEN, boundExtensionId: null }, attempt({ origin: 'https://evil.example' }))).toEqual(
+      { accepted: false, reason: 'BAD_ORIGIN' },
+    )
   })
 
   it('rejects a mismatched protocol version', () => {
@@ -2427,11 +2199,11 @@ describe('verifyHello — trust on first use', () => {
 
 - [ ] **Step 2: pairing 구현**
 
-`apps/desktop/src/main/ws/pairing.ts`:
+`src/desktop/ws/pairing.ts`:
 
 ```ts
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { PROTOCOL_VERSION } from '@ncafe/protocol'
+import { PROTOCOL_VERSION } from '../../shared/protocol.js'
 
 export interface PairingState {
   readonly token: string
@@ -2469,9 +2241,9 @@ function tokensMatch(expected: string, supplied: string): boolean {
 }
 
 /**
- * Trust on first use: the first extension that presents the correct token is
+ * Trust on first use: the first extension presenting the correct token is
  * remembered, and only that extension is accepted afterwards. This removes the
- * need to know the extension id before the store assigns one.
+ * need to know the extension id before the web store assigns one.
  */
 export function verifyHello(state: PairingState, attempt: HelloAttempt): PairingVerdict {
   if (attempt.protocolVersion !== PROTOCOL_VERSION) {
@@ -2491,24 +2263,16 @@ export function verifyHello(state: PairingState, attempt: HelloAttempt): Pairing
 }
 ```
 
-- [ ] **Step 3: 테스트 실행**
+- [ ] **Step 3: 서버 실패 테스트 작성**
 
-```bash
-pnpm --filter @ncafe/desktop test
-```
-
-Expected: pairing 테스트 전부 PASS.
-
-- [ ] **Step 4: 서버 실패 테스트 작성**
-
-`apps/desktop/tests/ws/server.test.ts`:
+`tests/desktop/ws/server.test.ts`:
 
 ```ts
-import { PROTOCOL_VERSION, type ExtensionMessage } from '@ncafe/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-import { createBridgeServer, type BridgeServer } from '../../src/main/ws/server.js'
-import { generateToken } from '../../src/main/ws/pairing.js'
+import { generateToken } from '../../../src/desktop/ws/pairing.js'
+import { createBridgeServer, type BridgeServer } from '../../../src/desktop/ws/server.js'
+import { PROTOCOL_VERSION, type ExtensionMessage } from '../../../src/shared/protocol.js'
 
 const TOKEN = generateToken()
 const ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
@@ -2520,9 +2284,9 @@ afterEach(async () => {
   server = undefined
 })
 
-async function connect(token: string, origin: string): Promise<WebSocket> {
+async function connect(token: string): Promise<WebSocket> {
   if (server === undefined) throw new Error('server not started')
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin })
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: ORIGIN })
   await new Promise<void>((resolve, reject) => {
     ws.once('open', resolve)
     ws.once('error', reject)
@@ -2540,7 +2304,7 @@ async function nextMessage(ws: WebSocket): Promise<Record<string, unknown>> {
 describe('createBridgeServer', () => {
   it('acknowledges a valid handshake', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
-    const ws = await connect(TOKEN, ORIGIN)
+    const ws = await connect(TOKEN)
 
     expect(await nextMessage(ws)).toEqual({ type: 'HELLO_ACK', accepted: true, reason: null })
     expect(server.isConnected()).toBe(true)
@@ -2549,7 +2313,7 @@ describe('createBridgeServer', () => {
 
   it('rejects a bad token and reports not connected', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
-    const ws = await connect('wrong-token', ORIGIN)
+    const ws = await connect('wrong-token')
 
     const ack = await nextMessage(ws)
     expect(ack.accepted).toBe(false)
@@ -2559,7 +2323,7 @@ describe('createBridgeServer', () => {
 
   it('round-trips a request and its reply', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
-    const ws = await connect(TOKEN, ORIGIN)
+    const ws = await connect(TOKEN)
     await nextMessage(ws)
 
     ws.on('message', (data) => {
@@ -2569,10 +2333,10 @@ describe('createBridgeServer', () => {
       }
     })
 
-    const reply = (await server.request(
-      { type: 'CHECK_LOGIN', requestId: 'r1' },
-      1_000,
-    )) as Extract<ExtensionMessage, { type: 'LOGIN_STATE' }>
+    const reply = (await server.request({ type: 'CHECK_LOGIN', requestId: 'r1' }, 1_000)) as Extract<
+      ExtensionMessage,
+      { type: 'LOGIN_STATE' }
+    >
 
     expect(reply.loggedIn).toBe(true)
     expect(reply.account).toBe('cafe-ops')
@@ -2581,7 +2345,7 @@ describe('createBridgeServer', () => {
 
   it('rejects a request that gets no reply before the timeout', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
-    const ws = await connect(TOKEN, ORIGIN)
+    const ws = await connect(TOKEN)
     await nextMessage(ws)
 
     await expect(server.request({ type: 'CHECK_LOGIN', requestId: 'r2' }, 50)).rejects.toThrow(/timed out/i)
@@ -2595,13 +2359,13 @@ describe('createBridgeServer', () => {
 })
 ```
 
-- [ ] **Step 5: 서버 구현**
+- [ ] **Step 4: 서버 구현**
 
-`apps/desktop/src/main/ws/server.ts`:
+`src/desktop/ws/server.ts`:
 
 ```ts
-import { isExtensionMessage, type AppMessage, type ExtensionMessage } from '@ncafe/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
+import { isExtensionMessage, type AppMessage, type ExtensionMessage } from '../../shared/protocol.js'
 import { verifyHello, type PairingState } from './pairing.js'
 
 export interface ExtensionTransport {
@@ -2729,19 +2493,15 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 }
 ```
 
-- [ ] **Step 6: 테스트 통과 확인**
+- [ ] **Step 5: 테스트 통과 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
-Expected: 모든 테스트 PASS.
-
-- [ ] **Step 7: 커밋**
-
 ```bash
-git add apps/desktop
-git commit -m "feat(desktop): add websocket bridge with trust-on-first-use pairing"
+git add -A
+git commit -m "feat: add websocket bridge with trust-on-first-use pairing"
 ```
 
 ---
@@ -2749,45 +2509,31 @@ git commit -m "feat(desktop): add websocket bridge with trust-on-first-use pairi
 ### Task 12: 확장 스켈레톤
 
 **Files:**
-- Create: `apps/extension/package.json`, `apps/extension/tsconfig.json`, `apps/extension/vite.config.ts`, `apps/extension/vitest.config.ts`
-- Create: `apps/extension/manifest.json`, `apps/extension/src/background.ts`, `apps/extension/src/stub.ts`
-- Test: `apps/extension/tests/manifest.test.ts`
+- Create: `src/extension/manifest.json`, `src/extension/background.ts`, `src/extension/stub.ts`, `vite.config.ts`
+- Modify: `package.json` (`@types/chrome`, `build:extension` 스크립트)
+- Test: `tests/extension/manifest.test.ts`
 
 **Interfaces:**
-- Consumes: `AppMessage`, `ExtensionMessage`, `PROTOCOL_VERSION`, `RawCandidate` (Task 7)
-- Produces: 빌드된 `dist/background.js`와 `dist/manifest.json`. Phase 3에서 `stub.ts`를 실제 수집·실행 구현으로 교체한다
+- Consumes: `AppMessage`, `ExtensionMessage`, `PROTOCOL_VERSION`, `RawCandidate`, `isAppMessage` (Task 7)
+- Produces: `dist/extension/background.js`와 `dist/extension/manifest.json`
 
-- [ ] **Step 1: 패키지와 매니페스트 생성**
+- [ ] **Step 1: 의존성과 스크립트 추가**
 
-`apps/extension/package.json`:
-
-```json
-{
-  "name": "@ncafe/extension",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "vite build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@ncafe/protocol": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/chrome": "^0.0.280",
-    "vite": "^5.4.0"
-  }
-}
+```bash
+pnpm add -D @types/chrome
 ```
 
-`apps/extension/manifest.json`:
+`package.json`의 `scripts`에 `"build:extension": "vite build"` 추가.
+`tsconfig.json`의 `compilerOptions.types`를 `["node", "chrome"]`로, `lib`를 `["ES2022", "DOM"]`으로 바꾼다.
+
+- [ ] **Step 2: 매니페스트 작성**
+
+`src/extension/manifest.json`:
 
 ```json
 {
   "manifest_version": 3,
-  "name": "Cafe Automation Bridge",
+  "name": "Whisky Manager Bridge",
   "version": "0.0.1",
   "description": "Bridges the cafe automation desktop app to the logged-in browser session.",
   "background": { "service_worker": "background.js", "type": "module" },
@@ -2796,36 +2542,25 @@ git commit -m "feat(desktop): add websocket bridge with trust-on-first-use pairi
 }
 ```
 
-> `cookies` 권한은 **절대 추가하지 않는다.** 세션 쿠키를 브라우저 밖으로 내보내지 않는다는 원칙을 코드 수준에서 강제하는 장치다. Step 4의 테스트가 이를 감시한다.
+> `cookies` 권한은 **절대 추가하지 않는다.** 세션 쿠키를 브라우저 밖으로 내보내지 않는다는 원칙을 코드 수준에서 강제하는 장치이며, Step 5의 테스트가 감시한다.
 
-`apps/extension/tsconfig.json`:
+- [ ] **Step 3: Vite 설정 작성**
 
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": ".", "types": ["chrome", "node"], "lib": ["ES2022", "DOM"] },
-  "include": ["src/**/*", "tests/**/*"]
-}
-```
-
-`apps/extension/vite.config.ts`:
+`vite.config.ts`:
 
 ```ts
-import { copyFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
 export default defineConfig({
-  resolve: {
-    alias: { '@ncafe/protocol': here('../../packages/protocol/src/index.ts') },
-  },
   build: {
-    outDir: 'dist',
+    outDir: 'dist/extension',
     emptyOutDir: true,
     rollupOptions: {
-      input: { background: here('src/background.ts') },
+      input: { background: here('src/extension/background.ts') },
       output: { entryFileNames: '[name].js', format: 'es' },
     },
   },
@@ -2833,46 +2568,33 @@ export default defineConfig({
     {
       name: 'copy-manifest',
       closeBundle() {
-        copyFileSync(here('manifest.json'), here('dist/manifest.json'))
+        mkdirSync(here('dist/extension'), { recursive: true })
+        copyFileSync(here('src/extension/manifest.json'), here('dist/extension/manifest.json'))
       },
     },
   ],
 })
 ```
 
-`apps/extension/vitest.config.ts`:
+- [ ] **Step 4: 스텁과 백그라운드 워커 작성**
+
+`src/extension/stub.ts`:
 
 ```ts
-import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
-
-export default defineConfig({
-  test: { include: ['tests/**/*.test.ts'], environment: 'node' },
-  resolve: {
-    alias: {
-      '@ncafe/protocol': fileURLToPath(new URL('../../packages/protocol/src/index.ts', import.meta.url)),
-    },
-  },
-})
-```
-
-- [ ] **Step 2: 스텁 응답기 작성**
-
-`apps/extension/src/stub.ts`:
-
-```ts
-import type { RawCandidate } from '@ncafe/protocol'
+import type { RawCandidate } from '../shared/protocol.js'
 
 /**
- * Phase 2 placeholder. Phase 3 replaces this with real collection against the
- * cafe endpoints, once the response schema has been observed with a logged-in
- * session. Nothing here talks to naver.
+ * Phase 2 placeholder. Phase 3 replaces this with real collection once the
+ * cafe response schema has been observed with a logged-in session. Nothing
+ * here talks to naver.
  */
 export function stubCandidates(sincePostId: string | null): RawCandidate[] {
   const base = sincePostId === null ? 1000 : Number(sincePostId)
   return [
     {
       postId: String(base + 1),
+      title: 'stub greeting',
+      bodyText: 'stub body',
       authorNickname: 'stub-member',
       authorId: 'stub-1',
       postedAt: 1_700_000_000_000,
@@ -2882,12 +2604,10 @@ export function stubCandidates(sincePostId: string | null): RawCandidate[] {
 }
 ```
 
-- [ ] **Step 3: 백그라운드 워커 작성**
-
-`apps/extension/src/background.ts`:
+`src/extension/background.ts`:
 
 ```ts
-import { PROTOCOL_VERSION, isAppMessage, type AppMessage, type ExtensionMessage } from '@ncafe/protocol'
+import { PROTOCOL_VERSION, isAppMessage, type AppMessage, type ExtensionMessage } from '../shared/protocol.js'
 import { stubCandidates } from './stub.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
@@ -2982,9 +2702,9 @@ chrome.runtime.onInstalled.addListener(() => void connect())
 void connect()
 ```
 
-- [ ] **Step 4: 매니페스트 불변식 테스트 작성**
+- [ ] **Step 5: 매니페스트 불변식 테스트 작성**
 
-`apps/extension/tests/manifest.test.ts`:
+`tests/extension/manifest.test.ts`:
 
 ```ts
 import { readFileSync } from 'node:fs'
@@ -2992,7 +2712,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const manifest = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../manifest.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../src/extension/manifest.json', import.meta.url)), 'utf8'),
 ) as { manifest_version: number; permissions: string[]; host_permissions: string[] }
 
 describe('extension manifest', () => {
@@ -3007,29 +2727,23 @@ describe('extension manifest', () => {
   })
 
   it('limits host permissions to the cafe origins it needs', () => {
-    expect(manifest.host_permissions).toEqual([
-      'https://cafe.naver.com/*',
-      'https://apis.naver.com/*',
-    ])
+    expect(manifest.host_permissions).toEqual(['https://cafe.naver.com/*', 'https://apis.naver.com/*'])
   })
 })
 ```
 
-- [ ] **Step 5: 테스트와 빌드 확인**
+- [ ] **Step 6: 테스트와 빌드 확인 후 커밋**
 
 ```bash
-pnpm install
-pnpm --filter @ncafe/extension test
-pnpm --filter @ncafe/extension build
+pnpm test
+pnpm build:extension
 ```
 
-Expected: 3 passed. `apps/extension/dist/`에 `background.js`와 `manifest.json`이 생성된다.
-
-- [ ] **Step 6: 커밋**
+Expected: 테스트 전부 통과. `dist/extension/`에 `background.js`와 `manifest.json` 생성.
 
 ```bash
-git add apps/extension pnpm-lock.yaml
-git commit -m "feat(extension): add mv3 skeleton with bridge client and reconnect alarm"
+git add -A
+git commit -m "feat: add mv3 extension skeleton with bridge client and reconnect alarm"
 ```
 
 ---
@@ -3037,51 +2751,36 @@ git commit -m "feat(extension): add mv3 skeleton with bridge client and reconnec
 ### Task 13: 세션 오케스트레이터 — 왕복 완성
 
 **Files:**
-- Create: `apps/desktop/src/main/orchestrator.ts`
-- Test: `apps/desktop/tests/orchestrator.test.ts`
+- Create: `src/desktop/orchestrator.ts`
+- Test: `tests/desktop/orchestrator.test.ts`
 
 **Interfaces:**
-- Consumes: core 전체 (Tasks 2~6), `ExtensionTransport` (Task 11), `DedupeStore` (Task 9), `ExecutionsRepo` (Task 10), `TIMEOUTS` (Task 7)
-- Produces:
-  - `SessionDeps`, `SessionOutcome`
-  - `runSession(deps: SessionDeps): Promise<SessionOutcome>`
+- Consumes: `src/shared` 전체 (Tasks 2~7), `ExtensionTransport` (Task 11), `DedupeStore` (Task 9), `ExecutionsRepo` (Task 10)
+- Produces: `SessionDeps`, `SessionRefusal`, `SessionOutcome`, `runSession(deps): Promise<SessionOutcome>`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`apps/desktop/tests/orchestrator.test.ts`:
+`tests/desktop/orchestrator.test.ts`:
 
 ```ts
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PROFILES, operatorAlreadyCommentedGuard, type Clock, type Random, type TimeParts } from '@ncafe/core'
-import type { AppMessage, ExtensionMessage, RawCandidate } from '@ncafe/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase, type AppDatabase } from '../src/main/db/client.js'
-import { createSqliteDedupeStore } from '../src/main/db/dedupeStore.js'
-import { createExecutionsRepo, type ExecutionsRepo } from '../src/main/db/executionsRepo.js'
-import { runSession, type SessionDeps } from '../src/main/orchestrator.js'
+import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
+import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
+import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
+import { executions } from '../../src/desktop/db/schema.js'
+import { runSession, type SessionDeps } from '../../src/desktop/orchestrator.js'
+import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
+import { PROFILES } from '../../src/shared/profiles.js'
+import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
+import { FakeClock, SequenceRandom } from '../fakes.js'
 
-const MIGRATIONS = fileURLToPath(new URL('../drizzle', import.meta.url))
-const DAY_MS = 86_400_000
+const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
+const HOUR = 3_600_000
 const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
-
-class TestClock implements Clock {
-  constructor(private current: number) {}
-  now(): number { return this.current }
-  parts(epochMs: number): TimeParts {
-    const d = new Date(epochMs)
-    return { hour: d.getUTCHours(), minute: d.getUTCMinutes(), dayOfWeek: d.getUTCDay() }
-  }
-  atHour(epochMs: number, hour: number): number {
-    const d = new Date(epochMs)
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, 0, 0, 0)
-  }
-  addDays(epochMs: number, days: number): number { return epochMs + days * DAY_MS }
-}
-
-const fixedRandom: Random = { intInclusive: (min) => min }
 
 interface FakeTransportOptions {
   loggedIn?: boolean
@@ -3090,11 +2789,9 @@ interface FakeTransportOptions {
 }
 
 function fakeTransport(options: FakeTransportOptions = {}) {
-  const sent: AppMessage[] = []
-  const transport = {
+  return {
     isConnected: () => true,
     request(message: AppMessage): Promise<ExtensionMessage> {
-      sent.push(message)
       if (message.type === 'CHECK_LOGIN') {
         return Promise.resolve({
           type: 'LOGIN_STATE',
@@ -3124,11 +2821,18 @@ function fakeTransport(options: FakeTransportOptions = {}) {
       return Promise.reject(new Error(`unexpected message ${message.type}`))
     },
   }
-  return { transport, sent }
 }
 
 function candidate(postId: string, postedAt = MON_10_00 - 60_000): RawCandidate {
-  return { postId, authorNickname: 'nick', authorId: 'm1', postedAt, existingCommentAuthors: [] }
+  return {
+    postId,
+    title: '가입인사',
+    bodyText: '반갑습니다',
+    authorNickname: 'nick',
+    authorId: 'm1',
+    postedAt,
+    existingCommentAuthors: [],
+  }
 }
 
 let dir: string
@@ -3138,16 +2842,16 @@ let idCounter = 0
 
 function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
   return {
-    automationId: 'cafe-welcome-comment',
+    automationId: 'welcome-comment',
     cafeId: '10000000',
     boardId: '5',
     policy: 'AUTO',
     limits: PROFILES.production,
     guards: [operatorAlreadyCommentedGuard],
     operatorAccounts: ['cafe-ops'],
-    clock: new TestClock(MON_10_00),
-    random: fixedRandom,
-    transport: fakeTransport().transport,
+    clock: new FakeClock(MON_10_00),
+    random: new SequenceRandom([10_000]),
+    transport: fakeTransport(),
     dedupe: createSqliteDedupeStore(db, () => `exec-${++idCounter}`),
     repo,
     renderBody: (c) => ({ templateId: 'tpl-1', body: `${c.authorNickname ?? ''}님 환영합니다` }),
@@ -3160,7 +2864,7 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'ncafe-orch-'))
+  dir = mkdtempSync(join(tmpdir(), 'wm-orch-'))
   db = openDatabase(join(dir, 'test.db'), { migrationsFolder: MIGRATIONS })
   repo = createExecutionsRepo(db)
   idCounter = 0
@@ -3172,122 +2876,129 @@ afterEach(() => {
 
 describe('runSession — gates before opening', () => {
   it('does not open when the kill switch is engaged', async () => {
-    const outcome = await runSession(deps({ isKilled: () => true }))
-    expect(outcome).toEqual({ opened: false, reason: 'KILLED' })
+    expect(await runSession(deps({ isKilled: () => true }))).toEqual({ opened: false, reason: 'KILLED' })
   })
 
   it('does not open outside the operating window', async () => {
-    const outcome = await runSession(deps({ clock: new TestClock(Date.UTC(2026, 7, 24, 3, 0, 0)) }))
-    expect(outcome).toEqual({ opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' })
+    const clock = new FakeClock(Date.UTC(2026, 7, 24, 3, 0, 0))
+    expect(await runSession(deps({ clock }))).toEqual({ opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' })
   })
 
   it('does not open when the operator is logged out', async () => {
-    const outcome = await runSession(deps({ transport: fakeTransport({ loggedIn: false }).transport }))
-    expect(outcome).toEqual({ opened: false, reason: 'NOT_LOGGED_IN' })
+    const transport = fakeTransport({ loggedIn: false })
+    expect(await runSession(deps({ transport }))).toEqual({ opened: false, reason: 'NOT_LOGGED_IN' })
   })
 
   it('does not open when the login check itself fails', async () => {
     const transport = { isConnected: () => true, request: () => Promise.reject(new Error('timed out')) }
-    const outcome = await runSession(deps({ transport }))
-    expect(outcome).toEqual({ opened: false, reason: 'LOGIN_CHECK_FAILED' })
+    expect(await runSession(deps({ transport }))).toEqual({ opened: false, reason: 'LOGIN_CHECK_FAILED' })
   })
 })
 
 describe('runSession — AUTO policy', () => {
-  it('executes clean candidates and records success with strategy', async () => {
-    const { transport } = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
+  it('executes clean candidates and records success', async () => {
+    const transport = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
     const outcome = await runSession(deps({ transport }))
 
     expect(outcome).toMatchObject({ opened: true, executed: 2, skipped: 0, awaitingApproval: 0, failed: 0 })
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
 
-    const rows = repo.listUnresolved('cafe-welcome-comment')
-    expect(rows).toHaveLength(0)
+  it('records the execution timestamp separately from resolution', async () => {
+    const transport = fakeTransport({ candidates: [candidate('1010')] })
+    await runSession(deps({ transport }))
+
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.executedAt).toBe(MON_10_00)
   })
 
   it('skips a post an operator already greeted', async () => {
     const already = { ...candidate('1003'), existingCommentAuthors: ['cafe-ops'] }
-    const { transport } = fakeTransport({ candidates: [already] })
+    const transport = fakeTransport({ candidates: [already] })
 
-    const outcome = await runSession(deps({ transport }))
-    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, executed: 0, skipped: 1 })
   })
 
   it('skips rather than queues when the comment check failed', async () => {
     const unchecked = { ...candidate('1004'), existingCommentAuthors: null }
-    const { transport } = fakeTransport({ candidates: [unchecked] })
+    const transport = fakeTransport({ candidates: [unchecked] })
 
-    const outcome = await runSession(deps({ transport, policy: 'AUTO' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1, awaitingApproval: 0 })
+    expect(await runSession(deps({ transport }))).toMatchObject({
+      opened: true,
+      executed: 0,
+      skipped: 1,
+      awaitingApproval: 0,
+    })
   })
 })
 
 describe('runSession — SEMI and MANUAL policies', () => {
   it('queues a flagged candidate for approval under SEMI', async () => {
     const unchecked = { ...candidate('1005'), existingCommentAuthors: null }
-    const { transport } = fakeTransport({ candidates: [unchecked] })
+    const transport = fakeTransport({ candidates: [unchecked] })
 
-    const outcome = await runSession(deps({ transport, policy: 'SEMI' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
+    expect(await runSession(deps({ transport, policy: 'SEMI' }))).toMatchObject({
+      opened: true,
+      executed: 0,
+      awaitingApproval: 1,
+    })
   })
 
   it('queues every candidate for approval under MANUAL', async () => {
-    const { transport } = fakeTransport({ candidates: [candidate('1006')] })
+    const transport = fakeTransport({ candidates: [candidate('1006')] })
 
-    const outcome = await runSession(deps({ transport, policy: 'MANUAL' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
+    expect(await runSession(deps({ transport, policy: 'MANUAL' }))).toMatchObject({
+      opened: true,
+      executed: 0,
+      awaitingApproval: 1,
+    })
   })
 })
 
 describe('runSession — caps and failures', () => {
-  it('stops at the per-session cap and leaves the rest queued', async () => {
+  it('stops at the per-session cap and leaves the current one queued', async () => {
     const many = Array.from({ length: 4 }, (_, i) => candidate(`20${i}`))
-    const { transport } = fakeTransport({ candidates: many })
+    const transport = fakeTransport({ candidates: many })
     const limits = { ...PROFILES.production, perSessionCap: 2 }
 
-    const outcome = await runSession(deps({ transport, limits }))
-    expect(outcome).toMatchObject({ opened: true, executed: 2 })
+    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 2 })
     // The candidate that hit the cap stays QUEUED; the ones after it are never
     // claimed at all and will simply be collected again next session.
-    expect(repo.listUnresolved('cafe-welcome-comment')).toHaveLength(1)
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(1)
   })
 
   it('expires candidates once the daily cap is reached', async () => {
-    const { transport } = fakeTransport({ candidates: [candidate('3001')] })
+    const transport = fakeTransport({ candidates: [candidate('3001')] })
     const limits = { ...PROFILES.production, dailyCap: 0 }
 
-    const outcome = await runSession(deps({ transport, limits }))
-    expect(outcome).toMatchObject({ opened: true, executed: 0, expired: 1 })
+    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0, expired: 1 })
   })
 
   it('parks a failed execution in RETRY_WAIT rather than failing outright', async () => {
-    const { transport } = fakeTransport({ candidates: [candidate('4001')], executeOk: false })
+    const transport = fakeTransport({ candidates: [candidate('4001')], executeOk: false })
 
-    const outcome = await runSession(deps({ transport }))
-    expect(outcome).toMatchObject({ opened: true, executed: 0, failed: 0 })
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, executed: 0, failed: 0 })
 
-    const unresolved = repo.listUnresolved('cafe-welcome-comment')
+    const unresolved = repo.listUnresolved('welcome-comment')
     expect(unresolved).toHaveLength(1)
     expect(unresolved[0]?.status).toBe('RETRY_WAIT')
     expect(unresolved[0]?.attempts).toBe(1)
   })
 
   it('does not open when unresolved work has grown stale', async () => {
-    const first = fakeTransport({ candidates: [candidate('5001', MON_10_00 - 30 * 3_600_000)], executeOk: false })
-    await runSession(deps({ transport: first.transport }))
+    const first = fakeTransport({ candidates: [candidate('5001', MON_10_00 - 30 * HOUR)], executeOk: false })
+    await runSession(deps({ transport: first }))
 
     const second = fakeTransport({ candidates: [] })
-    const outcome = await runSession(deps({ transport: second.transport }))
-    expect(outcome).toEqual({ opened: false, reason: 'STALE_BACKLOG' })
+    expect(await runSession(deps({ transport: second }))).toEqual({ opened: false, reason: 'STALE_BACKLOG' })
   })
 })
 
 describe('runSession — dedupe', () => {
   it('ignores a post that was already claimed in an earlier session', async () => {
-    const first = fakeTransport({ candidates: [candidate('6001')] })
-    await runSession(deps({ transport: first.transport }))
+    await runSession(deps({ transport: fakeTransport({ candidates: [candidate('6001')] }) }))
 
-    const second = fakeTransport({ candidates: [candidate('6001')] })
-    const outcome = await runSession(deps({ transport: second.transport }))
+    const outcome = await runSession(deps({ transport: fakeTransport({ candidates: [candidate('6001')] }) }))
     expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 0 })
   })
 })
@@ -3296,34 +3007,24 @@ describe('runSession — dedupe', () => {
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm test
 ```
 
 Expected: FAIL — `Failed to resolve import ".../orchestrator.js"`
 
 - [ ] **Step 3: 오케스트레이터 구현**
 
-`apps/desktop/src/main/orchestrator.ts`:
+`src/desktop/orchestrator.ts`:
 
 ```ts
-import {
-  checkGates,
-  dailyWindowStart,
-  decide,
-  evaluateGuards,
-  hasStaleBacklog,
-  initialStatus,
-  isWithinActiveHours,
-  nextActionDelayMs,
-  transition,
-  type ApprovalPolicy,
-  type Candidate,
-  type Clock,
-  type Guard,
-  type Limits,
-  type Random,
-} from '@ncafe/core'
-import { TIMEOUTS, type ExtensionMessage, type RawCandidate } from '@ncafe/protocol'
+import { evaluateGuards, type Guard } from '../shared/guards.js'
+import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
+import type { Clock, Random } from '../shared/ports.js'
+import { decide } from '../shared/policy.js'
+import { TIMEOUTS, type ExtensionMessage, type RawCandidate } from '../shared/protocol.js'
+import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
+import { initialStatus, transition } from '../shared/statusMachine.js'
+import type { ApprovalPolicy, Candidate, Limits } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import type { ExtensionTransport } from './ws/server.js'
@@ -3463,6 +3164,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       cafeId: deps.cafeId,
       boardId: deps.boardId,
       postId: raw.postId,
+      title: raw.title,
       authorNickname: raw.authorNickname,
       authorId: raw.authorId,
       postedAt: raw.postedAt,
@@ -3475,6 +3177,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       cafeId: deps.cafeId,
       boardId: deps.boardId,
       postId: raw.postId,
+      title: raw.title,
+      bodyText: raw.bodyText,
       authorNickname: raw.authorNickname,
       authorId: raw.authorId,
       postedAt: raw.postedAt,
@@ -3505,10 +3209,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       continue
     }
 
-    const gate = checkGates(
-      { killed: deps.isKilled(), dailyCount, sessionCount: executed },
-      deps.limits,
-    )
+    const gate = checkGates({ killed: deps.isKilled(), dailyCount, sessionCount: executed }, deps.limits)
     if (!gate.allowed) {
       if (gate.reason === 'SESSION_CAP_REACHED') {
         deps.repo.applyPatch(executionId, { status: 'QUEUED', riskFlags: evaluation.flags })
@@ -3535,6 +3236,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     await deps.sleep(nextActionDelayMs(deps.limits, deps.random))
 
     const rendered = deps.renderBody(candidate)
+    const startedAt = deps.clock.now()
     const result = await execute(deps, candidate, rendered.body)
     const attempts = 1
     const finishedAt = deps.clock.now()
@@ -3546,6 +3248,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         templateId: rendered.templateId,
         renderedText: rendered.body,
         attempts,
+        executedAt: startedAt,
         resolvedAt: finishedAt,
       })
       executed += 1
@@ -3560,6 +3263,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       renderedText: rendered.body,
       attempts,
       reason: result?.error ?? 'NO_REPLY',
+      executedAt: startedAt,
       resolvedAt: nextStatus === 'FAILED' ? finishedAt : null,
     })
     if (nextStatus === 'FAILED') failed += 1
@@ -3569,35 +3273,25 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [ ] **Step 4: 전체 파이프라인 확인 후 커밋**
 
 ```bash
-pnpm --filter @ncafe/desktop test
+pnpm typecheck && pnpm test && pnpm lint && pnpm build && pnpm build:extension
 ```
 
-Expected: 모든 테스트 PASS.
-
-- [ ] **Step 5: 전체 파이프라인 확인**
+Expected: 전부 exit 0. `src/shared` 커버리지 80% 이상.
 
 ```bash
-pnpm typecheck && pnpm test && pnpm lint && pnpm build
-```
-
-Expected: 네 명령 모두 exit 0. `@ncafe/core` 커버리지 80% 이상.
-
-- [ ] **Step 6: 커밋**
-
-```bash
-git add apps/desktop
-git commit -m "feat(desktop): add session orchestrator wiring policy, gates, and execution"
+git add -A
+git commit -m "feat: add session orchestrator wiring policy, gates, and execution"
 ```
 
 ---
 
 ## 이 계획이 끝나면 확보되는 것
 
-- 순수 함수로 구현되고 전부 단위 테스트된 판단 로직 — 스케줄, 총량 게이트, guard, 승인 정책, 상태 기계
-- 원자적 선점과 상태 전이가 동작하는 SQLite 저장소
+- 순수 함수로 구현되고 전부 단위 테스트된 판단 계층 — 스케줄, 총량 게이트, guard, 승인 정책, 상태 기계
+- 원자적 선점과 상태 전이가 동작하는 SQLite 저장소. 선점 키에 `cafe_id` 포함
 - TOFU 페어링이 걸린 앱↔확장 WebSocket 브리지
 - `cookies` 권한이 없음을 테스트로 강제하는 MV3 확장 스켈레톤
 - 스텁 확장을 상대로 세션 한 바퀴가 실제로 도는 오케스트레이터
@@ -3607,4 +3301,5 @@ git commit -m "feat(desktop): add session orchestrator wiring policy, gates, and
 - **네이버 실제 엔드포인트와 파서** — 후속 계획 B. 운영 계정으로 로그인한 크롬의 DevTools Network에서 요청·응답을 관찰해 스키마를 확정한 뒤에 작성한다. 관찰 없이 쓰면 추측 구현이 된다
 - **Electron 셸, 트레이, 렌더러 UI, 승인 큐 화면, 템플릿 편집, 긴급 회수 UI** — 후속 계획 C
 - **워터마크 갱신과 재시도 스케줄링의 영속화** — 계획 C에서 세션 루프를 Electron 메인에 붙일 때 함께 구현한다. 이 계획의 `runSession`은 워터마크를 입력으로만 받는다
+- **`Automation` 플러그인 인터페이스** — 2번째 자동화가 생길 때
 - **온라인 DB 동기화와 통계 대시보드** — 스펙 12절, 별도 스펙
