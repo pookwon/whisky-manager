@@ -61,10 +61,12 @@
 
 ```bash
 pnpm install
-pnpm test
+pnpm test          # 106 tests
 pnpm typecheck
 pnpm lint
-pnpm build
+pnpm build         # 데스크톱 (dist/)
+pnpm build:extension   # MV3 확장 (dist/extension/)
+pnpm db:generate   # 스키마 변경 후 마이그레이션 생성
 ```
 
 ## 진행 상태
@@ -72,8 +74,8 @@ pnpm build
 - [x] 설계 스펙 확정
 - [x] 구현 계획 A (Phase 0~2)
 - [x] Phase 0 단일 패키지 스캐폴딩
-- [ ] Phase 1 정책 엔진
-- [ ] Phase 2 프로토콜·페어링·DB
+- [x] Phase 1 정책 엔진
+- [x] Phase 2 프로토콜·페어링·DB
 - [ ] Phase 3 가입인사 모듈 — **선행 작업 필요**
 - [ ] Phase 4 데스크톱 UI
 - [ ] Phase 5 배포
