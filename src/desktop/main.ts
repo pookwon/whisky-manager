@@ -85,6 +85,11 @@ void app.whenReady().then(async () => {
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
     profile,
     bridgePort: BRIDGE_PORT,
+    // The tray label reads isRunning(); a self-halt must repaint it, or the
+    // menu keeps claiming the automation is running after a logout.
+    onHalt: () => {
+      if (context !== null) refreshTray(context)
+    },
   })
 
   registerIpc(

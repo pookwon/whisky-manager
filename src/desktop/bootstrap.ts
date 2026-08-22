@@ -22,6 +22,8 @@ export interface AppContextOptions {
   readonly migrationsFolder: string
   readonly profile: Profile
   readonly bridgePort: number
+  /** Fired when the loop stops itself; the shell should show the new state. */
+  readonly onHalt?: (reason: 'NOT_LOGGED_IN' | 'LOGIN_CHECK_FAILED') => void
 }
 
 export interface AppRepos {
@@ -116,7 +118,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       lastOutcome = outcome
     },
     onError: (error) => console.error('[session]', error),
-    onHalt: (reason) => console.warn('[session] halted:', reason),
+    onHalt: (reason) => {
+      console.warn('[session] halted:', reason)
+      options.onHalt?.(reason)
+    },
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
   })
