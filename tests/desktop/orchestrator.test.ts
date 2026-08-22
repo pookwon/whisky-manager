@@ -7,6 +7,7 @@ import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { executions } from '../../src/desktop/db/schema.js'
+import type { CommentAuthor } from '../../src/shared/types.js'
 import { runSession, type SessionDeps } from '../../src/desktop/orchestrator.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
 import { PROFILES } from '../../src/shared/profiles.js'
@@ -22,7 +23,7 @@ interface FakeTransportOptions {
   candidates?: RawCandidate[]
   executeOk?: boolean
   /** Authors returned by the pre-execution re-check. Omitted means none. */
-  commentsAtExecution?: string[] | null
+  commentsAtExecution?: CommentAuthor[] | null
 }
 
 function fakeTransport(options: FakeTransportOptions = {}) {
@@ -190,7 +191,10 @@ describe('runSession — AUTO policy', () => {
   })
 
   it('skips a post an operator already greeted', async () => {
-    const already = { ...candidate('1003'), existingCommentAuthors: ['cafe-ops'] }
+    const already = {
+      ...candidate('1003'),
+      existingCommentAuthors: [{ nickname: 'cafe-ops', memberKey: 'key-ops' }],
+    }
     expect(await runSession(deps({ transport: fakeTransport({ candidates: [already] }) }))).toMatchObject({
       opened: true,
       executed: 0,
@@ -292,7 +296,7 @@ describe('runSession — dedupe', () => {
 describe('runSession — pre-execution re-check', () => {
   it('skips when an operator commented between collection and execution', async () => {
     // Collection saw no comments, but a staff member got there first.
-    const transport = fakeTransport({ candidates: [candidate('7001')], commentsAtExecution: ['cafe-ops'] })
+    const transport = fakeTransport({ candidates: [candidate('7001')], commentsAtExecution: [{ nickname: 'cafe-ops', memberKey: 'key-ops' }] })
 
     expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, executed: 0, skipped: 1 })
 

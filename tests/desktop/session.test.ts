@@ -207,7 +207,10 @@ describe('createSessionRunner', () => {
   })
 
   it('skips a post any configured operator account already greeted', async () => {
-    const greeted = { ...candidate('5001'), existingCommentAuthors: ['staff-personal'] }
+    const greeted = {
+      ...candidate('5001'),
+      existingCommentAuthors: [{ nickname: 'staff-personal', memberKey: 'key-staff' }],
+    }
     const { run, repos, settings } = build([greeted])
     enable(repos)
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })

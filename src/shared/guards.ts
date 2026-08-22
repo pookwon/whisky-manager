@@ -1,4 +1,4 @@
-import type { Candidate, RiskFlag, SkipReason } from './types.js'
+import type { Candidate, CommentAuthor, RiskFlag, SkipReason } from './types.js'
 
 export type GuardOutcome =
   | { kind: 'RISK'; flag: RiskFlag }
@@ -10,7 +10,7 @@ export interface GuardContext {
   /** Every account the cafe staff use, not just the executing one. */
   readonly operatorAccounts: readonly string[]
   /** Authors of comments already on the post. `null` means the check failed. */
-  readonly existingCommentAuthors: readonly string[] | null
+  readonly existingCommentAuthors: readonly CommentAuthor[] | null
 }
 
 export type Guard = (candidate: Candidate, ctx: GuardContext) => GuardOutcome
@@ -29,9 +29,22 @@ export const operatorAlreadyCommentedGuard: Guard = (_candidate, ctx) => {
   if (ctx.existingCommentAuthors === null) {
     return { kind: 'RISK', flag: 'COMMENT_CHECK_FAILED' }
   }
-  const operators = new Set(ctx.operatorAccounts)
-  const greeted = ctx.existingCommentAuthors.some((author) => operators.has(author))
-  return greeted ? { kind: 'SKIP', reason: 'ALREADY_COMMENTED' } : null
+  return containsOperator(ctx.existingCommentAuthors, ctx.operatorAccounts)
+    ? { kind: 'SKIP', reason: 'ALREADY_COMMENTED' }
+    : null
+}
+
+/**
+ * An account is configured by nickname or by member key, and either matches.
+ * The orchestrator re-runs this check right before executing, so it lives here
+ * rather than being written out twice.
+ */
+export function containsOperator(
+  authors: readonly CommentAuthor[],
+  operatorAccounts: readonly string[],
+): boolean {
+  const operators = new Set(operatorAccounts)
+  return authors.some((author) => operators.has(author.nickname) || operators.has(author.memberKey))
 }
 
 export function evaluateGuards(

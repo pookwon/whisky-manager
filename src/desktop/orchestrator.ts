@@ -1,4 +1,4 @@
-import { evaluateGuards, type Guard } from '../shared/guards.js'
+import { containsOperator, evaluateGuards, type Guard } from '../shared/guards.js'
 import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { laterPostId } from '../shared/postId.js'
@@ -6,7 +6,7 @@ import { decide } from '../shared/policy.js'
 import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
-import type { ApprovalPolicy, Candidate, Limits } from '../shared/types.js'
+import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
@@ -120,7 +120,7 @@ async function collect(deps: SessionDeps) {
  * seconds old, and in parallel operation with humans a staff member can get
  * there first. `null` means the check could not be performed.
  */
-async function recheckComments(deps: SessionDeps, post: PostRef): Promise<string[] | null> {
+async function recheckComments(deps: SessionDeps, post: PostRef): Promise<CommentAuthor[] | null> {
   try {
     const reply = await deps.transport.request(
       { type: 'CHECK_COMMENTS', requestId: deps.newRequestId(), automationId: deps.automationId, action: post },
@@ -211,7 +211,7 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters):
     })
     return 'SKIPPED'
   }
-  if (authorsNow.some((author) => deps.operatorAccounts.includes(author))) {
+  if (containsOperator(authorsNow, deps.operatorAccounts)) {
     deps.repo.applyPatch(job.executionId, {
       status: 'SKIPPED',
       reason: 'ALREADY_COMMENTED',

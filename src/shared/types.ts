@@ -71,3 +71,13 @@ export interface Limits {
 }
 
 export type Profile = 'production' | 'debug'
+
+/**
+ * Who wrote a comment. Both identities travel together because operators are
+ * configured by whichever one they know: a nickname is what staff recognise,
+ * while the member key is what survives a rename.
+ */
+export interface CommentAuthor {
+  readonly nickname: string
+  readonly memberKey: string
+}

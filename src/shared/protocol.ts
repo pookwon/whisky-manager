@@ -1,4 +1,4 @@
-import type { ExecutionStrategy } from './types.js'
+import type { CommentAuthor, ExecutionStrategy } from './types.js'
 
 export const PROTOCOL_VERSION = 1
 
@@ -25,7 +25,7 @@ export interface RawCandidate {
   readonly authorId: string | null
   readonly postedAt: number
   /** Authors of comments already on the post. `null` means the check failed. */
-  readonly existingCommentAuthors: string[] | null
+  readonly existingCommentAuthors: CommentAuthor[] | null
 }
 
 /** Semantic action. Endpoints, tokens and selectors stay inside the extension. */
@@ -56,13 +56,13 @@ export type ExtensionMessage =
   | { type: 'HELLO'; token: string; extensionId: string; protocolVersion: number }
   | { type: 'LOGIN_STATE'; requestId: string; loggedIn: boolean; account: string | null }
   | { type: 'COLLECTED'; requestId: string; candidates: RawCandidate[] }
-  | { type: 'COMMENTS'; requestId: string; authors: string[] | null }
+  | { type: 'COMMENTS'; requestId: string; authors: CommentAuthor[] | null }
   | {
       type: 'EXECUTED'
       requestId: string
       ok: boolean
       strategy: ExecutionStrategy | null
-      commentAuthors: string[] | null
+      commentAuthors: CommentAuthor[] | null
       error: string | null
     }
   | {

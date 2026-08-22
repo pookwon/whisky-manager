@@ -1,5 +1,6 @@
 import { parse, type HTMLElement } from 'node-html-parser'
 import type { RawCandidate } from '../../protocol.js'
+import type { CommentAuthor } from '../../types.js'
 
 /**
  * The 가입인사 board is a memo board: a legacy server-rendered page, not a JSON
@@ -50,7 +51,7 @@ function postedAt(titBox: HTMLElement): number | null {
  * someone has, but the list page never names them, so the authors are unknown
  * and the caller has to re-check before it can rule out an operator.
  */
-function commentAuthors(replyBox: HTMLElement): string[] | null {
+function commentAuthors(replyBox: HTMLElement): CommentAuthor[] | null {
   const label = replyBox.querySelector('._totalCnt')?.text ?? ''
   const match = COMMENT_COUNT.exec(label)
   if (match === null) return null
