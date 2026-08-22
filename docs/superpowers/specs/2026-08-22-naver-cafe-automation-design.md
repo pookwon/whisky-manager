@@ -300,7 +300,22 @@ selector와 엔드포인트 정의를 코드가 아닌 설정 파일로 분리�
 
 **실행 대상은 메모의 댓글이다.** 목록 상단에 새 메모를 쓰는 입력창이 있지만 도구는 그것을 쓰지 않는다. 각 메모에 달린 댓글(목록에 "댓글 N"으로 노출)이 환영 인사가 나가는 자리다.
 
-**엔드포인트 확정은 Phase 3 작업** — 목록 HTML의 마크업(글 ID·닉네임·회원 ID·작성 시각의 위치)과 댓글 조회·작성 요청은 **운영 계정으로 로그인한 크롬에서 실제 요청·DOM을 관찰해 확정한다.** 추측으로 구현하지 않는다.
+**엔드포인트 — 실측으로 확정 (2026-08-22)**
+
+게시판 페이지가 로드하는 자기 스크립트에서 읽어냈고, 로그인된 세션으로 실제 호출해 검증했다. 추측한 값은 없다.
+
+| 용도 | 요청 |
+|---|---|
+| 목록 | `GET /MemoList.nhn?search.clubid=&search.menuid=&search.page=N&viewType=pc` |
+| 댓글 조회 | `GET /MemoCommentView.nhn?search.clubid=&search.menuid=&search.articleid=&search.lastpageview=true&lcs=Y` |
+| 댓글 작성 | `POST /MemoCommentPost.nhn` |
+| 댓글 삭제 | `POST /MemoCommentDelete.nhn` — 긴급 회수용 |
+
+목록은 MS949 HTML, 댓글 조회는 UTF-8 JSON이다. 한 페이지에 5건씩 실리므로 수집은 워터마크에 닿을 때까지 페이지를 거슬러 오른다. 로그인 여부와 실행 계정은 게시판 페이지의 `g_sUserId`·`g_sUserMemberKey`로 판정한다 — 카페 대문이 아니라 게시판을 읽으므로 세션이 살아 있는지와 이 게시판에 접근 가능한지를 한 번에 확인한다.
+
+**작성 요청은 Referer를 요구한다.** 댓글 폼에는 CSRF 토큰이 없고, 서버가 위조 요청을 거르는 수단은 Referer뿐이다. 헤더 없이 보내면 **200을 응답하면서 아무 일도 하지 않는다.** 게시판은 페이지 안의 숨은 폼을 iframe으로 제출하므로 이 헤더가 자연히 실리지만, 확장의 `fetch`는 실을 수 없다(금지 헤더). 따라서 `declarativeNetRequest` 세션 규칙으로 그 요청 직전에만 `Referer`/`Origin`을 게시판 페이지로 세팅하고 끝나면 즉시 제거한다. 권한은 `declarativeNetRequestWithHostAccess`로 제한해 이미 가진 host_permissions 범위를 넘지 않는다.
+
+**성공 판정은 응답이 아니라 재조회로 한다.** 이 엔드포인트는 숨은 iframe용 페이지를 돌려주므로 200이 성공을 뜻하지 않는다. 작성 후 댓글을 다시 읽어 실행 계정의 `memberKey`가 보일 때만 성공으로 기록한다. 타임아웃으로 실패 처리된 요청이 실제로는 도달한 경우(5.6절)도 이 방식이면 정확히 판정된다.
 
 **추출 항목** — 글 ID, 작성자 닉네임, 작성자 회원 ID, 작성 시각.
 
