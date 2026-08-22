@@ -84,6 +84,107 @@ describe('createSessionLoop', () => {
     expect(outcomes).toEqual([idleOutcome])
   })
 
+  it('schedules the next session after one finishes', async () => {
+    const fired: Array<() => void> = []
+    const setTimer = vi.fn((fn: () => void, _ms: number) => {
+      fired.push(fn)
+      return 1
+    })
+    const loop = createSessionLoop(loopDeps({ setTimer }))
+
+    loop.start()
+    expect(setTimer).toHaveBeenCalledTimes(1)
+
+    // Drive the timer callback the way the runtime would.
+    fired[0]?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(setTimer).toHaveBeenCalledTimes(2)
+    loop.stop()
+  })
+
+  it('does not schedule again once stopped', async () => {
+    const fired: Array<() => void> = []
+    const setTimer = vi.fn((fn: () => void, _ms: number) => {
+      fired.push(fn)
+      return 1
+    })
+    const loop = createSessionLoop(loopDeps({ setTimer }))
+
+    loop.start()
+    loop.stop()
+
+    // A timer already in flight must not resurrect the loop.
+    fired[0]?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(setTimer).toHaveBeenCalledTimes(1)
+  })
+
+  it('halts immediately when the operator is logged out', async () => {
+    const halts: string[] = []
+    const loop = createSessionLoop(
+      loopDeps({
+        setTimer: () => 1,
+        runSession: () => Promise.resolve({ opened: false, reason: 'NOT_LOGGED_IN' }),
+        onHalt: (reason) => halts.push(reason),
+      }),
+    )
+
+    loop.start()
+    await loop.runOnce()
+
+    expect(halts).toEqual(['NOT_LOGGED_IN'])
+    expect(loop.isRunning()).toBe(false)
+  })
+
+  it('tolerates login check failures until the third in a row', async () => {
+    const halts: string[] = []
+    const loop = createSessionLoop(
+      loopDeps({
+        setTimer: () => 1,
+        runSession: () => Promise.resolve({ opened: false, reason: 'LOGIN_CHECK_FAILED' }),
+        onHalt: (reason) => halts.push(reason),
+      }),
+    )
+
+    loop.start()
+    await loop.runOnce()
+    await loop.runOnce()
+    // A flaky network must not take the whole automation down on its own.
+    expect(loop.isRunning()).toBe(true)
+
+    await loop.runOnce()
+    expect(halts).toEqual(['LOGIN_CHECK_FAILED'])
+    expect(loop.isRunning()).toBe(false)
+  })
+
+  it('forgets the failure streak after a session opens', async () => {
+    const halts: string[] = []
+    let fail = true
+    const loop = createSessionLoop(
+      loopDeps({
+        setTimer: () => 1,
+        runSession: () =>
+          Promise.resolve(fail ? { opened: false, reason: 'LOGIN_CHECK_FAILED' } : idleOutcome),
+        onHalt: (reason) => halts.push(reason),
+      }),
+    )
+
+    loop.start()
+    await loop.runOnce()
+    await loop.runOnce()
+    fail = false
+    await loop.runOnce()
+    fail = true
+    await loop.runOnce()
+    await loop.runOnce()
+
+    expect(halts).toEqual([])
+    expect(loop.isRunning()).toBe(true)
+    loop.stop()
+  })
+
   it('keeps the loop usable when a session throws', async () => {
     const errors: unknown[] = []
     const loop = createSessionLoop(

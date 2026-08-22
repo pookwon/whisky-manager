@@ -142,12 +142,38 @@ describe('runSession — gates before opening', () => {
 })
 
 describe('runSession — AUTO policy', () => {
-  it('executes clean candidates and records success', async () => {
+  it('executes clean candidates and records every outcome field', async () => {
     const transport = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
     const outcome = await runSession(deps({ transport }))
 
-    expect(outcome).toMatchObject({ opened: true, executed: 2, skipped: 0, awaitingApproval: 0, failed: 0 })
-    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+    // toEqual, not toMatchObject: a dropped counter should fail this test.
+    expect(outcome).toEqual({
+      opened: true,
+      executed: 2,
+      skipped: 0,
+      awaitingApproval: 0,
+      failed: 0,
+      expired: 0,
+      lastProcessedPostId: '1002',
+    })
+    expect(db.select().from(executions).all().map((r) => r.status)).toEqual(['SUCCESS', 'SUCCESS'])
+  })
+
+  it('paces every execution through the injected sleep', async () => {
+    const waits: number[] = []
+    const transport = fakeTransport({ candidates: [candidate('1020'), candidate('1021')] })
+
+    await runSession(deps({ transport, sleep: (ms) => { waits.push(ms); return Promise.resolve() } }))
+
+    // Dropping the pacing call would fire both comments back to back.
+    expect(waits).toEqual([10_000, 10_000])
+  })
+
+  it('stores the risk flags that drove the decision', async () => {
+    const unchecked = { ...candidate('1030'), existingCommentAuthors: null }
+    await runSession(deps({ transport: fakeTransport({ candidates: [unchecked] }), policy: 'SEMI' }))
+
+    expect(db.select().from(executions).all()[0]?.riskFlags).toBe('["COMMENT_CHECK_FAILED"]')
   })
 
   it('records the execution timestamp separately from resolution', async () => {

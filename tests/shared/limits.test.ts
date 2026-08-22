@@ -32,6 +32,17 @@ describe('checkGates', () => {
     })
   })
 
+  it('allows one below each cap', () => {
+    expect(checkGates({ killed: false, dailyCount: 199, sessionCount: 14 }, limits)).toEqual({ allowed: true })
+  })
+
+  it('blocks past the daily cap, not only at it', () => {
+    expect(checkGates({ killed: false, dailyCount: 201, sessionCount: 0 }, limits)).toEqual({
+      allowed: false,
+      reason: 'DAILY_CAP_EXCEEDED',
+    })
+  })
+
   it('reports the kill switch before any cap', () => {
     expect(checkGates({ killed: true, dailyCount: 999, sessionCount: 999 }, limits)).toEqual({
       allowed: false,
