@@ -24,6 +24,7 @@
 |---|---|
 | [설계 스펙](docs/superpowers/specs/2026-08-22-naver-cafe-automation-design.md) | 아키텍처, 자동화 모델, 승인 정책, 안전장치, 데이터 모델 |
 | [기술 스택](docs/tech-stack.md) | 채택 버전과 근거, 기각한 대안, 버전 정책 |
+| [Chrome 확장 수동 설치 안내](docs/chrome-extension-manual-installation.md) | 비개발자용 확장 설치·앱 연결·문제 해결 안내 |
 | [구현 계획 A — 기반](docs/superpowers/plans/2026-08-22-naver-cafe-foundation.md) | Phase 0~2. 13개 태스크, TDD 사이클 |
 | [구현 계획 C1 — 데스크톱 헤드리스](docs/superpowers/plans/2026-08-22-desktop-headless.md) | Phase 4 전반. 세션 루프, 승인·재시도, Electron 셸 |
 | [구현 계획 C2 — 렌더러](docs/superpowers/plans/2026-08-22-desktop-renderer.md) | Phase 4 후반. 대시보드, 승인 큐, 문구, 설정 |
