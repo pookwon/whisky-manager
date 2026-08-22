@@ -44,7 +44,8 @@ export interface PostRef {
 
 export type AppMessage =
   | { type: 'HELLO_ACK'; accepted: boolean; reason: string | null }
-  | { type: 'CHECK_LOGIN'; requestId: string }
+  /** Carries the board so the check proves access to it, not just to naver. */
+  | { type: 'CHECK_LOGIN'; requestId: string; source: SourceRef }
   | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null }
   | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }

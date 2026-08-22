@@ -63,7 +63,7 @@ describe('createBridgeServer', () => {
       }
     })
 
-    const reply = (await server.request({ type: 'CHECK_LOGIN', requestId: 'r1' }, 1_000)) as Extract<
+    const reply = (await server.request({ type: 'CHECK_LOGIN', requestId: 'r1', source: { cafeId: 'c', boardId: 'b' } }, 1_000)) as Extract<
       ExtensionMessage,
       { type: 'LOGIN_STATE' }
     >
@@ -78,12 +78,12 @@ describe('createBridgeServer', () => {
     const ws = await connect(TOKEN)
     await nextMessage(ws)
 
-    await expect(server.request({ type: 'CHECK_LOGIN', requestId: 'r2' }, 50)).rejects.toThrow(/timed out/i)
+    await expect(server.request({ type: 'CHECK_LOGIN', requestId: 'r2', source: { cafeId: 'c', boardId: 'b' } }, 50)).rejects.toThrow(/timed out/i)
     ws.close()
   })
 
   it('rejects a request when no extension is connected', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
-    await expect(server.request({ type: 'CHECK_LOGIN', requestId: 'r3' }, 50)).rejects.toThrow(/not connected/i)
+    await expect(server.request({ type: 'CHECK_LOGIN', requestId: 'r3', source: { cafeId: 'c', boardId: 'b' } }, 50)).rejects.toThrow(/not connected/i)
   })
 })

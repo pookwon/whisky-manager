@@ -14,7 +14,8 @@
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:all": "pnpm build && pnpm build:renderer && pnpm build:extension",
     "probe": "pnpm build && node scripts/probe.mjs",
-    "generate:cp949": "node scripts/generate-cp949.mjs"
+    "generate:cp949": "node scripts/generate-cp949.mjs",
+    "dry-run": "pnpm build && node scripts/dry-run.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

@@ -28,7 +28,6 @@ interface Route {
 function harness(routes: Route[], fallback: HttpResponse = ok('')) {
   const seen: HttpRequest[] = []
   const client = createCafeClient({
-    cafeUrlName: 'examplecafe',
     http: (request) => {
       seen.push(request)
       return Promise.resolve(routes.find((r) => r.match(request))?.reply ?? fallback)
@@ -54,16 +53,16 @@ function pageWith(ids: string[]): string {
 describe('checkLogin', () => {
   it('reports the account the session belongs to', async () => {
     const { client } = harness([
-      { match: (r) => r.url.endsWith('/examplecafe'), reply: ok('var g_sUserId = "ops";var g_sUserMemberKey = "K1"') },
+      { match: (r) => r.url.includes('MemoList.nhn'), reply: ok('var g_sUserId = "ops";var g_sUserMemberKey = "K1"') },
     ])
 
-    expect(await client.checkLogin()).toEqual({ loggedIn: true, account: 'ops', memberKey: 'K1' })
+    expect(await client.checkLogin(source)).toEqual({ loggedIn: true, account: 'ops', memberKey: 'K1' })
   })
 
   it('reports logged out when the page names no account', async () => {
     const { client } = harness([], ok('<html>로그인</html>'))
 
-    expect(await client.checkLogin()).toEqual({ loggedIn: false, account: null, memberKey: null })
+    expect(await client.checkLogin(source)).toEqual({ loggedIn: false, account: null, memberKey: null })
   })
 })
 
@@ -145,7 +144,7 @@ describe('checkComments', () => {
 
 describe('execute', () => {
   const loginRoute: Route = {
-    match: (r) => r.url.endsWith('/examplecafe'),
+    match: (r) => r.url.includes('MemoList.nhn'),
     reply: ok('var g_sUserId = "ops";var g_sUserMemberKey = "MINE"'),
   }
 

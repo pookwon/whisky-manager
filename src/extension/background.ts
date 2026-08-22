@@ -8,13 +8,6 @@ const RECONNECT_ALARM = 'bridge-reconnect'
 const RECONNECT_PERIOD_MINUTES = 1
 
 /**
- * The cafe's vanity url. It is the one address the extension cannot derive from
- * the numeric ids the app sends, and it is only used to read which account the
- * browser session belongs to.
- */
-const CAFE_URL_NAME = 'examplecafe'
-
-/**
  * Every request goes through the browser's own session, so no cookie ever
  * leaves it. Bodies are decoded with the charset the response declares: the
  * memo board is served as MS949 and `res.text()` would mangle every hangul.
@@ -35,7 +28,7 @@ async function request(init: HttpRequest): Promise<HttpResponse> {
   }
 }
 
-const cafe = createCafeClient({ http: request, cafeUrlName: CAFE_URL_NAME })
+const cafe = createCafeClient({ http: request })
 
 /** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
 async function probe(requestId: string, url: string, reply: Reply): Promise<void> {
@@ -76,7 +69,7 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
       return
 
     case 'CHECK_LOGIN': {
-      const state = await cafe.checkLogin()
+      const state = await cafe.checkLogin(message.source)
       reply({
         type: 'LOGIN_STATE',
         requestId: message.requestId,

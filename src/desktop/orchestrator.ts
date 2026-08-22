@@ -87,7 +87,11 @@ interface Counters {
 async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> {
   try {
     const reply = await deps.transport.request(
-      { type: 'CHECK_LOGIN', requestId: deps.newRequestId() },
+      {
+        type: 'CHECK_LOGIN',
+        requestId: deps.newRequestId(),
+        source: { cafeId: deps.cafeId, boardId: deps.boardId },
+      },
       TIMEOUTS.loginCheckMs,
     )
     if (reply.type !== 'LOGIN_STATE') return 'UNKNOWN'

@@ -29,11 +29,6 @@ export function commentViewUrl(source: SourceRef, postId: string): string {
 
 export const commentPostUrl = `${ORIGIN}/MemoCommentPost.nhn`
 
-/** The cafe home, whose page script names the account the session belongs to. */
-export function cafeHomeUrl(cafeUrlName: string): string {
-  return `${ORIGIN}/${cafeUrlName}`
-}
-
 interface RawComment {
   readonly writernick?: unknown
   readonly writerMemberKey?: unknown
@@ -85,8 +80,9 @@ const USER_MEMBER_KEY = /var\s+g_sUserMemberKey\s*=\s*"([^"]*)"/
 const LOGGED_OUT: LoginState = { loggedIn: false, account: null, memberKey: null }
 
 /**
- * Naver serves the cafe shell to anonymous visitors as well, so the signal is
- * the account being named, not the page loading. Anything unrecognised counts
+ * The board page itself names the signed-in account, so the login check reads
+ * the same page collection does. Naver serves a page to anonymous visitors as
+ * well, so the signal is the account being named, not the page loading. Anything unrecognised counts
  * as logged out: greeting nobody costs a session, whereas parsing a login page
  * as a board is the accident section 5.6 exists to prevent.
  */

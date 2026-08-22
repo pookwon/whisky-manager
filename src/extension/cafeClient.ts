@@ -1,5 +1,4 @@
 import {
-  cafeHomeUrl,
   commentPostBody,
   commentPostUrl,
   commentViewUrl,
@@ -31,8 +30,6 @@ export type Http = (request: HttpRequest) => Promise<HttpResponse>
 
 export interface CafeClientDeps {
   readonly http: Http
-  /** The cafe's vanity url, whose page names the signed-in account. */
-  readonly cafeUrlName: string
 }
 
 export interface ExecuteResult {
@@ -42,7 +39,7 @@ export interface ExecuteResult {
 }
 
 export interface CafeClient {
-  checkLogin(): Promise<LoginState>
+  checkLogin(source: SourceRef): Promise<LoginState>
   collect(source: SourceRef, sincePostId: string | null): Promise<RawCandidate[]>
   checkComments(source: SourceRef, postId: string): Promise<CommentAuthor[] | null>
   execute(source: SourceRef, postId: string, content: string): Promise<ExecuteResult>
@@ -69,8 +66,10 @@ function oldestFirst(a: RawCandidate, b: RawCandidate): number {
 export function createCafeClient(deps: CafeClientDeps): CafeClient {
   let session: LoginState | null = null
 
-  async function checkLogin(): Promise<LoginState> {
-    const response = await deps.http({ url: cafeHomeUrl(deps.cafeUrlName) })
+  async function checkLogin(source: SourceRef): Promise<LoginState> {
+    // The board's own page names the account, so one request proves both that
+    // the session is live and that it can still reach this board.
+    const response = await deps.http({ url: memoListUrl(source, 1) })
     session = parseLoginState(response.status === 200 ? response.text : '')
     return session
   }
@@ -121,7 +120,7 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
     },
 
     async execute(source, postId, content) {
-      const login = session ?? (await checkLogin())
+      const login = session ?? (await checkLogin(source))
       if (!login.loggedIn || login.memberKey === null) {
         return { ok: false, commentAuthors: null, error: 'NOT_LOGGED_IN' }
       }

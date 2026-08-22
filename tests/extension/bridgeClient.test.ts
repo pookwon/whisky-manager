@@ -105,7 +105,7 @@ describe('createBridgeClient', () => {
     const socket = sockets[0] as FakeSocket
     socket.emit('open')
 
-    socket.emit('message', { data: JSON.stringify({ type: 'CHECK_LOGIN', requestId: 'r1' }) })
+    socket.emit('message', { data: JSON.stringify({ type: 'CHECK_LOGIN', requestId: 'r1', source: { cafeId: 'c', boardId: 'b' } }) })
 
     expect(handled.map((m) => m.type)).toEqual(['CHECK_LOGIN'])
     const reply = JSON.parse(socket.sent[1] as string) as ExtensionMessage
