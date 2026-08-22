@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray } from 'drizzle-orm'
+import { and, count, eq, gte, inArray } from 'drizzle-orm'
 import {
   UNRESOLVED_STATUSES,
   type ExecutionStatus,
@@ -124,27 +124,31 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
     },
 
     countByStatusSince(automationId, status, sinceMs) {
-      return db
-        .select()
-        .from(executions)
-        .where(
-          and(
-            eq(executions.automationId, automationId),
-            eq(executions.status, status),
-            gte(executions.resolvedAt, sinceMs),
-          ),
-        )
-        .all().length
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.automationId, automationId),
+              eq(executions.status, status),
+              gte(executions.resolvedAt, sinceMs),
+            ),
+          )
+          .get()?.value ?? 0
+      )
     },
 
     countExecutedSince(automationId, sinceMs) {
       // Every row we actually sent to naver, whatever the outcome. Volume caps
       // guard request count, so a failed attempt still consumed the budget.
-      return db
-        .select()
-        .from(executions)
-        .where(and(eq(executions.automationId, automationId), gte(executions.executedAt, sinceMs)))
-        .all().length
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(and(eq(executions.automationId, automationId), gte(executions.executedAt, sinceMs)))
+          .get()?.value ?? 0
+      )
     },
 
     listUnresolved(automationId) {
@@ -193,11 +197,13 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
     },
 
     countByStatus(automationId, status) {
-      return db
-        .select()
-        .from(executions)
-        .where(and(eq(executions.automationId, automationId), eq(executions.status, status)))
-        .all().length
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(and(eq(executions.automationId, automationId), eq(executions.status, status)))
+          .get()?.value ?? 0
+      )
     },
 
     listAwaitingDetail(automationId) {
