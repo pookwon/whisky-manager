@@ -165,6 +165,25 @@ describe('execute', () => {
     expect(post?.referer).toContain('MemoList.nhn')
   })
 
+  it('runs the page hook immediately before posting the comment', async () => {
+    const events: string[] = []
+    const client = createCafeClient({
+      beforeCommentPost: async () => {
+        events.push('lcs_do')
+      },
+      http: async (request) => {
+        if (request.url.includes('MemoCommentPost')) events.push('post')
+        if (request.url.includes('MemoList.nhn')) return loginRoute.reply
+        if (request.url.includes('MemoCommentView')) return comments({ nickname: '운영', memberKey: 'MINE' })
+        return ok('')
+      },
+    })
+
+    await client.execute(source, '334381', '환영합니다')
+
+    expect(events).toEqual(['lcs_do', 'post'])
+  })
+
   it('fails when the comment is not there afterwards, whatever the post said', async () => {
     // A 200 from the form endpoint is not proof; the only proof is reading the
     // comment back. Reporting success without it would lose the greeting.

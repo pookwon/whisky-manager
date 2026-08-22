@@ -17,6 +17,10 @@ describe('extension manifest', () => {
     expect(manifest.permissions).not.toContain('cookies')
   })
 
+  it('can run the board page telemetry function', () => {
+    expect(manifest.permissions).toContain('scripting')
+  })
+
   it('limits host permissions to the cafe origins it needs', () => {
     expect(manifest.host_permissions).toEqual(['https://cafe.naver.com/*', 'https://apis.naver.com/*'])
   })

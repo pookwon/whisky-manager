@@ -32,6 +32,11 @@ export type Http = (request: HttpRequest) => Promise<HttpResponse>
 
 export interface CafeClientDeps {
   readonly http: Http
+  /**
+   * Runs in the board page's JavaScript context immediately before the form
+   * write. Naver's `lcs_do` records the interaction there.
+   */
+  readonly beforeCommentPost?: (source: SourceRef, postId: string) => Promise<void>
 }
 
 export interface ExecuteResult {
@@ -144,6 +149,7 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
       // carries the board page as its referer. The form has no csrf token,
       // which leaves the referer as the check the server can still make — a
       // fetch without one is answered with 200 and quietly does nothing.
+      await deps.beforeCommentPost?.(source, postId)
       const posted = await deps.http({
         url: commentPostUrl,
         method: 'POST',

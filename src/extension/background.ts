@@ -77,7 +77,32 @@ async function request(init: HttpRequest): Promise<HttpResponse> {
   }
 }
 
-const cafe = createCafeClient({ http: request })
+/**
+ * Naver defines `lcs_do` in the page's main world, not in the extension
+ * worker. It is telemetry only, so an absent function (or no open cafe tab)
+ * must not prevent a legitimate comment from being sent.
+ */
+async function runLcsDo(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (tab?.id === undefined || !tab.url?.startsWith('https://cafe.naver.com/')) return
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: () => {
+        const lcsDo = (globalThis as typeof globalThis & { lcs_do?: unknown }).lcs_do
+        if (typeof lcsDo === 'function') lcsDo.call(globalThis)
+      },
+    })
+  } catch (error) {
+    // The tab may have navigated between query and injection. The following
+    // request is still valid and its result is verified by re-reading comments.
+    console.warn('[cafe] lcs_do could not run:', error)
+  }
+}
+
+const cafe = createCafeClient({ http: request, beforeCommentPost: async () => runLcsDo() })
 
 /** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
 async function probe(requestId: string, url: string, reply: Reply): Promise<void> {
