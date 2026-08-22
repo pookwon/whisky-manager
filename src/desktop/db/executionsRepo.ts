@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray } from 'drizzle-orm'
+import { and, count, eq, gte, inArray } from 'drizzle-orm'
 import {
   UNRESOLVED_STATUSES,
   type ExecutionStatus,
@@ -41,12 +41,39 @@ export interface UnresolvedRow {
   readonly targetPostedAt: number
   readonly status: ExecutionStatus
   readonly attempts: number
+  /** Approval expiry is measured from detection, not from the post's date. */
+  readonly detectedAt: number
+}
+
+export interface AwaitingDetailRow {
+  readonly id: string
+  readonly targetPostId: string
+  readonly targetTitle: string | null
+  readonly targetAuthor: string | null
+  readonly renderedText: string | null
+  readonly riskFlags: RiskFlag[]
+  readonly detectedAt: number
+}
+
+export interface QueuedRow {
+  readonly id: string
+  readonly cafeId: string
+  readonly boardId: string
+  readonly targetPostId: string
+  readonly renderedText: string
+  readonly templateId: string | null
+  readonly attempts: number
 }
 
 export interface ExecutionsRepo {
   applyPatch(id: string, patch: ExecutionPatch): void
-  countSuccessSince(automationId: string, sinceMs: number): number
+  countByStatusSince(automationId: string, status: ExecutionStatus, sinceMs: number): number
+  countExecutedSince(automationId: string, sinceMs: number): number
   listUnresolved(automationId: string): UnresolvedRow[]
+  listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
+  listQueued(automationId: string): QueuedRow[]
+  countByStatus(automationId: string, status: ExecutionStatus): number
+  listAwaitingDetail(automationId: string): AwaitingDetailRow[]
   getById(id: string): ExecutionRow | undefined
 }
 
@@ -56,6 +83,26 @@ function parseFlags(raw: string): RiskFlag[] {
     return Array.isArray(parsed) ? (parsed as RiskFlag[]) : []
   } catch {
     return []
+  }
+}
+
+interface RawRow {
+  id: string
+  targetPostId: string
+  targetPostedAt: number
+  status: ExecutionStatus
+  attempts: number
+  detectedAt: number
+}
+
+function toUnresolvedRow(r: RawRow): UnresolvedRow {
+  return {
+    id: r.id,
+    targetPostId: r.targetPostId,
+    targetPostedAt: r.targetPostedAt,
+    status: r.status,
+    attempts: r.attempts,
+    detectedAt: r.detectedAt,
   }
 }
 
@@ -76,18 +123,32 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
       db.update(executions).set(values).where(eq(executions.id, id)).run()
     },
 
-    countSuccessSince(automationId, sinceMs) {
-      return db
-        .select()
-        .from(executions)
-        .where(
-          and(
-            eq(executions.automationId, automationId),
-            eq(executions.status, 'SUCCESS'),
-            gte(executions.resolvedAt, sinceMs),
-          ),
-        )
-        .all().length
+    countByStatusSince(automationId, status, sinceMs) {
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.automationId, automationId),
+              eq(executions.status, status),
+              gte(executions.resolvedAt, sinceMs),
+            ),
+          )
+          .get()?.value ?? 0
+      )
+    },
+
+    countExecutedSince(automationId, sinceMs) {
+      // Every row we actually sent to naver, whatever the outcome. Volume caps
+      // guard request count, so a failed attempt still consumed the budget.
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(and(eq(executions.automationId, automationId), gte(executions.executedAt, sinceMs)))
+          .get()?.value ?? 0
+      )
     },
 
     listUnresolved(automationId) {
@@ -98,12 +159,69 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
           and(eq(executions.automationId, automationId), inArray(executions.status, [...UNRESOLVED_STATUSES])),
         )
         .all()
+        .map(toUnresolvedRow)
+    },
+
+    listByStatus(automationId, status) {
+      return db
+        .select()
+        .from(executions)
+        .where(and(eq(executions.automationId, automationId), eq(executions.status, status)))
+        .all()
+        .map(toUnresolvedRow)
+    },
+
+    listQueued(automationId) {
+      return db
+        .select()
+        .from(executions)
+        .where(and(eq(executions.automationId, automationId), eq(executions.status, 'QUEUED')))
+        .all()
+        .flatMap((r) =>
+          // A queued row with no text yet belongs to the session that claimed
+          // it; that session renders and executes it in the same pass.
+          r.renderedText === null
+            ? []
+            : [
+                {
+                  id: r.id,
+                  cafeId: r.cafeId,
+                  boardId: r.boardId,
+                  targetPostId: r.targetPostId,
+                  renderedText: r.renderedText,
+                  templateId: r.templateId,
+                  attempts: r.attempts,
+                },
+              ],
+        )
+    },
+
+    countByStatus(automationId, status) {
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(and(eq(executions.automationId, automationId), eq(executions.status, status)))
+          .get()?.value ?? 0
+      )
+    },
+
+    listAwaitingDetail(automationId) {
+      return db
+        .select()
+        .from(executions)
+        .where(
+          and(eq(executions.automationId, automationId), eq(executions.status, 'AWAITING_APPROVAL')),
+        )
+        .all()
         .map((r) => ({
           id: r.id,
           targetPostId: r.targetPostId,
-          targetPostedAt: r.targetPostedAt,
-          status: r.status,
-          attempts: r.attempts,
+          targetTitle: r.targetTitle,
+          targetAuthor: r.targetAuthor,
+          renderedText: r.renderedText,
+          riskFlags: parseFlags(r.riskFlags),
+          detectedAt: r.detectedAt,
         }))
     },
 

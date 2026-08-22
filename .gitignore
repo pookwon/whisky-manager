@@ -4,9 +4,9 @@ dist/
 .env
 *.db
 *.db-journal
-
 # Claude Code / agent tooling state
 .claude/worktrees/
 .omc/
 .serena/
-dist/
+coverage/
+.review/

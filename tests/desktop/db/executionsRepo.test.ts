@@ -69,8 +69,8 @@ describe('applyPatch', () => {
   })
 })
 
-describe('countSuccessSince', () => {
-  it('counts only successes inside the window', async () => {
+describe('countByStatusSince', () => {
+  it('counts only the requested status inside the window', async () => {
     const a = await claim('1001', 1_000)
     const b = await claim('1002', 1_000)
     const c = await claim('1003', 1_000)
@@ -79,7 +79,8 @@ describe('countSuccessSince', () => {
     repo.applyPatch(b, { status: 'SUCCESS', resolvedAt: 500 })
     repo.applyPatch(c, { status: 'FAILED', resolvedAt: 6_000 })
 
-    expect(repo.countSuccessSince(AUTOMATION, 1_000)).toBe(1)
+    expect(repo.countByStatusSince(AUTOMATION, 'SUCCESS', 1_000)).toBe(1)
+    expect(repo.countByStatusSince(AUTOMATION, 'FAILED', 1_000)).toBe(1)
   })
 })
 
@@ -95,5 +96,102 @@ describe('listUnresolved', () => {
 
     const unresolved = repo.listUnresolved(AUTOMATION)
     expect(unresolved.map((r) => r.targetPostId).sort()).toEqual(['1001', '1002'])
+  })
+})
+
+describe('listQueued', () => {
+  it('returns rows ready to execute with the text already decided', async () => {
+    const a = await claim('1001', 1_000)
+    const b = await claim('1002', 1_000)
+
+    repo.applyPatch(a, { status: 'QUEUED', renderedText: 'hello', templateId: 'tpl-1', attempts: 1 })
+    repo.applyPatch(b, { status: 'AWAITING_APPROVAL' })
+
+    const queued = repo.listQueued(AUTOMATION)
+    expect(queued).toHaveLength(1)
+    expect(queued[0]).toMatchObject({
+      id: a,
+      cafeId: '10000000',
+      boardId: '5',
+      targetPostId: '1001',
+      renderedText: 'hello',
+      templateId: 'tpl-1',
+      attempts: 1,
+    })
+  })
+
+  it('omits queued rows that have no text yet', async () => {
+    const a = await claim('1003', 1_000)
+    repo.applyPatch(a, { status: 'QUEUED' })
+    expect(repo.listQueued(AUTOMATION)).toEqual([])
+  })
+})
+
+describe('listByStatus', () => {
+  it('returns rows in the requested status with their detection time', async () => {
+    const a = await claim('1001', 1_000)
+    const b = await claim('1002', 1_000)
+    repo.applyPatch(a, { status: 'RETRY_WAIT' })
+    repo.applyPatch(b, { status: 'AWAITING_APPROVAL' })
+
+    const retries = repo.listByStatus(AUTOMATION, 'RETRY_WAIT')
+    expect(retries).toHaveLength(1)
+    expect(retries[0]).toMatchObject({ id: a, targetPostId: '1001', detectedAt: 2_000 })
+  })
+})
+
+describe('countByStatus', () => {
+  it('counts only the requested status', async () => {
+    const a = await claim('1001', 1_000)
+    const b = await claim('1002', 1_000)
+    const c = await claim('1003', 1_000)
+
+    repo.applyPatch(a, { status: 'AWAITING_APPROVAL' })
+    repo.applyPatch(b, { status: 'AWAITING_APPROVAL' })
+    repo.applyPatch(c, { status: 'SUCCESS', resolvedAt: 2_000 })
+
+    expect(repo.countByStatus(AUTOMATION, 'AWAITING_APPROVAL')).toBe(2)
+    expect(repo.countByStatus(AUTOMATION, 'FAILED')).toBe(0)
+  })
+})
+
+describe('countExecutedSince', () => {
+  it('counts every attempt in the window, not only successes', async () => {
+    const a = await claim('1001', 1_000)
+    const b = await claim('1002', 1_000)
+
+    repo.applyPatch(a, { status: 'SUCCESS', executedAt: 5_000, resolvedAt: 5_000 })
+    repo.applyPatch(b, { status: 'RETRY_WAIT', executedAt: 6_000 })
+
+    expect(repo.countExecutedSince(AUTOMATION, 1_000)).toBe(2)
+    expect(repo.countByStatusSince(AUTOMATION, 'SUCCESS', 1_000)).toBe(1)
+  })
+})
+
+describe('listAwaitingDetail', () => {
+  it('returns what an operator needs to judge the request', async () => {
+    const id = await claim('1001', 1_000)
+    repo.applyPatch(id, {
+      status: 'AWAITING_APPROVAL',
+      renderedText: 'nick님 환영합니다',
+      riskFlags: ['COMMENT_CHECK_FAILED'],
+    })
+
+    const rows = repo.listAwaitingDetail(AUTOMATION)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id,
+      targetPostId: '1001',
+      targetAuthor: 'nick',
+      renderedText: 'nick님 환영합니다',
+      riskFlags: ['COMMENT_CHECK_FAILED'],
+      detectedAt: 2_000,
+    })
+  })
+
+  it('ignores rows in any other status', async () => {
+    const id = await claim('1002', 1_000)
+    repo.applyPatch(id, { status: 'QUEUED', renderedText: 'x' })
+    expect(repo.listAwaitingDetail(AUTOMATION)).toEqual([])
   })
 })

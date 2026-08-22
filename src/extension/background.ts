@@ -34,6 +34,10 @@ function handle(message: AppMessage): void {
       send({ type: 'COLLECTED', requestId: message.requestId, candidates: stubCandidates(message.sincePostId) })
       return
 
+    case 'CHECK_COMMENTS':
+      send({ type: 'COMMENTS', requestId: message.requestId, authors: [] })
+      return
+
     case 'EXECUTE':
       send({
         type: 'EXECUTED',
