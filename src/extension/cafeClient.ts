@@ -17,6 +17,8 @@ export interface HttpRequest {
   readonly method?: 'GET' | 'POST'
   readonly body?: string
   readonly contentType?: string
+  /** Page this request should appear to come from. See `execute`. */
+  readonly referer?: string
 }
 
 export interface HttpResponse {
@@ -36,6 +38,8 @@ export interface ExecuteResult {
   readonly ok: boolean
   readonly commentAuthors: CommentAuthor[] | null
   readonly error: string | null
+  /** A slice of the endpoint's answer, kept only when execution failed. */
+  readonly diagnostic: string | null
 }
 
 export interface CafeClient {
@@ -52,8 +56,19 @@ export interface CafeClient {
  */
 const MAX_PAGES = 10
 
-/** Legacy cafe endpoints read request parameters as MS949, never as UTF-8. */
-const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded; charset=MS949'
+/**
+ * What a browser sends for a form post — no charset parameter. The page is
+ * MS949 and the server assumes it, which is why the body is encoded that way;
+ * announcing a charset here would differ from what the board itself sends.
+ */
+const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded'
+
+/** Enough of a rejection page to recognise it, short enough to store. */
+const DIAGNOSTIC_LENGTH = 300
+
+function diagnose(text: string): string {
+  return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, DIAGNOSTIC_LENGTH)
+}
 
 function isNewerThan(watermark: string | null, postId: string): boolean {
   return watermark === null || laterPostId(watermark, postId) !== watermark
@@ -122,17 +137,27 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
     async execute(source, postId, content) {
       const login = session ?? (await checkLogin(source))
       if (!login.loggedIn || login.memberKey === null) {
-        return { ok: false, commentAuthors: null, error: 'NOT_LOGGED_IN' }
+        return { ok: false, commentAuthors: null, error: 'NOT_LOGGED_IN', diagnostic: null }
       }
 
+      // The board posts comments by submitting a hidden form, so the request
+      // carries the board page as its referer. The form has no csrf token,
+      // which leaves the referer as the check the server can still make — a
+      // fetch without one is answered with 200 and quietly does nothing.
       const posted = await deps.http({
         url: commentPostUrl,
         method: 'POST',
         body: commentPostBody(source, postId, content),
         contentType: FORM_CONTENT_TYPE,
+        referer: memoListUrl(source, 1),
       })
       if (posted.status !== 200) {
-        return { ok: false, commentAuthors: null, error: `POST_FAILED_${posted.status}` }
+        return {
+          ok: false,
+          commentAuthors: null,
+          error: `POST_FAILED_${posted.status}`,
+          diagnostic: diagnose(posted.text),
+        }
       }
 
       // The form endpoint answers with a page meant for a hidden iframe, so its
@@ -140,13 +165,19 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
       // also settles the case where a timed-out request actually landed.
       const authors = await checkComments(source, postId)
       if (authors === null) {
-        return { ok: false, commentAuthors: null, error: 'COMMENT_CHECK_FAILED' }
+        return {
+          ok: false,
+          commentAuthors: null,
+          error: 'COMMENT_CHECK_FAILED',
+          diagnostic: diagnose(posted.text),
+        }
       }
       const landed = authors.some((author) => author.memberKey === login.memberKey)
       return {
         ok: landed,
         commentAuthors: authors,
         error: landed ? null : 'COMMENT_NOT_VISIBLE',
+        diagnostic: landed ? null : diagnose(posted.text),
       }
     },
   }

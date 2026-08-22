@@ -65,6 +65,12 @@ export type ExtensionMessage =
       strategy: ExecutionStrategy | null
       commentAuthors: CommentAuthor[] | null
       error: string | null
+      /**
+       * What the endpoint actually said when execution failed. These endpoints
+       * are undocumented and answer 200 even when they reject a write, so the
+       * code alone cannot tell an operator what changed.
+       */
+      diagnostic: string | null
     }
   | {
       type: 'PROBE_RESULT'

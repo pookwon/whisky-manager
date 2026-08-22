@@ -8,17 +8,66 @@ const RECONNECT_ALARM = 'bridge-reconnect'
 const RECONNECT_PERIOD_MINUTES = 1
 
 /**
+ * `Referer` cannot be set through `fetch` — it is a forbidden header — and the
+ * cafe's write endpoints ignore a request that does not carry one. A session
+ * rule rewrites the header for the one request that needs it, and is torn down
+ * straight afterwards so nothing else in the browser is affected.
+ */
+const REFERER_RULE_ID = 1
+
+async function withReferer<T>(referer: string | undefined, run: () => Promise<T>): Promise<T> {
+  if (referer === undefined) return run()
+
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [REFERER_RULE_ID],
+    addRules: [
+      {
+        id: REFERER_RULE_ID,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
+          requestHeaders: [
+            {
+              header: 'referer',
+              operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
+              value: referer,
+            },
+            {
+              header: 'origin',
+              operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
+              value: new URL(referer).origin,
+            },
+          ],
+        },
+        condition: {
+          urlFilter: '|https://cafe.naver.com/',
+          resourceTypes: ['xmlhttprequest' as chrome.declarativeNetRequest.ResourceType],
+        },
+      },
+    ],
+  })
+
+  try {
+    return await run()
+  } finally {
+    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [REFERER_RULE_ID] })
+  }
+}
+
+/**
  * Every request goes through the browser's own session, so no cookie ever
  * leaves it. Bodies are decoded with the charset the response declares: the
  * memo board is served as MS949 and `res.text()` would mangle every hangul.
  */
 async function request(init: HttpRequest): Promise<HttpResponse> {
-  const response = await fetch(init.url, {
-    method: init.method ?? 'GET',
-    credentials: 'include',
-    ...(init.body === undefined ? {} : { body: init.body }),
-    ...(init.contentType === undefined ? {} : { headers: { 'Content-Type': init.contentType } }),
-  })
+  const response = await withReferer(init.referer, () =>
+    fetch(init.url, {
+      method: init.method ?? 'GET',
+      credentials: 'include',
+      ...(init.body === undefined ? {} : { body: init.body }),
+      ...(init.contentType === undefined ? {} : { headers: { 'Content-Type': init.contentType } }),
+    }),
+  )
   const contentType = response.headers.get('content-type')
   const body = await response.arrayBuffer()
   return {
@@ -104,6 +153,7 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
         strategy: 'FETCH',
         commentAuthors: result.commentAuthors,
         error: result.error,
+        diagnostic: result.diagnostic,
       })
       return
     }

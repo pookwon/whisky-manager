@@ -63,6 +63,7 @@ function transportWith(candidates: RawCandidate[]) {
             strategy: 'FETCH',
             commentAuthors: [],
             error: null,
+            diagnostic: null,
           })
         }
         return Promise.reject(new Error(`unexpected ${message.type}`))

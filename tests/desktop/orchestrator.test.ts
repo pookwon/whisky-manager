@@ -61,6 +61,7 @@ function fakeTransport(options: FakeTransportOptions = {}) {
           strategy: ok ? 'FETCH' : null,
           commentAuthors: [],
           error: ok ? null : 'boom',
+          diagnostic: null,
         })
       }
       return Promise.reject(new Error(`unexpected message ${message.type}`))

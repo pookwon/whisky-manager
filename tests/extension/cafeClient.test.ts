@@ -160,7 +160,9 @@ describe('execute', () => {
     const post = seen.find((r) => r.url.includes('MemoCommentPost'))
     expect(post?.method).toBe('POST')
     expect(post?.body).toContain('content=%C8%AF%BF%B5%C7%D5%B4%CF%B4%D9')
-    expect(post?.contentType).toContain('charset=MS949')
+    expect(post?.contentType).toBe('application/x-www-form-urlencoded')
+    // Without a referer the endpoint answers 200 and silently drops the write.
+    expect(post?.referer).toContain('MemoList.nhn')
   })
 
   it('fails when the comment is not there afterwards, whatever the post said', async () => {
