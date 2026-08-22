@@ -73,12 +73,16 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       }
 
       if (!authorised) return
-      if (parsed.type === 'ERROR' && parsed.requestId === null) return
 
-      const waiting = pending.get(parsed.requestId)
+      // Every reply but HELLO carries a requestId; ERROR may carry null when it
+      // is not tied to a specific request, and there is nothing to resolve then.
+      const requestId: string | null = parsed.requestId
+      if (requestId === null) return
+
+      const waiting = pending.get(requestId)
       if (waiting === undefined) return
       clearTimeout(waiting.timer)
-      pending.delete(parsed.requestId)
+      pending.delete(requestId)
       waiting.resolve(parsed)
     })
 
