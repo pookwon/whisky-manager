@@ -7,15 +7,24 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "db:generate": "drizzle-kit generate"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.1",
+    "@types/ws": "^8.18.1",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.67.0",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
-  "packageManager": "pnpm@9.15.9"
+  "packageManager": "pnpm@9.15.9",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "ws": "^8.21.3"
+  }
 }
