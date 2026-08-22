@@ -45,6 +45,16 @@ export interface UnresolvedRow {
   readonly detectedAt: number
 }
 
+export interface AwaitingDetailRow {
+  readonly id: string
+  readonly targetPostId: string
+  readonly targetTitle: string | null
+  readonly targetAuthor: string | null
+  readonly renderedText: string | null
+  readonly riskFlags: RiskFlag[]
+  readonly detectedAt: number
+}
+
 export interface QueuedRow {
   readonly id: string
   readonly cafeId: string
@@ -57,11 +67,13 @@ export interface QueuedRow {
 
 export interface ExecutionsRepo {
   applyPatch(id: string, patch: ExecutionPatch): void
-  countSuccessSince(automationId: string, sinceMs: number): number
+  countByStatusSince(automationId: string, status: ExecutionStatus, sinceMs: number): number
   countExecutedSince(automationId: string, sinceMs: number): number
   listUnresolved(automationId: string): UnresolvedRow[]
   listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
   listQueued(automationId: string): QueuedRow[]
+  countByStatus(automationId: string, status: ExecutionStatus): number
+  listAwaitingDetail(automationId: string): AwaitingDetailRow[]
   getById(id: string): ExecutionRow | undefined
 }
 
@@ -111,14 +123,14 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
       db.update(executions).set(values).where(eq(executions.id, id)).run()
     },
 
-    countSuccessSince(automationId, sinceMs) {
+    countByStatusSince(automationId, status, sinceMs) {
       return db
         .select()
         .from(executions)
         .where(
           and(
             eq(executions.automationId, automationId),
-            eq(executions.status, 'SUCCESS'),
+            eq(executions.status, status),
             gte(executions.resolvedAt, sinceMs),
           ),
         )
@@ -178,6 +190,33 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
                 },
               ],
         )
+    },
+
+    countByStatus(automationId, status) {
+      return db
+        .select()
+        .from(executions)
+        .where(and(eq(executions.automationId, automationId), eq(executions.status, status)))
+        .all().length
+    },
+
+    listAwaitingDetail(automationId) {
+      return db
+        .select()
+        .from(executions)
+        .where(
+          and(eq(executions.automationId, automationId), eq(executions.status, 'AWAITING_APPROVAL')),
+        )
+        .all()
+        .map((r) => ({
+          id: r.id,
+          targetPostId: r.targetPostId,
+          targetTitle: r.targetTitle,
+          targetAuthor: r.targetAuthor,
+          renderedText: r.renderedText,
+          riskFlags: parseFlags(r.riskFlags),
+          detectedAt: r.detectedAt,
+        }))
     },
 
     getById(id) {

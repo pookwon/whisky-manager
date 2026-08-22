@@ -1,0 +1,179 @@
+@import 'tailwindcss';
+
+/*
+ * Three colours carry the interface: two surface/ink pairs and one accent.
+ * Status hues are the documented exception — success, warning and alarm must
+ * stay distinguishable from each other, so they are muted rather than dropped.
+ */
+:root {
+  --surface: oklch(97% 0.008 85);
+  --surface-raised: oklch(100% 0 0);
+  --surface-sunken: oklch(94% 0.01 85);
+  --ink: oklch(24% 0.02 60);
+  --ink-muted: oklch(52% 0.02 60);
+  --line: oklch(88% 0.012 75);
+  --accent: oklch(56% 0.13 62);
+  --accent-soft: oklch(94% 0.04 70);
+
+  --ok: oklch(52% 0.09 155);
+  --warn: oklch(60% 0.11 75);
+  --alarm: oklch(52% 0.14 25);
+
+  --radius: 10px;
+  --shadow-raised: 0 1px 2px oklch(24% 0.02 60 / 0.06), 0 8px 24px oklch(24% 0.02 60 / 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: oklch(19% 0.012 65);
+    --surface-raised: oklch(23% 0.014 65);
+    --surface-sunken: oklch(16% 0.012 65);
+    --ink: oklch(94% 0.008 80);
+    --ink-muted: oklch(70% 0.014 75);
+    --line: oklch(31% 0.014 65);
+    --accent: oklch(74% 0.12 68);
+    --accent-soft: oklch(30% 0.05 68);
+
+    --ok: oklch(72% 0.11 158);
+    --warn: oklch(78% 0.12 80);
+    --alarm: oklch(68% 0.15 27);
+
+    --shadow-raised: 0 1px 2px oklch(0% 0 0 / 0.3), 0 8px 24px oklch(0% 0 0 / 0.25);
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    sans-serif;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tone-ok {
+  color: var(--ok);
+}
+.tone-warn {
+  color: var(--warn);
+}
+.tone-alarm {
+  color: var(--alarm);
+}
+.tone-idle {
+  color: var(--ink-muted);
+}
+
+.bar-ok {
+  background: var(--ok);
+}
+.bar-warn {
+  background: var(--warn);
+}
+.bar-alarm {
+  background: var(--alarm);
+}
+.bar-idle {
+  background: var(--line);
+}
+
+.panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.nav-item:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.nav-item[aria-current='page'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.btn {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: var(--surface-raised);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface-raised);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  color: var(--surface-raised);
+  filter: brightness(1.06);
+}
+
+.btn-danger:hover {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+.field {
+  width: 100%;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  color: var(--ink);
+  font-size: 0.875rem;
+}
+
+.field:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  border: 1px solid var(--line);
+}
