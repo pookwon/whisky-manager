@@ -16,7 +16,7 @@
     "build:all": "pnpm build && pnpm build:renderer && pnpm build:extension",
     "package:app": "pnpm build:all && electron-builder --publish never",
     "package:app:mac": "pnpm build:all && electron-builder --mac dmg --publish never",
-    "package:app:win": "pnpm build:all && electron-builder --win nsis --publish never",
+    "package:app:win": "pnpm build:all && electron-builder --win msi --publish never",
     "package:extension": "pnpm build:extension && node scripts/package-extension.mjs",
     "probe": "pnpm build && node scripts/probe.mjs",
     "generate:cp949": "node scripts/generate-cp949.mjs",
@@ -68,8 +68,8 @@
       "target": ["dmg"]
     },
     "win": {
-      "target": ["nsis"],
-      "artifactName": "Whisky-Manager-${version}-Setup.${ext}"
+      "target": ["msi"],
+      "artifactName": "Whisky-Manager-${version}.${ext}"
     },
     "linux": {
       "category": "Office",
