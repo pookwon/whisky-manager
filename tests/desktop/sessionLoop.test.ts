@@ -185,6 +185,28 @@ describe('createSessionLoop', () => {
     loop.stop()
   })
 
+  it('never runs two sessions at once: a runOnce during a session joins it', async () => {
+    let release: (outcome: SessionOutcome) => void = () => {}
+    const runSession = vi.fn(
+      () => new Promise<SessionOutcome>((resolve) => (release = resolve)),
+    )
+    const loop = createSessionLoop(loopDeps({ runSession }))
+
+    // The dashboard's "run now" while a scheduled session is mid-flight must
+    // not start a second session — both could pick up the same queued row.
+    const first = loop.runOnce()
+    const second = loop.runOnce()
+    expect(runSession).toHaveBeenCalledTimes(1)
+
+    release(idleOutcome)
+    await Promise.all([first, second])
+
+    const third = loop.runOnce()
+    expect(runSession).toHaveBeenCalledTimes(2)
+    release(idleOutcome)
+    await third
+  })
+
   it('keeps the loop usable when a session throws', async () => {
     const errors: unknown[] = []
     const loop = createSessionLoop(

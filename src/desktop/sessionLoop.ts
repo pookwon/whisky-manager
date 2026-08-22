@@ -72,14 +72,27 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
     loginFailureStreak = 0
   }
 
-  async function runOnce(): Promise<void> {
-    try {
-      const outcome = await deps.runSession()
-      reactTo(outcome)
-      deps.onOutcome(outcome)
-    } catch (error) {
-      deps.onError?.(error)
-    }
+  /**
+   * Single-flight: a manual "run now" while a scheduled session is mid-flight
+   * joins that session instead of starting a second one. Two concurrent
+   * sessions would both pick up the same queued backlog rows.
+   */
+  let inFlight: Promise<void> | null = null
+
+  function runOnce(): Promise<void> {
+    if (inFlight !== null) return inFlight
+    inFlight = (async () => {
+      try {
+        const outcome = await deps.runSession()
+        reactTo(outcome)
+        deps.onOutcome(outcome)
+      } catch (error) {
+        deps.onError?.(error)
+      } finally {
+        inFlight = null
+      }
+    })()
+    return inFlight
   }
 
   function schedule(): void {
