@@ -18,11 +18,15 @@ const PORT = 39217
 const PAIR_TIMEOUT_MS = 900_000
 const PROBE_TIMEOUT_MS = 30_000
 
-const [url, outFile = 'tests/fixtures/probe.txt'] = process.argv.slice(2)
-if (url === undefined) {
-  console.error('usage: node scripts/probe.mjs <url> [outfile]')
+const args = process.argv.slice(2)
+if (args.length === 0 || args.length % 2 !== 0) {
+  console.error('usage: node scripts/probe.mjs <url> <outfile> [<url> <outfile> ...]')
   process.exit(1)
 }
+const jobs = Array.from({ length: args.length / 2 }, (_, i) => ({
+  url: args[i * 2],
+  outFile: args[i * 2 + 1],
+}))
 
 const token = existsSync(TOKEN_FILE)
   ? readFileSync(TOKEN_FILE, 'utf8').trim()
@@ -57,20 +61,19 @@ if (!connected) {
   process.exit(1)
 }
 
-console.log('연결됨. 요청을 보냅니다:', url)
-
 try {
-  const reply = await bridge.request({ type: 'PROBE', requestId: randomUUID(), url }, PROBE_TIMEOUT_MS)
-  if (reply.type !== 'PROBE_RESULT') {
-    console.error('예상치 못한 응답:', reply)
-  } else if (reply.error !== null) {
-    console.error(`실패: ${reply.error}`)
-  } else {
-    mkdirSync(dirname(outFile), { recursive: true })
-    writeFileSync(outFile, reply.text)
-    console.log(`\n  status       ${reply.status}`)
-    console.log(`  content-type ${reply.contentType}`)
-    console.log(`  ${reply.text.length}자 → ${outFile}\n`)
+  for (const { url, outFile } of jobs) {
+    console.log('요청:', url)
+    const reply = await bridge.request({ type: 'PROBE', requestId: randomUUID(), url }, PROBE_TIMEOUT_MS)
+    if (reply.type !== 'PROBE_RESULT') {
+      console.error('예상치 못한 응답:', reply)
+    } else if (reply.error !== null) {
+      console.error(`실패: ${reply.error}`)
+    } else {
+      mkdirSync(dirname(outFile), { recursive: true })
+      writeFileSync(outFile, reply.text)
+      console.log(`  status ${reply.status}  ${reply.contentType}  ${reply.text.length}자 → ${outFile}\n`)
+    }
   }
 } finally {
   await bridge.close()

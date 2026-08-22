@@ -13,7 +13,8 @@
     "start": "pnpm build:all && electron .",
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:all": "pnpm build && pnpm build:renderer && pnpm build:extension",
-    "probe": "pnpm build && node scripts/probe.mjs"
+    "probe": "pnpm build && node scripts/probe.mjs",
+    "generate:cp949": "node scripts/generate-cp949.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -28,6 +29,7 @@
     "drizzle-kit": "^0.31.10",
     "electron": "^43.4.1",
     "eslint": "^9.39.5",
+    "iconv-lite": "^0.7.3",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.67.0",
