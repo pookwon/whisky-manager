@@ -9,7 +9,7 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       // Electron entry points cannot run outside an Electron process; they are
       // covered by launching the app, not by unit tests.
-      exclude: ['src/desktop/main.ts', 'src/desktop/preload.ts', 'src/extension/**'],
+      exclude: ['src/desktop/main.ts', 'src/desktop/preload.ts', 'src/extension/background.ts', 'src/extension/stub.ts'],
       thresholds: { lines: 80, functions: 80, branches: 80 },
     },
   },
