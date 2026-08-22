@@ -44,7 +44,58 @@ describe('createAppContext', () => {
   })
 
   it('does not start the loop on its own', () => {
-    expect(ctx.loop.isRunning()).toBe(false)
+    expect(ctx.automation.isRunning()).toBe(false)
+  })
+
+  it('runs a real session instead of a placeholder that always throws', async () => {
+    // No extension is connected, so the login check cannot be answered. What
+    // matters is that a genuine refusal comes back rather than a wiring error.
+    await ctx.automation.runOnce()
+    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'DISABLED' })
+  })
+
+  it('reports a real refusal once the automation is enabled but has no template', async () => {
+    ctx.repos.automationSettings.upsert({
+      automationId: WELCOME_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+    })
+
+    await ctx.automation.runOnce()
+    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'NO_TEMPLATE' })
+  })
+
+  it('refuses while the kill switch is engaged', async () => {
+    ctx.repos.automationSettings.upsert({
+      automationId: WELCOME_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+    })
+    ctx.repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: 'hi',
+      createdAt: 1,
+    })
+
+    ctx.automation.kill()
+    await ctx.automation.runOnce()
+
+    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'KILLED' })
+    expect(ctx.automation.isRunning()).toBe(false)
+  })
+
+  it('clears the kill switch when the operator starts it again', async () => {
+    ctx.automation.kill()
+    ctx.automation.start()
+    expect(ctx.automation.isRunning()).toBe(true)
+
+    await ctx.automation.runOnce()
+    // DISABLED, not KILLED: starting again lifted the kill switch.
+    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'DISABLED' })
+    ctx.automation.stop()
   })
 
   it('listens on a bridge port', () => {

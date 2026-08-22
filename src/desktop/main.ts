@@ -36,17 +36,17 @@ function refreshTray(ctx: AppContext): void {
       { label: '창 열기', click: showWindow },
       { type: 'separator' },
       {
-        label: ctx.loop.isRunning() ? '자동화 중지' : '자동화 시작',
+        label: ctx.automation.isRunning() ? '자동화 중지' : '자동화 시작',
         click: () => {
-          if (ctx.loop.isRunning()) ctx.loop.stop()
-          else ctx.loop.start()
+          if (ctx.automation.isRunning()) ctx.automation.stop()
+          else ctx.automation.start()
           refreshTray(ctx)
         },
       },
       {
         label: '전면 정지 (킬 스위치)',
         click: () => {
-          ctx.loop.stop()
+          ctx.automation.kill()
           refreshTray(ctx)
         },
       },

@@ -9,7 +9,9 @@ import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { createWatermarksRepo, type WatermarksRepo } from './db/watermarksRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
-import { createSessionLoop, type SessionLoop } from './sessionLoop.js'
+import type { SessionOutcome } from './orchestrator.js'
+import { createSessionRunner } from './session.js'
+import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 
@@ -30,12 +32,25 @@ export interface AppRepos {
   readonly dedupe: DedupeStore
 }
 
+export interface AutomationControl {
+  /** Clears the kill switch and resumes the schedule. */
+  start(): void
+  /** Pauses the schedule. The kill switch is left as it was. */
+  stop(): void
+  /** Stops now and refuses every session until started again. */
+  kill(): void
+  isRunning(): boolean
+  runOnce(): Promise<void>
+}
+
 export interface AppContext {
   readonly db: AppDatabase
   readonly settings: SettingsRepo
   readonly repos: AppRepos
   readonly bridge: BridgeServer
-  readonly loop: SessionLoop
+  readonly automation: AutomationControl
+  /** Result of the most recent session, for the tray and the dashboard. */
+  lastOutcome(): SessionOutcome | null
   shutdown(): Promise<void>
 }
 
@@ -76,25 +91,59 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     dedupe: createSqliteDedupeStore(db, () => randomUUID()),
   }
 
+  let killed = false
+  let lastOutcome: SessionOutcome | null = null
+
+  const runSession = createSessionRunner({
+    automationId: WELCOME_AUTOMATION_ID,
+    profile: options.profile,
+    clock: systemClock,
+    random: systemRandom,
+    transport: bridge,
+    repos,
+    settings,
+    isKilled: () => killed,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    newId: () => randomUUID(),
+  })
+
   const loop = createSessionLoop({
     limits: PROFILES[options.profile],
     clock: systemClock,
     random: systemRandom,
-    // Plan C2 replaces this with the assembled session once settings and
-    // templates feed into it. The loop's shape is fixed here.
-    runSession: () => Promise.reject(new Error('session wiring lands in plan C2')),
-    onOutcome: () => {},
+    runSession,
+    onOutcome: (outcome) => {
+      lastOutcome = outcome
+    },
     onError: (error) => console.error('[session]', error),
+    onHalt: (reason) => console.warn('[session] halted:', reason),
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
   })
+
+  const automation: AutomationControl = {
+    start() {
+      killed = false
+      loop.start()
+    },
+    stop() {
+      loop.stop()
+    },
+    kill() {
+      killed = true
+      loop.stop()
+    },
+    isRunning: () => loop.isRunning(),
+    runOnce: () => loop.runOnce(),
+  }
 
   return {
     db,
     settings,
     repos,
     bridge,
-    loop,
+    automation,
+    lastOutcome: () => lastOutcome,
     async shutdown() {
       loop.stop()
       await bridge.close()

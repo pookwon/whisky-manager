@@ -98,7 +98,12 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     transport: fakeTransport(),
     dedupe: createSqliteDedupeStore(db, () => `exec-${++idCounter}`),
     repo,
-    renderBody: (c) => ({ templateId: 'tpl-1', body: `${c.authorNickname ?? ''}님 환영합니다` }),
+    renderBody: (c) =>
+      c.authorNickname === null
+        ? { ok: false, missing: ['닉네임'] }
+        : { ok: true, templateId: 'tpl-1', body: `${c.authorNickname}님 환영합니다` },
+    isEnabled: () => true,
+    hasTemplate: () => true,
     isKilled: () => false,
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
@@ -361,7 +366,7 @@ describe('runSession — queued backlog', () => {
       deps({
         transport: fakeTransport({ candidates: [] }),
         // A different renderer would produce different text if it were consulted.
-        renderBody: () => ({ templateId: 'tpl-2', body: 'DIFFERENT' }),
+        renderBody: () => ({ ok: true as const, templateId: 'tpl-2', body: 'DIFFERENT' }),
       }),
     )
 
@@ -460,5 +465,41 @@ describe('runSession — caps count attempts, not successes', () => {
     // The first attempt used the only slot even though it failed.
     expect(outcome).toMatchObject({ opened: true, executed: 0, failed: 0 })
     expect(repo.listUnresolved('welcome-comment')).toHaveLength(2)
+  })
+})
+
+describe('runSession — configuration gates', () => {
+  it('does not open while the automation is disabled', async () => {
+    expect(await runSession(deps({ isEnabled: () => false }))).toEqual({ opened: false, reason: 'DISABLED' })
+  })
+
+  it('does not open when no template is registered', async () => {
+    // Silently skipping every candidate would look like the tool is broken.
+    expect(await runSession(deps({ hasTemplate: () => false }))).toEqual({
+      opened: false,
+      reason: 'NO_TEMPLATE',
+    })
+  })
+})
+
+describe('runSession — render failure feeds the policy', () => {
+  const nameless = (postId: string): RawCandidate => ({ ...candidate(postId), authorNickname: null })
+
+  it('skips under AUTO when a variable cannot be substituted', async () => {
+    const outcome = await runSession(deps({ transport: fakeTransport({ candidates: [nameless('9100')] }) }))
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.reason).toBe('RISK_FLAGGED')
+    expect(rows[0]?.riskFlags).toBe('["VARIABLE_EXTRACTION_FAILED"]')
+  })
+
+  it('routes the same candidate to approval under SEMI', async () => {
+    const outcome = await runSession(
+      deps({ transport: fakeTransport({ candidates: [nameless('9101')] }), policy: 'SEMI' }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
+    expect(db.select().from(executions).all()[0]?.riskFlags).toBe('["VARIABLE_EXTRACTION_FAILED"]')
   })
 })

@@ -2255,6 +2255,6 @@ git commit -m "feat: assemble app context, ipc contract and the electron shell"
 ## 이 계획이 다루지 않는 것
 
 - **렌더러 UI** — 계획 C2. 대시보드형, 색 3개 이내, 라이트·다크 양쪽
-- **`runSession` 실제 배선** — `bootstrap.ts`의 `runSession`은 C2에서 설정·템플릿·저장소를 읽어 조립한다. C1은 루프의 형태만 확정한다
+- ~~**`runSession` 실제 배선**~~ — 코드 리뷰에서 "항상 실패하는 루프를 남기는 것"이 실질적 결함으로 지적되어 C1에 포함했다. `src/desktop/session.ts`가 매 세션마다 설정·템플릿·워터마크를 새로 읽어 조립하므로, 정책이나 문구를 바꾸면 재시작 없이 다음 세션부터 적용된다
 - **긴급 회수** — 실제 삭제는 확장의 엔드포인트가 필요하므로 Phase 3 의존. UI와 앱 쪽 흐름은 C2에서
 - **네이버 실제 수집·실행** — Phase 3

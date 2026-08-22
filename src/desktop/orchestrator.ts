@@ -26,15 +26,28 @@ export interface SessionDeps {
   readonly transport: ExtensionTransport
   readonly dedupe: DedupeStore
   readonly repo: ExecutionsRepo
-  readonly renderBody: (candidate: Candidate) => { templateId: string; body: string }
+  /**
+   * Renders the text to post. Failure is a first-class outcome so a missing
+   * variable becomes a risk flag the policy can act on, rather than a
+   * half-filled comment.
+   */
+  readonly renderBody: (candidate: Candidate) => RenderOutcome
+  readonly isEnabled: () => boolean
+  readonly hasTemplate: () => boolean
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
   readonly watermark: string | null
 }
 
+export type RenderOutcome =
+  | { ok: true; templateId: string; body: string }
+  | { ok: false; missing: string[] }
+
 export type SessionRefusal =
   | 'KILLED'
+  | 'DISABLED'
+  | 'NO_TEMPLATE'
   | 'OUTSIDE_ACTIVE_HOURS'
   | 'NOT_LOGGED_IN'
   | 'LOGIN_CHECK_FAILED'
@@ -243,6 +256,16 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     return { opened: false, reason: 'KILLED' }
   }
 
+  if (!deps.isEnabled()) {
+    return { opened: false, reason: 'DISABLED' }
+  }
+
+  // Refusing loudly beats skipping every candidate: an operator who forgot to
+  // register a template should see a reason, not silence.
+  if (!deps.hasTemplate()) {
+    return { opened: false, reason: 'NO_TEMPLATE' }
+  }
+
   const openedAt = deps.clock.now()
   if (!isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
     return { opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' }
@@ -357,11 +380,21 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       postedAt: raw.postedAt,
     }
 
-    const evaluation = evaluateGuards(deps.guards, candidate, {
+    // Render before deciding so a failed substitution can raise a risk flag
+    // and let the policy handle it, instead of being discovered too late.
+    const rendered = deps.renderBody(candidate)
+    const guardEvaluation = evaluateGuards(deps.guards, candidate, {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors: raw.existingCommentAuthors,
     })
+    const evaluation = rendered.ok
+      ? guardEvaluation
+      : {
+          skip: guardEvaluation.skip,
+          flags: [...guardEvaluation.flags, 'VARIABLE_EXTRACTION_FAILED' as const],
+        }
+
     const disposition = decide(deps.policy, evaluation)
     const status = initialStatus(disposition)
 
@@ -382,9 +415,13 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       continue
     }
 
+    if (!rendered.ok) {
+      // decide() must have routed an unrenderable candidate away from QUEUED.
+      throw new Error(`cannot execute ${candidate.postId}: missing ${rendered.missing.join(', ')}`)
+    }
+
     // Persist the decision and the text before executing, so a crash leaves a
     // row the next session can pick up from the backlog.
-    const rendered = deps.renderBody(candidate)
     deps.repo.applyPatch(executionId, {
       status: 'QUEUED',
       riskFlags: evaluation.flags,
