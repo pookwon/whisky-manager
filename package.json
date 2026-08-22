@@ -1,0 +1,20 @@
+{
+  "name": "whisky-manager",
+  "private": true,
+  "type": "module",
+  "description": "Naver cafe management automation for the whisky/cognac club",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "packageManager": "pnpm@9.12.0"
+}

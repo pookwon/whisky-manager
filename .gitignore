@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+*.db
+*.db-journal
+
+# Claude Code / agent tooling state
+.claude/worktrees/
+.omc/
+.serena/
