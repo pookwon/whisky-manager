@@ -13,7 +13,10 @@ export function Templates(): React.JSX.Element {
   const submit = (): void => {
     const body = draft.trim()
     if (body === '') return
-    void act(() => api.addTemplate(body)).then(() => setDraft(''))
+    void act(() => api.addTemplate(body)).then((ok) => {
+      // A failed add keeps the draft so the operator does not retype it.
+      if (ok) setDraft('')
+    })
   }
 
   return (

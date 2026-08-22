@@ -1,6 +1,9 @@
 export const ko = {
   translation: {
-    app: { title: '위스키 매니저' },
+    app: {
+      title: '위스키 매니저',
+      actionFailed: '작업이 실패했습니다: {{message}}',
+    },
     nav: {
       dashboard: '대시보드',
       approvals: '승인 큐',

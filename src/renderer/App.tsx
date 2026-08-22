@@ -16,6 +16,7 @@ export function App(): React.JSX.Element {
   const refresh = useApp((s) => s.refresh)
   const awaiting = useApp((s) => s.awaiting)
   const dashboard = useApp((s) => s.dashboard)
+  const error = useApp((s) => s.error)
 
   useEffect(() => {
     void refresh()
@@ -54,6 +55,11 @@ export function App(): React.JSX.Element {
       </nav>
 
       <main className="flex-1 overflow-y-auto p-7">
+        {error !== null && (
+          <div role="alert" className="panel mb-5 px-4 py-3 text-sm tone-alarm">
+            {t('app.actionFailed', { message: error })}
+          </div>
+        )}
         {view === 'dashboard' && <Dashboard />}
         {view === 'approvals' && <Approvals />}
         {view === 'templates' && <Templates />}

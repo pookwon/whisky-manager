@@ -12,9 +12,11 @@ interface AppState {
   templates: Template[]
   settings: SettingsView | null
   busy: boolean
+  /** Message of the last failed action, until the next action starts. */
+  error: string | null
   setView: (view: ViewName) => void
   refresh: () => Promise<void>
-  act: (run: () => Promise<unknown>) => Promise<void>
+  act: (run: () => Promise<unknown>) => Promise<boolean>
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -24,6 +26,7 @@ export const useApp = create<AppState>((set, get) => ({
   templates: [],
   settings: null,
   busy: false,
+  error: null,
 
   setView: (view) => set({ view }),
 
@@ -37,12 +40,20 @@ export const useApp = create<AppState>((set, get) => ({
     set({ dashboard, awaiting, templates, settings })
   },
 
-  /** Every mutation refreshes, so the screen never shows stale counts. */
+  /**
+   * Every mutation refreshes, so the screen never shows stale counts. A
+   * failure is recorded rather than rethrown — a silent broken button is the
+   * one thing the operator must never get.
+   */
   act: async (run) => {
-    set({ busy: true })
+    set({ busy: true, error: null })
     try {
       await run()
       await get().refresh()
+      return true
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) })
+      return false
     } finally {
       set({ busy: false })
     }
