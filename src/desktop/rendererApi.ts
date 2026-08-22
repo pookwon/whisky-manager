@@ -5,11 +5,9 @@ import { approve as approveExecution, reject as rejectExecution } from './approv
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
-import { SETTING_KEYS } from './session.js'
+import { DEFAULT_BOARD_ID, DEFAULT_CAFE_ID, SETTING_KEYS, parseOperatorAccounts } from './session.js'
 import type { DashboardSnapshot, RendererApi, SettingsView } from './ipc.js'
 
-const DEFAULT_CAFE_ID = '10000000'
-const DEFAULT_BOARD_ID = '5'
 const PAIRING_TOKEN_KEY = 'pairingToken'
 
 export interface RendererApiDeps {
@@ -22,16 +20,6 @@ export interface RendererApiDeps {
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
-}
-
-function parseAccounts(raw: string | undefined): string[] {
-  if (raw === undefined) return []
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
-  } catch {
-    return []
-  }
 }
 
 /**
@@ -123,7 +111,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         enabled: current?.enabled ?? false,
         cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
         boardId: settings.get(SETTING_KEYS.boardId) ?? DEFAULT_BOARD_ID,
-        operatorAccounts: parseAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
+        operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       })
     },
 

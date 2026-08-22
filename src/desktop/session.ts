@@ -15,8 +15,8 @@ export const SETTING_KEYS = {
 } as const
 
 /** The whisky/cognac club's 가입인사 board, per the design spec. */
-const DEFAULT_CAFE_ID = '10000000'
-const DEFAULT_BOARD_ID = '5'
+export const DEFAULT_CAFE_ID = '10000000'
+export const DEFAULT_BOARD_ID = '5'
 
 const NICKNAME_VARIABLE = '닉네임'
 
@@ -33,7 +33,8 @@ export interface SessionRunnerOptions {
   readonly newId: () => string
 }
 
-function parseAccounts(raw: string | undefined): string[] {
+/** Operator accounts are stored as a JSON string array in app settings. */
+export function parseOperatorAccounts(raw: string | undefined): string[] {
   if (raw === undefined) return []
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -79,7 +80,7 @@ export function createSessionRunner(options: SessionRunnerOptions): () => Promis
       policy: setting?.policy ?? 'AUTO',
       limits,
       guards: [operatorAlreadyCommentedGuard],
-      operatorAccounts: parseAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
+      operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       clock: options.clock,
       random: options.random,
       transport: options.transport,
