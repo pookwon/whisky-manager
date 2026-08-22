@@ -1,7 +1,7 @@
 export const ko = {
   translation: {
     app: {
-      title: '위스키 매니저',
+      title: '카페 관리',
       actionFailed: '작업이 실패했습니다: {{message}}',
     },
     nav: {
@@ -9,6 +9,9 @@ export const ko = {
       approvals: '승인 큐',
       templates: '문구',
       settings: '설정',
+    },
+    dashboard: {
+      heading: '대시보드',
     },
     status: {
       bridge: '확장 연결',
@@ -52,6 +55,7 @@ export const ko = {
       daysAgo: '{{count}}일 전',
     },
     approvals: {
+      heading: '승인 큐',
       empty: '승인을 기다리는 건이 없습니다',
       approve: '승인',
       reject: '거부',

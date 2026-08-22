@@ -35,6 +35,10 @@ export function Dashboard(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-lg font-bold tracking-tight">{t('dashboard.heading')}</h1>
+      </header>
+
       {/* The banner comes first because "why is it quiet?" is the question an
           operator opens this window to answer. */}
       <section className="panel overflow-hidden">

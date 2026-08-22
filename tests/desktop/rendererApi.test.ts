@@ -56,7 +56,7 @@ function build() {
     automationId: WELCOME_AUTOMATION_ID,
     repos,
     settings,
-    bridge: { isConnected: () => true },
+    bridge: { isConnected: () => true, request: () => Promise.reject(new Error('not used in this test')) },
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
     clock: new FakeClock(MON_10_00),

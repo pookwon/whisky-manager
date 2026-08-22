@@ -107,7 +107,7 @@ void app.whenReady().then(async () => {
   )
 
   tray = new Tray(nativeImage.createEmpty())
-  tray.setToolTip('Whisky Manager')
+  tray.setToolTip('카페 관리')
   refreshTray(context)
   showWindow()
 })

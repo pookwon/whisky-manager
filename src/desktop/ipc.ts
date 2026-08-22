@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
   addTemplate: 'wm:addTemplate',
   removeTemplate: 'wm:removeTemplate',
   getSettings: 'wm:getSettings',
+  getCafeImage: 'wm:getCafeImage',
   setPolicy: 'wm:setPolicy',
   setEnabled: 'wm:setEnabled',
   setOperatorAccounts: 'wm:setOperatorAccounts',
@@ -64,6 +65,8 @@ export interface RendererApi {
   addTemplate(body: string): Promise<void>
   removeTemplate(id: string): Promise<void>
   getSettings(): Promise<SettingsView>
+  /** Cached; only probes the cafe again after the daily TTL expires. */
+  getCafeImage(): Promise<string | null>
   setPolicy(policy: ApprovalPolicy): Promise<void>
   setEnabled(enabled: boolean): Promise<void>
   setOperatorAccounts(accounts: string[]): Promise<void>

@@ -59,7 +59,7 @@
   "main": "dist/desktop/main.js",
   "build": {
     "appId": "com.examplecafe.whisky-manager",
-    "productName": "Whisky Manager",
+    "productName": "카페 관리",
     "asar": true,
     "asarUnpack": ["**/*.node"],
     "files": ["dist/**/*", "drizzle/**/*", "package.json", "!**/*.map"],

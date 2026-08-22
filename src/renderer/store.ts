@@ -11,11 +11,14 @@ interface AppState {
   awaiting: AwaitingItem[]
   templates: Template[]
   settings: SettingsView | null
+  cafeImage: string | null
   busy: boolean
   /** Message of the last failed action, until the next action starts. */
   error: string | null
   setView: (view: ViewName) => void
   refresh: () => Promise<void>
+  /** Fetched once, not on the poll loop: the backend caches it for a day, but there is no reason to ask more than once per session. */
+  loadCafeImage: () => Promise<void>
   act: (run: () => Promise<unknown>) => Promise<boolean>
 }
 
@@ -25,6 +28,7 @@ export const useApp = create<AppState>((set, get) => ({
   awaiting: [],
   templates: [],
   settings: null,
+  cafeImage: null,
   busy: false,
   error: null,
 
@@ -38,6 +42,11 @@ export const useApp = create<AppState>((set, get) => ({
       api.getSettings(),
     ])
     set({ dashboard, awaiting, templates, settings })
+  },
+
+  loadCafeImage: async () => {
+    const cafeImage = await api.getCafeImage()
+    set({ cafeImage })
   },
 
   /**

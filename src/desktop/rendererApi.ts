@@ -3,6 +3,7 @@ import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { dailyWindowStart } from '../shared/limits.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
+import { getCafeImage as fetchCafeImage } from './cafeImage.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
 import {
@@ -12,6 +13,7 @@ import {
   SETTING_KEYS,
   parseOperatorAccounts,
 } from './session.js'
+import type { ExtensionTransport } from './ws/server.js'
 import type { DashboardSnapshot, RendererApi, SettingsView } from './ipc.js'
 
 const PAIRING_TOKEN_KEY = 'pairingToken'
@@ -20,7 +22,7 @@ export interface RendererApiDeps {
   readonly automationId: string
   readonly repos: AppRepos
   readonly settings: SettingsRepo
-  readonly bridge: { isConnected(): boolean }
+  readonly bridge: ExtensionTransport
   readonly automation: AutomationControl
   readonly lastOutcome: () => SessionOutcome | null
   readonly clock: Clock
@@ -120,6 +122,13 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       })
+    },
+
+    getCafeImage() {
+      return fetchCafeImage(
+        { transport: deps.bridge, settings, clock: deps.clock, newId: deps.newId },
+        settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
+      )
     },
 
     setPolicy(policy) {

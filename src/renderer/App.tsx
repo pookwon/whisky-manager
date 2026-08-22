@@ -14,8 +14,10 @@ export function App(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const refresh = useApp((s) => s.refresh)
+  const loadCafeImage = useApp((s) => s.loadCafeImage)
   const awaiting = useApp((s) => s.awaiting)
   const dashboard = useApp((s) => s.dashboard)
+  const cafeImage = useApp((s) => s.cafeImage)
   const error = useApp((s) => s.error)
 
   useEffect(() => {
@@ -29,19 +31,37 @@ export function App(): React.JSX.Element {
     return () => clearInterval(timer)
   }, [refresh])
 
+  useEffect(() => {
+    // Once per session: the backend already caches the probe for a day.
+    loadCafeImage().catch(console.error)
+  }, [loadCafeImage])
+
   return (
     <div className="flex h-full">
       <nav
         className="flex w-56 shrink-0 flex-col gap-1 border-r p-3"
         style={{ borderColor: 'var(--line)', background: 'var(--surface-sunken)' }}
       >
-        <div className="mb-4 px-3 pt-2">
-          <div className="text-[0.9375rem] font-bold tracking-tight">{t('app.title')}</div>
-          <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem]" style={{ color: 'var(--ink-muted)' }}>
-            <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${dashboard?.bridgeConnected === true ? 'bar-ok' : 'bar-alarm'}`}
+        <div
+          className="mb-4 flex items-center gap-2.5 border-b px-3 pb-4 pt-2"
+          style={{ borderColor: 'var(--line)' }}
+        >
+          {cafeImage !== null && (
+            <img
+              src={cafeImage}
+              alt=""
+              className="h-8 w-8 shrink-0 rounded-full object-cover"
+              style={{ border: '1px solid var(--line)' }}
             />
-            {t(dashboard?.bridgeConnected === true ? 'status.connected' : 'status.disconnected')}
+          )}
+          <div>
+            <div className="text-[0.9375rem] font-bold tracking-tight">{t('app.title')}</div>
+            <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem]" style={{ color: 'var(--ink-muted)' }}>
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${dashboard?.bridgeConnected === true ? 'bar-ok' : 'bar-alarm'}`}
+              />
+              {t(dashboard?.bridgeConnected === true ? 'status.connected' : 'status.disconnected')}
+            </div>
           </div>
         </div>
 
