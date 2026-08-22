@@ -20,7 +20,7 @@ export function Settings(): React.JSX.Element {
   const [cafeId, setCafeId] = useState('')
   const [boardId, setBoardId] = useState('')
   const [cafeUrlName, setCafeUrlName] = useState('')
-  const [accounts, setAccounts] = useState('')
+  const [accountDraft, setAccountDraft] = useState('')
   const [token, setToken] = useState('')
 
   useEffect(() => {
@@ -28,7 +28,6 @@ export function Settings(): React.JSX.Element {
     setCafeId(settings.cafeId)
     setBoardId(settings.boardId)
     setCafeUrlName(settings.cafeUrlName)
-    setAccounts(settings.operatorAccounts.join(', '))
   }, [settings])
 
   useEffect(() => {
@@ -38,10 +37,22 @@ export function Settings(): React.JSX.Element {
   if (settings === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
   const saveCafe = (): void => {
-    void act(async () => {
-      await api.setCafe(cafeId, boardId, cafeUrlName)
-      await api.setOperatorAccounts(accounts.split(',').map((a) => a.trim()))
+    void act(() => api.setCafe(cafeId, boardId, cafeUrlName))
+  }
+
+  const addAccount = (): void => {
+    const trimmed = accountDraft.trim()
+    if (trimmed === '' || settings.operatorAccounts.includes(trimmed)) {
+      setAccountDraft('')
+      return
+    }
+    void act(() => api.setOperatorAccounts([...settings.operatorAccounts, trimmed])).then((ok) => {
+      if (ok) setAccountDraft('')
     })
+  }
+
+  const removeAccount = (account: string): void => {
+    void act(() => api.setOperatorAccounts(settings.operatorAccounts.filter((a) => a !== account)))
   }
 
   return (
@@ -106,15 +117,53 @@ export function Settings(): React.JSX.Element {
           <span className="mt-0.5">{t('settings.cafeUrlNameHint', { url: `cafe.naver.com/${cafeUrlName}` })}</span>
         </label>
 
-        <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          {t('settings.operatorAccounts')}
-          <input className="field" value={accounts} onChange={(e) => setAccounts(e.target.value)} />
-          <span className="mt-0.5">{t('settings.operatorAccountsHint')}</span>
-        </label>
-
         <button type="button" className="btn btn-primary self-start" disabled={busy} onClick={saveCafe}>
           {t('settings.save')}
         </button>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[0.6875rem] font-medium uppercase tracking-wider" style={{ color: 'var(--ink-muted)' }}>
+          {t('settings.operatorAccounts')}
+        </h2>
+        <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+          {t('settings.operatorAccountsHint')}
+        </p>
+
+        <div className="flex gap-2">
+          <input
+            className="field"
+            value={accountDraft}
+            placeholder={t('settings.operatorAccountsPlaceholder')}
+            onChange={(e) => setAccountDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addAccount()
+            }}
+          />
+          <button type="button" className="btn shrink-0" disabled={busy} onClick={addAccount}>
+            {t('settings.operatorAccountsAdd')}
+          </button>
+        </div>
+
+        {settings.operatorAccounts.length === 0 ? (
+          <div className="panel px-4 py-3 text-xs tone-warn">{t('settings.operatorAccountsEmpty')}</div>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {settings.operatorAccounts.map((account) => (
+              <li key={account} className="panel flex items-center justify-between gap-3 px-4 py-2.5">
+                <span className="text-sm">{account}</span>
+                <button
+                  type="button"
+                  className="btn btn-danger shrink-0"
+                  disabled={busy}
+                  onClick={() => removeAccount(account)}
+                >
+                  {t('settings.operatorAccountsRemove')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="flex flex-col gap-2">
