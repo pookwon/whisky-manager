@@ -8,6 +8,9 @@ export default defineConfig({
   build: {
     outDir: 'dist/extension',
     emptyOutDir: true,
+    // Readable output: chrome reports extension errors by file and line, and a
+    // minified bundle turns every report into 'line 1'.
+    minify: false,
     rollupOptions: {
       input: {
         background: here('src/extension/background.ts'),

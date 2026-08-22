@@ -116,6 +116,13 @@ async function connect(): Promise<void> {
     if (isAppMessage(parsed)) handle(parsed)
   })
 
+  // The app is not always running, so a refused connection is a normal state,
+  // not a fault. Without this listener chrome logs it as an uncaught error and
+  // the extension card shows a permanent error badge.
+  ws.addEventListener('error', () => {
+    if (socket === ws) socket = null
+  })
+
   ws.addEventListener('close', () => {
     if (socket === ws) socket = null
   })

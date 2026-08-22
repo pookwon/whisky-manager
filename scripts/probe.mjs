@@ -15,7 +15,7 @@ import { createBridgeServer } from '../dist/desktop/ws/server.js'
 
 const TOKEN_FILE = '.wm-probe-token'
 const PORT = 39217
-const PAIR_TIMEOUT_MS = 180_000
+const PAIR_TIMEOUT_MS = 900_000
 const PROBE_TIMEOUT_MS = 30_000
 
 const [url, outFile = 'tests/fixtures/probe.txt'] = process.argv.slice(2)
