@@ -8,7 +8,7 @@ import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { CommentAuthor } from '../../src/shared/types.js'
-import { runSession, type SessionDeps } from '../../src/desktop/orchestrator.js'
+import { runSession, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
@@ -569,5 +569,59 @@ describe('runSession — render failure feeds the policy', () => {
 
     expect(outcome).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
     expect(db.select().from(executions).all()[0]?.riskFlags).toBe('["VARIABLE_EXTRACTION_FAILED"]')
+  })
+})
+
+describe('runSession — progress', () => {
+  it('reports how far along it is and whose post is in hand', async () => {
+    const seen: SessionProgress[] = []
+
+    await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [candidate('1001'), candidate('1002')] }),
+        onProgress: (progress) => seen.push(progress),
+      }),
+    )
+
+    expect(seen).toEqual([
+      { phase: 'COLLECTING' },
+      { phase: 'WORKING', done: 0, total: 2, nickname: 'nick' },
+      { phase: 'WORKING', done: 1, total: 2, nickname: 'nick' },
+    ])
+  })
+
+  it('counts the backlog and the fresh collection as separate walks', async () => {
+    // Park a row so the next session has a backlog to clear before collecting.
+    await runSession(
+      deps({ transport: fakeTransport({ candidates: [candidate('4300')], executeOk: false }) }),
+    )
+    const parked = repo.listUnresolved('welcome-comment')[0]
+    expect(parked?.status).toBe('RETRY_WAIT')
+    repo.applyPatch(parked!.id, { status: 'QUEUED' })
+
+    const seen: SessionProgress[] = []
+    await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [candidate('4400'), candidate('4401')] }),
+        onProgress: (progress) => seen.push(progress),
+      }),
+    )
+
+    // Neither total ever grows under the operator: the backlog is counted
+    // against its own length, today's posts against theirs.
+    expect(seen).toEqual([
+      { phase: 'BACKLOG', done: 0, total: 1, nickname: 'nick' },
+      { phase: 'COLLECTING' },
+      { phase: 'WORKING', done: 0, total: 2, nickname: 'nick' },
+      { phase: 'WORKING', done: 1, total: 2, nickname: 'nick' },
+    ])
+  })
+
+  it('reports nothing when a gate refuses the session', async () => {
+    const seen: SessionProgress[] = []
+
+    await runSession(deps({ isEnabled: () => false, onProgress: (progress) => seen.push(progress) }))
+
+    expect(seen).toEqual([])
   })
 })

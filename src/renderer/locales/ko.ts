@@ -59,6 +59,15 @@ export const ko = {
         COLLECT_FAILED: '글 목록을 가져오지 못했습니다',
       },
     },
+    progress: {
+      heading: '진행 중',
+      PREPARING: '가입자 목록을 읽는 중',
+      COLLECTING: '가입인사 글을 모으는 중',
+      backlog: '밀린 {{total}}건 중 {{position}}건째',
+      backlogOn: '밀린 {{total}}건 중 {{position}}건째 · {{nickname}}님',
+      working: '{{total}}건 중 {{position}}건째',
+      workingOn: '{{total}}건 중 {{position}}건째 · {{nickname}}님',
+    },
     startup: {
       heading: '오늘 환영할 대상',
       count: '{{count}}명',

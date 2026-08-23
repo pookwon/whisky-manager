@@ -71,6 +71,14 @@ body {
 .tone-idle {
   color: var(--ink-muted);
 }
+/*
+ * Accent rather than a fourth status hue: a banner that reports what the app is
+ * doing right now is the app pointing at itself, which is what the accent
+ * already means everywhere else in the window.
+ */
+.tone-accent {
+  color: var(--accent);
+}
 
 .bar-ok {
   background: var(--ok);
@@ -83,6 +91,9 @@ body {
 }
 .bar-idle {
   background: var(--line);
+}
+.bar-accent {
+  background: var(--accent);
 }
 
 .panel {

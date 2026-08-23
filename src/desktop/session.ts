@@ -7,7 +7,12 @@ import type { Candidate, Profile } from '../shared/types.js'
 import type { AppRepos } from './bootstrap.js'
 import { createMembershipResolver } from './membership.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
-import { runSession, type RenderOutcome, type SessionOutcome } from './orchestrator.js'
+import {
+  runSession,
+  type RenderOutcome,
+  type SessionOutcome,
+  type SessionProgress,
+} from './orchestrator.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export const SETTING_KEYS = {
@@ -39,6 +44,11 @@ export interface SessionRunnerOptions {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newId: () => string
+  /**
+   * Reports what the run is doing. Reading the member list happens before the
+   * session opens, so that phase can only be reported from here.
+   */
+  readonly onProgress?: (progress: SessionProgress) => void
 }
 
 /** Operator accounts are stored as a JSON string array in app settings. */
@@ -88,6 +98,7 @@ export function createSessionRunner(options: SessionRunnerOptions): (isManualRun
     }
 
     const windowDays = parseWindowDays(settings.get(SETTING_KEYS.newMemberWindowDays))
+    options.onProgress?.({ phase: 'PREPARING' })
     const resolveMembership = await createMembershipResolver({
       transport: options.transport,
       repo: repos.members,
@@ -120,6 +131,8 @@ export function createSessionRunner(options: SessionRunnerOptions): (isManualRun
       resolveMembership,
       newMemberWindowDays: windowDays,
       isManualRun,
+      // An absent reporter has to be absent rather than undefined here.
+      ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
     })
 
     if (outcome.opened && outcome.lastProcessedPostId !== null) {

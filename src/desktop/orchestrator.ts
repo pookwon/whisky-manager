@@ -48,6 +48,8 @@ export interface SessionDeps {
    * automated scheduled runs. Manual runs bypass the per-session cap.
    */
   readonly isManualRun: boolean
+  /** Reports what the session is doing. Nothing about a run depends on anyone listening. */
+  readonly onProgress?: (progress: SessionProgress) => void
 }
 
 export type RenderOutcome =
@@ -76,6 +78,29 @@ export type SessionOutcome =
       /** Furthest post this session finished handling, for the watermark. */
       lastProcessedPostId: string | null
     }
+
+interface PostWalk {
+  /** Posts finished, not counting the one in hand. */
+  readonly done: number
+  readonly total: number
+  readonly nickname: string | null
+}
+
+/**
+ * What the session is doing right now. Most of a run's wall clock is the 8~25s
+ * gap between comments, so "still going" is not enough: an operator watching
+ * the dashboard needs to see the count move and whose post is in hand.
+ *
+ * The backlog and the fresh collection are separate walks because their sizes
+ * become known at different moments. Reporting them as one would mean a total
+ * that grows halfway through, which reads as a miscount rather than as the two
+ * lists it is.
+ */
+export type SessionProgress =
+  | { readonly phase: 'PREPARING' }
+  | { readonly phase: 'COLLECTING' }
+  | ({ readonly phase: 'BACKLOG' } & PostWalk)
+  | ({ readonly phase: 'WORKING' } & PostWalk)
 
 interface ExecutionJob {
   readonly executionId: string
@@ -349,7 +374,17 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
 
   // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
   // older than anything we are about to collect.
-  for (const row of deps.repo.listQueued(deps.automationId)) {
+  const queued = deps.repo.listQueued(deps.automationId)
+
+  // Indexes rather than a counter: every `continue` below would be a chance for
+  // a hand-kept tally to drift away from where the walk actually is.
+  for (const [index, row] of queued.entries()) {
+    deps.onProgress?.({
+      phase: 'BACKLOG',
+      done: index,
+      total: queued.length,
+      nickname: row.targetAuthor,
+    })
     const result = await runJob(
       deps,
       {
@@ -370,10 +405,17 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   // When there is no watermark, use the start of today in KST as the floor.
   // When a watermark exists, sincePostedAt is ignored by the extension.
   const sincePostedAt = deps.watermark === null ? kstDayStartMs(openedAt) : null
+  deps.onProgress?.({ phase: 'COLLECTING' })
   const raws = await collect(deps, sincePostedAt)
   if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
 
-  for (const raw of raws) {
+  for (const [index, raw] of raws.entries()) {
+    deps.onProgress?.({
+      phase: 'WORKING',
+      done: index,
+      total: raws.length,
+      nickname: raw.authorNickname,
+    })
     const membership = deps.resolveMembership(raw)
     if (membership === 'DEFER') {
       deferred = true

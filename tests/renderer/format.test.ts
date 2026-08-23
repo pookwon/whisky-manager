@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { outcomeSummary, relativeTime, isRefusalStale, formatNextSessionTime, getBridgeStatusKey } from '../../src/renderer/format.js'
+import {
+  outcomeSummary,
+  progressSummary,
+  relativeTime,
+  isRefusalStale,
+  formatNextSessionTime,
+  getBridgeStatusKey,
+} from '../../src/renderer/format.js'
 
 const NOW = Date.UTC(2026, 7, 24, 10, 0, 0)
 const MINUTE = 60_000
@@ -139,5 +146,41 @@ describe('getBridgeStatusKey', () => {
 
   it('returns offline key when status is OFFLINE', () => {
     expect(getBridgeStatusKey('OFFLINE')).toBe('status.bridgeOffline')
+  })
+})
+
+describe('progressSummary', () => {
+  it('names the phase before any post is in hand', () => {
+    expect(progressSummary({ phase: 'PREPARING' })).toEqual({ key: 'progress.PREPARING', values: {} })
+    expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.COLLECTING', values: {} })
+  })
+
+  it('counts the post in hand as the current position, not as finished', () => {
+    expect(
+      progressSummary({ phase: 'WORKING', done: 0, total: 3, nickname: '\uc65c\ubc24\uc774' }),
+    ).toEqual({
+      key: 'progress.workingOn',
+      values: { position: 1, total: 3, nickname: '\uc65c\ubc24\uc774' },
+    })
+  })
+
+  it('keeps the backlog distinct from the fresh collection', () => {
+    expect(
+      progressSummary({ phase: 'BACKLOG', done: 0, total: 2, nickname: '\uc655\ubc24\uc774' }),
+    ).toEqual({
+      key: 'progress.backlogOn',
+      values: { position: 1, total: 2, nickname: '\uc655\ubc24\uc774' },
+    })
+    expect(progressSummary({ phase: 'BACKLOG', done: 1, total: 2, nickname: null })).toEqual({
+      key: 'progress.backlog',
+      values: { position: 2, total: 2 },
+    })
+  })
+
+  it('drops the name when the post has none', () => {
+    expect(progressSummary({ phase: 'WORKING', done: 2, total: 3, nickname: null })).toEqual({
+      key: 'progress.working',
+      values: { position: 3, total: 3 },
+    })
   })
 })

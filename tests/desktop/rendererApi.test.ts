@@ -14,6 +14,7 @@ import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createWatermarksRepo } from '../../src/desktop/db/watermarksRepo.js'
 import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
+import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import { FakeClock } from '../fakes.js'
 
@@ -24,6 +25,7 @@ let dir: string
 let db: AppDatabase
 let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
+let progress: SessionProgress | null
 
 function build() {
   const repos: AppRepos = {
@@ -36,6 +38,7 @@ function build() {
   }
   const settings = createSettingsRepo(db)
   control = { running: false, killed: false, ranOnce: 0 }
+  progress = null
   const automation: AutomationControl = {
     start: () => {
       control.running = true
@@ -65,6 +68,7 @@ function build() {
     getStartupPreview: () => null,
     lastBridgeConnectedAt: () => null,
     nextSessionAt: () => null,
+    sessionProgress: () => progress,
     clock: new FakeClock(MON_10_00),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
@@ -127,7 +131,21 @@ describe('getDashboard', () => {
       startupPreview: null,
       lastOutcomeAt: null,
       nextSessionAt: null,
+      sessionProgress: null,
       bridgeStatus: 'CONNECTED',
+    })
+  })
+
+  it('reports what a session in flight is doing, and nothing when none is', async () => {
+    const { api } = build()
+    expect((await api.getDashboard()).sessionProgress).toBeNull()
+
+    progress = { phase: 'WORKING', done: 3, total: 10, nickname: '\uc655\ubc24\uc774' }
+    expect((await api.getDashboard()).sessionProgress).toEqual({
+      phase: 'WORKING',
+      done: 3,
+      total: 10,
+      nickname: '\uc655\ubc24\uc774',
     })
   })
 

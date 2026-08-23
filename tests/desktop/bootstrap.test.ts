@@ -101,6 +101,14 @@ describe('createAppContext', () => {
     ctx.automation.stop()
   })
 
+  it('leaves no progress behind once a session ends', async () => {
+    // The session refuses at once here; what matters is that the reporter is
+    // cleared either way, so the dashboard never claims a finished run is live.
+    expect(ctx.sessionProgress()).toBeNull()
+    await ctx.automation.runOnce()
+    expect(ctx.sessionProgress()).toBeNull()
+  })
+
   it('listens on a bridge port', () => {
     expect(ctx.bridge.port).toBeGreaterThan(0)
   })

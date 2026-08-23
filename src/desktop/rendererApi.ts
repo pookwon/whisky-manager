@@ -41,6 +41,8 @@ export interface RendererApiDeps {
   readonly lastBridgeConnectedAt: () => number | null
   /** When the next session is scheduled to run, or null if the loop is not running. */
   readonly nextSessionAt: () => number | null
+  /** What the session in flight is doing, or null when none is running. */
+  readonly sessionProgress: () => import('./orchestrator.js').SessionProgress | null
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -141,6 +143,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         startupPreview: deps.getStartupPreview(),
         lastOutcomeAt: deps.lastOutcomeAt(),
         nextSessionAt: deps.nextSessionAt(),
+        sessionProgress: deps.sessionProgress(),
         bridgeStatus: calculateBridgeStatus(),
       })
     },
@@ -264,7 +267,14 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     },
 
     runOnce() {
-      return deps.automation.runOnce()
+      // Resolves once the session has started rather than when it ends. A full
+      // day's greetings take the better part of an hour, and a renderer waiting
+      // that out would hold its controls — the stop switches included — shut
+      // for the whole run. Failures inside the session are the loop's to report.
+      void deps.automation.runOnce().catch((error: unknown) => {
+        console.error('[session] run-once failed to start:', error)
+      })
+      return Promise.resolve()
     },
   }
 }
