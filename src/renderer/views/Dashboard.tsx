@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { findAutomation } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
-import { outcomeSummary } from '../format.js'
+import { outcomeSummary, relativeTime, isRefusalStale, formatNextSessionTime, getBridgeStatusKey } from '../format.js'
 import { useApp } from '../store.js'
 
 function Stat({
@@ -32,9 +32,22 @@ export function Dashboard(): React.JSX.Element {
 
   if (dashboard === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
-  const summary = outcomeSummary(dashboard.lastOutcome)
   const running = dashboard.loopRunning
   const preview = dashboard.startupPreview
+
+  // Determine the main outcome display
+  const summary = outcomeSummary(dashboard.lastOutcome)
+  let outcomeTone = summary.tone
+  let outcomeKey = summary.key
+
+  // Check if a refusal is stale (e.g., DISABLED when now enabled)
+  // Get the first automation to check if it's enabled (or could check any automation)
+  const firstAutomation = dashboard.automations[0]
+  const automationIsEnabled = firstAutomation?.enabled ?? true
+  if (isRefusalStale(dashboard.lastOutcome, automationIsEnabled)) {
+    outcomeKey = 'outcome.neverWithCurrentConfig'
+    outcomeTone = 'idle'
+  }
 
   // Show startup preview banner only when it's READY and loop is not running
   const showStartupBanner = preview?.kind === 'READY' && !running
@@ -96,18 +109,38 @@ export function Dashboard(): React.JSX.Element {
           operator opens this window to answer. */}
       <section className="panel overflow-hidden">
         <div className="flex">
-          <div className={`w-1 shrink-0 bar-${summary.tone}`} />
+          <div className={`w-1 shrink-0 bar-${outcomeTone}`} />
           <div className="flex flex-1 items-center justify-between gap-6 px-5 py-4">
-            <div>
+            <div className="flex-1">
               <div
                 className="text-[0.6875rem] font-medium uppercase tracking-wider"
                 style={{ color: 'var(--ink-muted)' }}
               >
                 {t('outcome.heading')}
               </div>
-              <div className={`mt-1 text-lg font-semibold tone-${summary.tone}`}>
-                {t(summary.key, { count: summary.count ?? 0 })}
+              <div className={`mt-1 text-lg font-semibold tone-${outcomeTone}`}>
+                {dashboard.lastOutcomeAt !== null ? (
+                  <>
+                    {t('time.lastSession', {
+                      elapsed: t(relativeTime(dashboard.lastOutcomeAt, Date.now()).key, {
+                        count: relativeTime(dashboard.lastOutcomeAt, Date.now()).count,
+                      }),
+                    })}
+                    <span style={{ color: 'var(--ink-muted)' }} className="text-sm">
+                      {' · '}
+                      {t(outcomeKey, { count: summary.count ?? 0 })}
+                    </span>
+                  </>
+                ) : (
+                  t(outcomeKey, { count: summary.count ?? 0 })
+                )}
               </div>
+
+              {running && dashboard.nextSessionAt !== null && (
+                <div className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  {t('time.nextSession', { time: formatNextSessionTime(dashboard.nextSessionAt) || '—' })}
+                </div>
+              )}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -156,15 +189,29 @@ export function Dashboard(): React.JSX.Element {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2
-          className="text-[0.6875rem] font-medium uppercase tracking-wider"
-          style={{ color: 'var(--ink-muted)' }}
-        >
-          {t('dashboard.automations')}
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2
+            className="text-[0.6875rem] font-medium uppercase tracking-wider"
+            style={{ color: 'var(--ink-muted)' }}
+          >
+            {t('dashboard.automations')}
+          </h2>
+          <span className={`text-xs font-medium tone-${dashboard.bridgeStatus === 'CONNECTED' ? 'ok' : dashboard.bridgeStatus === 'RECONNECTING' ? 'warn' : 'idle'}`}>
+            {t(getBridgeStatusKey(dashboard.bridgeStatus))}
+          </span>
+        </div>
         {dashboard.automations.map((automation) => {
           const descriptor = findAutomation(automation.id)
           const rowSummary = outcomeSummary(automation.lastOutcome)
+          let rowTone = rowSummary.tone
+          let rowKey = rowSummary.key
+
+          // Check if this automation's last refusal is stale
+          if (isRefusalStale(automation.lastOutcome, automation.enabled)) {
+            rowKey = 'outcome.neverWithCurrentConfig'
+            rowTone = 'idle'
+          }
+
           return (
             <button
               key={automation.id}
@@ -174,13 +221,13 @@ export function Dashboard(): React.JSX.Element {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${rowSummary.tone}`} />
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${rowTone}`} />
                   <span className="text-sm font-semibold">
                     {descriptor === undefined ? automation.id : t(descriptor.labelKey)}
                   </span>
                 </div>
                 <div className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  {t(rowSummary.key, { count: rowSummary.count ?? 0 })}
+                  {t(rowKey, { count: rowSummary.count ?? 0 })}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3 text-xs">

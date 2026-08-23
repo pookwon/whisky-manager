@@ -1,4 +1,5 @@
 import type { SessionOutcome, SessionRefusal } from '../desktop/orchestrator.js'
+import type { BridgeStatus } from '../desktop/ipc.js'
 
 const MINUTE = 60_000
 const HOUR = 3_600_000
@@ -52,4 +53,42 @@ export function outcomeSummary(outcome: SessionOutcome | null): OutcomeSummary {
     return { tone: 'alarm', key: 'outcome.ranWithFailures', count: outcome.failed }
   }
   return { tone: 'ok', key: 'outcome.ran', count: outcome.executed }
+}
+
+/**
+ * Checks if a refusal is contradicted by current automation state.
+ * A DISABLED refusal is stale if the automation is now enabled.
+ */
+export function isRefusalStale(outcome: SessionOutcome | null, automationEnabled: boolean): boolean {
+  if (outcome === null) return false
+  if (outcome.opened) return false
+  if (outcome.reason !== 'DISABLED') return false
+  return automationEnabled
+}
+
+/**
+ * Formats the next session time as HH:MM, or returns null if not scheduled.
+ * Assumes nextSessionAt is an absolute timestamp in milliseconds.
+ */
+export function formatNextSessionTime(nextSessionAt: number | null): string | null {
+  if (nextSessionAt === null) return null
+
+  const date = new Date(nextSessionAt)
+  const hours = String(date.getUTCHours()).padStart(2, '0')
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+/**
+ * Returns the i18n key for the bridge status.
+ */
+export function getBridgeStatusKey(status: BridgeStatus): string {
+  switch (status) {
+    case 'CONNECTED':
+      return 'status.bridgeConnected'
+    case 'RECONNECTING':
+      return 'status.bridgeReconnecting'
+    case 'OFFLINE':
+      return 'status.bridgeOffline'
+  }
 }
