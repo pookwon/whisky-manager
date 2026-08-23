@@ -61,7 +61,6 @@ export const ko = {
     },
     progress: {
       heading: '진행 중',
-      PREPARING: '가입자 목록을 읽는 중',
       COLLECTING: '가입인사 글을 모으는 중',
       backlog: '밀린 {{total}}건 중 {{position}}건째',
       backlogOn: '밀린 {{total}}건 중 {{position}}건째 · {{nickname}}님',
@@ -98,6 +97,7 @@ export const ko = {
       STRUCTURE_CHANGED: '구조 변경',
       ENDPOINT_MISMATCH: '엔드포인트 불일치',
       COMMENT_CHECK_FAILED: '댓글 확인 실패',
+      AUTHOR_UNKNOWN: '작성자 미상',
     },
     templates: {
       heading: '환영 문구',

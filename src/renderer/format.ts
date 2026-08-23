@@ -67,7 +67,7 @@ export interface ProgressSummary {
  * three being worked on, not as one already done.
  */
 export function progressSummary(progress: SessionProgress): ProgressSummary {
-  if (progress.phase === 'PREPARING' || progress.phase === 'COLLECTING') {
+  if (progress.phase === 'COLLECTING') {
     return { key: `progress.${progress.phase}`, values: {} }
   }
   // Named separately so the operator can tell a backlog being cleared from

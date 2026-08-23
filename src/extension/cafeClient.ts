@@ -9,7 +9,7 @@ import {
 } from '../shared/automations/welcome-comment/cafe.js'
 import { parseMemoList } from '../shared/automations/welcome-comment/parse.js'
 import { memberListUrl, parseMemberList, type RawMember } from '../shared/members.js'
-import { laterPostId } from '../shared/postId.js'
+import { comparePostId } from '../shared/postId.js'
 import type { RawCandidate, SourceRef } from '../shared/protocol.js'
 import type { CommentAuthor } from '../shared/types.js'
 
@@ -79,11 +79,11 @@ function diagnose(text: string): string {
 }
 
 function isNewerThan(watermark: string | null, postId: string): boolean {
-  return watermark === null || laterPostId(watermark, postId) !== watermark
+  return watermark === null || comparePostId(postId, watermark) > 0
 }
 
 function oldestFirst(a: RawCandidate, b: RawCandidate): number {
-  return laterPostId(a.postId, b.postId) === b.postId ? -1 : 1
+  return comparePostId(a.postId, b.postId)
 }
 
 export function createCafeClient(deps: CafeClientDeps): CafeClient {

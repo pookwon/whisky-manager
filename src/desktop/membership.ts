@@ -1,9 +1,10 @@
 import { kstDayOf, kstDayToJoinDate } from '../shared/kst.js'
 import { MEMBER_PAGE_SIZE } from '../shared/members.js'
 import { TIMEOUTS, type RawCandidate } from '../shared/protocol.js'
-import type { AuthorMembership } from '../shared/types.js'
 import type { MembersRepo } from './db/membersRepo.js'
 import type { ExtensionTransport } from './ws/server.js'
+
+export type AuthorMembership = { kind: 'JOINED'; joinDate: string } | { kind: 'NOT_TRACKED' }
 
 /**
  * Log a warning when paging exceeds this count. This is not a hard stop — the

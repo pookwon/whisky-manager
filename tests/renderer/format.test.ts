@@ -150,8 +150,7 @@ describe('getBridgeStatusKey', () => {
 })
 
 describe('progressSummary', () => {
-  it('names the phase before any post is in hand', () => {
-    expect(progressSummary({ phase: 'PREPARING' })).toEqual({ key: 'progress.PREPARING', values: {} })
+  it('names the phase when collecting', () => {
     expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.COLLECTING', values: {} })
   })
 

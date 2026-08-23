@@ -8,8 +8,9 @@ import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { CommentAuthor } from '../../src/shared/types.js'
-import { runSession, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
+import { runSession, firstPostIdByAuthor, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
+import { firstPostOnlyGuard } from '../../src/shared/automations/welcome-comment/firstPost.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
@@ -93,7 +94,7 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     boardId: '5',
     policy: 'AUTO',
     limits: PROFILES.production,
-    guards: [operatorAlreadyCommentedGuard],
+    guards: [operatorAlreadyCommentedGuard, firstPostOnlyGuard],
     operatorAccounts: ['cafe-ops'],
     clock: new FakeClock(MON_10_00),
     random: new SequenceRandom([10_000]),
@@ -110,8 +111,6 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
     watermark: null,
-    resolveMembership: () => ({ kind: 'NOT_TRACKED' }),
-    newMemberWindowDays: 7,
     isManualRun: false,
     ...overrides,
   }
@@ -126,6 +125,58 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe('firstPostIdByAuthor', () => {
+  it('returns the earliest post by each author', () => {
+    const sameAuthorId = 'author-1'
+    const post1: RawCandidate = {
+      postId: '1001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: sameAuthorId,
+      postedAt: MON_10_00 - 60_000,
+      existingCommentAuthors: [],
+    }
+    const post2: RawCandidate = {
+      postId: '1002',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: sameAuthorId,
+      postedAt: MON_10_00 - 30_000,
+      existingCommentAuthors: [],
+    }
+    const result = firstPostIdByAuthor([post1, post2])
+    expect(result.get(sameAuthorId)).toBe('1001')
+  })
+
+  it('breaks ties on postedAt using comparePostId', () => {
+    const sameAuthorId = 'author-1'
+    const sameTimestamp = MON_10_00 - 60_000
+    const post1: RawCandidate = {
+      postId: '2001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: sameAuthorId,
+      postedAt: sameTimestamp,
+      existingCommentAuthors: [],
+    }
+    const post2: RawCandidate = {
+      postId: '1001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: sameAuthorId,
+      postedAt: sameTimestamp,
+      existingCommentAuthors: [],
+    }
+    const result = firstPostIdByAuthor([post1, post2])
+    // When times are identical, lower post ID wins (comparePostId('1001', '2001') < 0)
+    expect(result.get(sameAuthorId)).toBe('1001')
+  })
 })
 
 describe('runSession — gates before opening', () => {
@@ -150,6 +201,7 @@ describe('runSession — gates before opening', () => {
     expect(await runSession(deps({ transport }))).toEqual({ opened: false, reason: 'LOGIN_CHECK_FAILED' })
   })
 })
+
 
 describe('runSession — AUTO policy', () => {
   it('executes clean candidates and records every outcome field', async () => {
@@ -373,41 +425,6 @@ describe('runSession — watermark', () => {
   })
 })
 
-describe('runSession — membership resolution and watermark', () => {
-  it('holds the watermark when a candidate could not be judged', async () => {
-    const transport = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
-    const outcome = await runSession(
-      deps({
-        transport,
-        resolveMembership: (raw) => (raw.postId === '1002' ? 'DEFER' : { kind: 'NOT_TRACKED' }),
-      }),
-    )
-    // Nothing advances while a post is still owed a decision, so the next session
-    // collects the same range again and claim keeps that idempotent.
-    expect(outcome).toMatchObject({ opened: true, lastProcessedPostId: null })
-  })
-
-  it('advances the watermark when every candidate was judged', async () => {
-    const transport = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
-    const outcome = await runSession(
-      deps({ transport, resolveMembership: () => ({ kind: 'NOT_TRACKED' }) }),
-    )
-    expect(outcome).toMatchObject({ opened: true, lastProcessedPostId: '1002' })
-  })
-
-  it('does nothing at all with a deferred post', async () => {
-    const transport = fakeTransport({ candidates: [candidate('1001')] })
-    const outcome = await runSession(deps({ transport, resolveMembership: () => 'DEFER' }))
-    expect(outcome).toMatchObject({
-      opened: true,
-      executed: 0,
-      skipped: 0,
-      awaitingApproval: 0,
-      lastProcessedPostId: null,
-    })
-  })
-})
-
 describe('runSession — queued backlog', () => {
   async function parkOne(postId: string): Promise<string> {
     await runSession(deps({ transport: fakeTransport({ candidates: [candidate(postId)], executeOk: false }) }))
@@ -623,5 +640,88 @@ describe('runSession — progress', () => {
     await runSession(deps({ isEnabled: () => false, onProgress: (progress) => seen.push(progress) }))
 
     expect(seen).toEqual([])
+  })
+})
+
+describe('runSession — first post detection', () => {
+  it('identifies earliest post per author regardless of collection order', async () => {
+    const sameAuthorId = 'author-1'
+    const post1: RawCandidate = {
+      postId: '1001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: sameAuthorId,
+      postedAt: MON_10_00 - 60_000,
+      existingCommentAuthors: [],
+    }
+    const post2: RawCandidate = {
+      postId: '1002',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: sameAuthorId,
+      postedAt: MON_10_00 - 30_000,
+      existingCommentAuthors: [],
+    }
+
+    // Test with oldest-first order
+    const raws1 = [post1, post2]
+    const firstPosts1 = firstPostIdByAuthor(raws1)
+    expect(firstPosts1.get(sameAuthorId)).toBe('1001')
+
+    // Test with newest-first order — should still pick the earliest
+    const raws2 = [post2, post1]
+    const firstPosts2 = firstPostIdByAuthor(raws2)
+    expect(firstPosts2.get(sameAuthorId)).toBe('1001')
+  })
+
+  it('records AUTHOR_UNKNOWN risk flag for posts with null authorId under AUTO policy', async () => {
+    const unknownAuthorPost: RawCandidate = {
+      postId: '1001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick',
+      authorId: null,
+      postedAt: MON_10_00 - 60_000,
+      existingCommentAuthors: [],
+    }
+    await runSession(deps({ transport: fakeTransport({ candidates: [unknownAuthorPost] }), policy: 'AUTO' }))
+
+    // AUTO policy routes risk posts to SKIPPED
+    const rows = db.select().from(executions).all()
+    expect(rows.length).toBeGreaterThan(0)
+    const row = rows[0]
+    expect(row?.status).toBe('SKIPPED')
+    expect(row?.riskFlags).toContain('AUTHOR_UNKNOWN')
+  })
+
+  it('does not disturb first-post judgement for other authors when one post has null authorId', async () => {
+    const author1Post: RawCandidate = {
+      postId: '1001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick1',
+      authorId: 'author-1',
+      postedAt: MON_10_00 - 60_000,
+      existingCommentAuthors: [],
+    }
+    const unknownAuthorPost: RawCandidate = {
+      postId: '1002',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'nick2',
+      authorId: null,
+      postedAt: MON_10_00 - 45_000,
+      existingCommentAuthors: [],
+    }
+    const transport = fakeTransport({ candidates: [author1Post, unknownAuthorPost] })
+    const outcome = await runSession(deps({ transport, policy: 'AUTO' }))
+
+    expect(outcome.opened).toBe(true)
+    if (!outcome.opened) return
+    // author1Post executed, unknownAuthorPost skipped (for RISK)
+    expect(outcome.executed).toBeGreaterThanOrEqual(1)
+    expect(outcome.skipped).toBeGreaterThanOrEqual(1)
   })
 })

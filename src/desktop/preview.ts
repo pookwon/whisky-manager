@@ -1,9 +1,9 @@
 import { evaluateGuards, operatorAlreadyCommentedGuard, type GuardContext } from '../shared/guards.js'
-import { newMemberGuard } from '../shared/automations/welcome-comment/newMember.js'
+import { firstPostOnlyGuard } from '../shared/automations/welcome-comment/firstPost.js'
 import { TIMEOUTS, type RawCandidate } from '../shared/protocol.js'
+import { kstDayStartMs } from '../shared/kst.js'
 import type { Candidate } from '../shared/types.js'
-import type { MembersRepo } from './db/membersRepo.js'
-import { createMembershipResolver } from './membership.js'
+import { firstPostIdByAuthor } from './orchestrator.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export type StartupPreview =
@@ -12,11 +12,9 @@ export type StartupPreview =
 
 export interface PreviewDeps {
   readonly transport: ExtensionTransport
-  readonly repo: MembersRepo
   readonly cafeId: string
   readonly boardId: string
   readonly automationId: string
-  readonly windowDays: number
   readonly nowMs: number
   readonly newRequestId: () => string
   readonly operatorAccounts: readonly string[]
@@ -28,6 +26,7 @@ async function collect(
   cafeId: string,
   boardId: string,
   newRequestId: () => string,
+  sincePostedAt: number,
 ): Promise<RawCandidate[] | null> {
   try {
     const reply = await transport.request(
@@ -37,7 +36,7 @@ async function collect(
         automationId,
         source: { cafeId, boardId },
         sincePostId: null,
-        sincePostedAt: null,
+        sincePostedAt,
       },
       TIMEOUTS.collectMs,
     )
@@ -52,30 +51,17 @@ export async function previewToday(deps: PreviewDeps): Promise<StartupPreview> {
     return { kind: 'UNAVAILABLE', reason: 'BRIDGE_OFFLINE' }
   }
 
-  const raws = await collect(deps.transport, deps.automationId, deps.cafeId, deps.boardId, deps.newRequestId)
+  const sincePostedAt = kstDayStartMs(deps.nowMs)
+  const raws = await collect(deps.transport, deps.automationId, deps.cafeId, deps.boardId, deps.newRequestId, sincePostedAt)
   if (raws === null) {
     return { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
   }
 
-  const resolveMembership = await createMembershipResolver({
-    transport: deps.transport,
-    repo: deps.repo,
-    cafeId: deps.cafeId,
-    windowDays: deps.windowDays,
-    nowMs: deps.nowMs,
-    newRequestId: deps.newRequestId,
-  })
-
-  const guards = [operatorAlreadyCommentedGuard, newMemberGuard]
+  const firstPosts = firstPostIdByAuthor(raws)
+  const guards = [operatorAlreadyCommentedGuard, firstPostOnlyGuard]
   let count = 0
 
   for (const raw of raws) {
-    const membership = resolveMembership(raw)
-    // DEFER candidates cannot be judged this session, so they don't count
-    if (membership === 'DEFER') {
-      continue
-    }
-
     const candidate: Candidate = {
       automationId: deps.automationId,
       cafeId: deps.cafeId,
@@ -92,8 +78,7 @@ export async function previewToday(deps: PreviewDeps): Promise<StartupPreview> {
       nowMs: deps.nowMs,
       operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors: raw.existingCommentAuthors,
-      authorMembership: membership,
-      newMemberWindowDays: deps.windowDays,
+      isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     }
 
     const evaluation = evaluateGuards(guards, candidate, guardContext)

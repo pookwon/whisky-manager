@@ -1,11 +1,10 @@
 import { operatorAlreadyCommentedGuard } from '../shared/guards.js'
-import { newMemberGuard } from '../shared/automations/welcome-comment/newMember.js'
+import { firstPostOnlyGuard } from '../shared/automations/welcome-comment/firstPost.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { PROFILES } from '../shared/profiles.js'
 import { pickTemplate, renderTemplate } from '../shared/templates.js'
 import type { Candidate, Profile } from '../shared/types.js'
 import type { AppRepos } from './bootstrap.js'
-import { createMembershipResolver } from './membership.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import {
   runSession,
@@ -19,7 +18,6 @@ export const SETTING_KEYS = {
   cafeId: 'cafeId',
   cafeUrlName: 'cafeUrlName',
   operatorAccounts: 'operatorAccounts',
-  newMemberWindowDays: 'newMemberWindowDays',
 } as const
 
 /** The whisky/cognac club's 가입인사 board, per the design spec. */
@@ -27,9 +25,6 @@ export const DEFAULT_CAFE_ID = '10000000'
 export const DEFAULT_BOARD_ID = '5'
 /** The cafe's vanity url, which is how a person reaches it. */
 export const DEFAULT_CAFE_URL_NAME = 'examplecafe'
-
-/** How long after joining a greeting still counts as a new member's. */
-export const DEFAULT_NEW_MEMBER_WINDOW_DAYS = 3
 
 const NICKNAME_VARIABLE = '닉네임'
 
@@ -44,10 +39,7 @@ export interface SessionRunnerOptions {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newId: () => string
-  /**
-   * Reports what the run is doing. Reading the member list happens before the
-   * session opens, so that phase can only be reported from here.
-   */
+  /** Reports what the run is doing. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
 
@@ -60,12 +52,6 @@ export function parseOperatorAccounts(raw: string | undefined): string[] {
   } catch {
     return []
   }
-}
-
-export function parseWindowDays(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === '') return DEFAULT_NEW_MEMBER_WINDOW_DAYS
-  const parsed = Number(raw)
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_NEW_MEMBER_WINDOW_DAYS
 }
 
 /**
@@ -97,24 +83,13 @@ export function createSessionRunner(options: SessionRunnerOptions): (isManualRun
         : { ok: false, missing: result.missing }
     }
 
-    const windowDays = parseWindowDays(settings.get(SETTING_KEYS.newMemberWindowDays))
-    options.onProgress?.({ phase: 'PREPARING' })
-    const resolveMembership = await createMembershipResolver({
-      transport: options.transport,
-      repo: repos.members,
-      cafeId: cafe,
-      windowDays,
-      nowMs: options.clock.now(),
-      newRequestId: options.newId,
-    })
-
     const outcome = await runSession({
       automationId,
       cafeId: cafe,
       boardId: board,
       policy: setting?.policy ?? 'AUTO',
       limits,
-      guards: [operatorAlreadyCommentedGuard, newMemberGuard],
+      guards: [operatorAlreadyCommentedGuard, firstPostOnlyGuard],
       operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       clock: options.clock,
       random: options.random,
@@ -128,8 +103,6 @@ export function createSessionRunner(options: SessionRunnerOptions): (isManualRun
       sleep: options.sleep,
       newRequestId: options.newId,
       watermark: repos.watermarks.get(automationId, cafe, board),
-      resolveMembership,
-      newMemberWindowDays: windowDays,
       isManualRun,
       // An absent reporter has to be absent rather than undefined here.
       ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
