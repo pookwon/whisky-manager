@@ -104,8 +104,10 @@ body {
   transition: background 140ms ease, color 140ms ease;
 }
 
+/* Raised, not sunken: the nav itself is sunken, so hovering used to change
+   nothing but the text colour. */
 .nav-item:hover {
-  background: var(--surface-sunken);
+  background: var(--surface-raised);
   color: var(--ink);
 }
 
@@ -113,6 +115,50 @@ body {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
+}
+
+/*
+ * A feature's own name. Full ink at heading weight, so it reads as a thing the
+ * app does rather than as one of the quiet category labels around it.
+ */
+.nav-section {
+  padding: 0 0.75rem 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/*
+ * The rule is the parent-child link: everything right of it belongs to the
+ * feature named above. Indentation alone reads as decoration; a line reads as
+ * containment.
+ */
+.nav-children {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-left: 0.75rem;
+  padding-left: 0.625rem;
+  /* `--line` is tuned for borders on raised panels; on the sunken nav a hairline
+     in it all but disappears, so this lifts the colour toward the ink and takes
+     the width to a round 2px — 1.5px was being rounded back down to 1. */
+  border-left: 2px solid color-mix(in oklch, var(--line) 60%, var(--ink-muted));
+}
+
+.nav-item-sub {
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+  font-size: 0.8125rem;
+}
+
+/* A grouping, not a feature — deliberately quieter than `.nav-section`. */
+.nav-group-label {
+  padding: 0 0.75rem 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
 }
 
 .btn {

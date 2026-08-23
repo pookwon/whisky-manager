@@ -83,39 +83,33 @@ export function App(): React.JSX.Element {
         </button>
 
         {AUTOMATIONS.map((automation) => (
-          <div key={automation.id} className="mt-4 flex flex-col gap-1">
-            <div
-              className="px-3 pb-1 text-[0.625rem] font-medium uppercase tracking-wider"
-              style={{ color: 'var(--ink-muted)' }}
-            >
-              {t(automation.labelKey)}
+          <section key={automation.id} className="mt-5" aria-label={t(automation.labelKey)}>
+            <h2 className="nav-section">{t(automation.labelKey)}</h2>
+            <div className="nav-children">
+              {automation.panels.map((panel) => {
+                const target: Route = { kind: 'automation', id: automation.id, panel }
+                const awaiting = awaitingFor(automation.id)
+                return (
+                  <button
+                    key={routeKey(target)}
+                    type="button"
+                    className="nav-item nav-item-sub"
+                    aria-current={routeKey(route) === routeKey(target) ? 'page' : undefined}
+                    onClick={() => setRoute(target)}
+                  >
+                    <span>{t(`nav.${panel}`)}</span>
+                    {panel === 'approvals' && awaiting > 0 && (
+                      <span className="chip">{awaiting}</span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
-            {automation.panels.map((panel) => {
-              const target: Route = { kind: 'automation', id: automation.id, panel }
-              const awaiting = awaitingFor(automation.id)
-              return (
-                <button
-                  key={routeKey(target)}
-                  type="button"
-                  className="nav-item"
-                  aria-current={routeKey(route) === routeKey(target) ? 'page' : undefined}
-                  onClick={() => setRoute(target)}
-                >
-                  <span>{t(`nav.${panel}`)}</span>
-                  {panel === 'approvals' && awaiting > 0 && <span className="chip">{awaiting}</span>}
-                </button>
-              )
-            })}
-          </div>
+          </section>
         ))}
 
-        <div className="mt-4 flex flex-col gap-1">
-          <div
-            className="px-3 pb-1 text-[0.625rem] font-medium uppercase tracking-wider"
-            style={{ color: 'var(--ink-muted)' }}
-          >
-            {t('nav.common')}
-          </div>
+        <section className="mt-5" aria-label={t('nav.common')}>
+          <h2 className="nav-group-label">{t('nav.common')}</h2>
           <button
             type="button"
             className="nav-item"
@@ -124,7 +118,7 @@ export function App(): React.JSX.Element {
           >
             <span>{t('nav.commonSettings')}</span>
           </button>
-        </div>
+        </section>
       </nav>
 
       <main className="flex-1 overflow-y-auto p-7">
