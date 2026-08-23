@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { assertRuntimesRegistered } from '../shared/automations/catalog.js'
 import { PROFILES } from '../shared/profiles.js'
 import type { Profile } from '../shared/types.js'
 import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/automationSettingsRepo.js'
@@ -96,6 +97,12 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
 
   let killed = false
   let lastOutcome: SessionOutcome | null = null
+
+  // The one runtime this build ships. Adding a catalogue entry without adding
+  // it here fails the boot, which is the point: the seam where a second
+  // automation's runtime gets wired is visible in the code rather than left to
+  // a developer's memory.
+  assertRuntimesRegistered([WELCOME_AUTOMATION_ID])
 
   const runSession = createSessionRunner({
     automationId: WELCOME_AUTOMATION_ID,

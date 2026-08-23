@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from '../../src/desktop/bootstrap.js'
+import { AUTOMATIONS } from '../../src/shared/automations/catalog.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
 
@@ -118,5 +119,17 @@ describe('createAppContext', () => {
     })
     expect(id).not.toBeNull()
     expect(ctx.repos.executions.getById(id!)?.targetPostId).toBe('1001')
+  })
+})
+
+describe('runtime coverage', () => {
+  it('boots, which proves every catalogue entry has a runtime', () => {
+    // createAppContext runs assertRuntimesRegistered; beforeEach already
+    // awaited it, so reaching this line is the assertion.
+    expect(ctx).toBeDefined()
+  })
+
+  it('keeps the welcome automation id in the catalogue', () => {
+    expect(AUTOMATIONS.some((a) => a.id === WELCOME_AUTOMATION_ID)).toBe(true)
   })
 })
