@@ -1,4 +1,4 @@
-import type { SessionOutcome } from './orchestrator.js'
+import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
 import type { StartupPreview } from './preview.js'
 
@@ -59,6 +59,11 @@ export interface DashboardSnapshot {
    */
   readonly nextSessionAt: number | null
   /**
+   * What the session in flight is doing, or null when none is running. This is
+   * present state, unlike `lastOutcome`, and takes the banner over while it lasts.
+   */
+  readonly sessionProgress: SessionProgress | null
+  /**
    * Socket is connected, waiting for reconnection, or truly offline.
    * Distinguishes normal brief disconnections from real failures.
    */
@@ -118,5 +123,6 @@ export interface RendererApi {
   startAutomation(): Promise<void>
   stopAutomation(): Promise<void>
   killSwitch(): Promise<void>
+  /** Starts a session now. Resolves once it has started, not once it has finished. */
   runOnce(): Promise<void>
 }

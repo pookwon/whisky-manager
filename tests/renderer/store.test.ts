@@ -45,6 +45,7 @@ const snapshot: DashboardSnapshot = {
   startupPreview: null,
   lastOutcomeAt: null,
   nextSessionAt: null,
+  sessionProgress: null,
   bridgeStatus: 'OFFLINE',
 }
 

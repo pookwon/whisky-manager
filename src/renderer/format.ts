@@ -1,4 +1,4 @@
-import type { SessionOutcome, SessionRefusal } from '../desktop/orchestrator.js'
+import type { SessionOutcome, SessionProgress, SessionRefusal } from '../desktop/orchestrator.js'
 import type { BridgeStatus } from '../desktop/ipc.js'
 
 const MINUTE = 60_000
@@ -53,6 +53,30 @@ export function outcomeSummary(outcome: SessionOutcome | null): OutcomeSummary {
     return { tone: 'alarm', key: 'outcome.ranWithFailures', count: outcome.failed }
   }
   return { tone: 'ok', key: 'outcome.ran', count: outcome.executed }
+}
+
+export interface ProgressSummary {
+  readonly key: string
+  readonly values: Record<string, string | number>
+}
+
+/**
+ * Returns an i18n key and its values, as `outcomeSummary` does, so the wording
+ * stays in the locale file. The post in hand counts as the current position
+ * rather than waiting to be finished: an operator reads "1/3" as the first of
+ * three being worked on, not as one already done.
+ */
+export function progressSummary(progress: SessionProgress): ProgressSummary {
+  if (progress.phase === 'PREPARING' || progress.phase === 'COLLECTING') {
+    return { key: `progress.${progress.phase}`, values: {} }
+  }
+  // Named separately so the operator can tell a backlog being cleared from
+  // today's own posts; the two carry different totals.
+  const walk = progress.phase === 'BACKLOG' ? 'backlog' : 'working'
+  const values = { position: progress.done + 1, total: progress.total }
+  return progress.nickname === null
+    ? { key: `progress.${walk}`, values }
+    : { key: `progress.${walk}On`, values: { ...values, nickname: progress.nickname } }
 }
 
 /**

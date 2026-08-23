@@ -11,7 +11,7 @@ import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { createWatermarksRepo, type WatermarksRepo } from './db/watermarksRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
-import type { SessionOutcome } from './orchestrator.js'
+import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import { createSessionRunner, parseWindowDays, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
@@ -62,6 +62,8 @@ export interface AppContext {
   lastOutcome(): SessionOutcome | null
   /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
   lastOutcomeAt(): number | null
+  /** What the running session is doing, or null when none is in flight. */
+  sessionProgress(): SessionProgress | null
   /**
    * Count of greeting targets available at startup, once the bridge connects.
    * Null while not yet counted; a READY or UNAVAILABLE result once obtained.
@@ -114,6 +116,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   let killed = false
   let lastOutcome: SessionOutcome | null = null
   let lastOutcomeAt: number | null = null
+  let sessionProgress: SessionProgress | null = null
   let startupPreview: StartupPreview | null = null
   let previewMonitorHandle: NodeJS.Timeout | null = null
   let lastBridgeConnectedAt: number | null = null
@@ -135,13 +138,30 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     isKilled: () => killed,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     newId: () => randomUUID(),
+    onProgress: (progress) => {
+      sessionProgress = progress
+    },
   })
+
+  /**
+   * Progress only means anything while a session is in flight. Clearing it here
+   * rather than in the loop's outcome handler covers the throwing run too — a
+   * session that died would otherwise leave the dashboard claiming it is still
+   * working on someone.
+   */
+  const runSessionReportingProgress = async (isManualRun?: boolean): Promise<SessionOutcome> => {
+    try {
+      return await runSession(isManualRun)
+    } finally {
+      sessionProgress = null
+    }
+  }
 
   const loop = createSessionLoop({
     limits: PROFILES[options.profile],
     clock: systemClock,
     random: systemRandom,
-    runSession,
+    runSession: runSessionReportingProgress,
     onOutcome: (outcome) => {
       lastOutcome = outcome
       lastOutcomeAt = systemClock.now()
@@ -239,6 +259,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     automation,
     lastOutcome: () => lastOutcome,
     lastOutcomeAt: () => lastOutcomeAt,
+    sessionProgress: () => sessionProgress,
     getStartupPreview: () => startupPreview,
     lastBridgeConnectedAt: () => lastBridgeConnectedAt,
     async shutdown() {

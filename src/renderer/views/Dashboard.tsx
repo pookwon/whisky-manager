@@ -1,7 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import { findAutomation } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
-import { outcomeSummary, relativeTime, isRefusalStale, formatNextSessionTime, getBridgeStatusKey } from '../format.js'
+import {
+  outcomeSummary,
+  progressSummary,
+  relativeTime,
+  isRefusalStale,
+  formatNextSessionTime,
+  getBridgeStatusKey,
+} from '../format.js'
 import { useApp } from '../store.js'
 
 function Stat({
@@ -34,6 +41,9 @@ export function Dashboard(): React.JSX.Element {
 
   const running = dashboard.loopRunning
   const preview = dashboard.startupPreview
+  /** Non-null exactly while a session is in flight. */
+  const progress =
+    dashboard.sessionProgress === null ? null : progressSummary(dashboard.sessionProgress)
 
   // Determine the main outcome display
   const summary = outcomeSummary(dashboard.lastOutcome)
@@ -64,7 +74,7 @@ export function Dashboard(): React.JSX.Element {
       {showStartupBanner && (
         <section className="panel overflow-hidden">
           <div className="flex">
-            <div className="w-1 shrink-0 bar-info" />
+            <div className="w-1 shrink-0 bar-accent" />
             <div className="flex flex-1 items-center gap-6 px-5 py-4">
               <div>
                 <div
@@ -73,7 +83,7 @@ export function Dashboard(): React.JSX.Element {
                 >
                   {t('startup.heading')}
                 </div>
-                <div className="mt-1 text-lg font-semibold tone-info">
+                <div className="mt-1 text-lg font-semibold tone-accent">
                   {t('startup.count', { count: preview.count })}
                 </div>
               </div>
@@ -106,35 +116,43 @@ export function Dashboard(): React.JSX.Element {
       )}
 
       {/* The banner comes first because "why is it quiet?" is the question an
-          operator opens this window to answer. */}
+          operator opens this window to answer. While a session is in flight the
+          answer is "it isn't", so present progress takes the slot over from the
+          last session's result — a run can take the better part of an hour. */}
       <section className="panel overflow-hidden">
         <div className="flex">
-          <div className={`w-1 shrink-0 bar-${outcomeTone}`} />
+          <div className={`w-1 shrink-0 ${progress === null ? `bar-${outcomeTone}` : 'bar-accent'}`} />
           <div className="flex flex-1 items-center justify-between gap-6 px-5 py-4">
             <div className="flex-1">
               <div
                 className="text-[0.6875rem] font-medium uppercase tracking-wider"
                 style={{ color: 'var(--ink-muted)' }}
               >
-                {t('outcome.heading')}
+                {t(progress === null ? 'outcome.heading' : 'progress.heading')}
               </div>
-              <div className={`mt-1 text-lg font-semibold tone-${outcomeTone}`}>
-                {dashboard.lastOutcomeAt !== null ? (
-                  <>
-                    {t('time.lastSession', {
-                      elapsed: t(relativeTime(dashboard.lastOutcomeAt, Date.now()).key, {
-                        count: relativeTime(dashboard.lastOutcomeAt, Date.now()).count,
-                      }),
-                    })}
-                    <span style={{ color: 'var(--ink-muted)' }} className="text-sm">
-                      {' · '}
-                      {t(outcomeKey, { count: summary.count ?? 0 })}
-                    </span>
-                  </>
-                ) : (
-                  t(outcomeKey, { count: summary.count ?? 0 })
-                )}
-              </div>
+              {progress === null ? (
+                <div className={`mt-1 text-lg font-semibold tone-${outcomeTone}`}>
+                  {dashboard.lastOutcomeAt !== null ? (
+                    <>
+                      {t('time.lastSession', {
+                        elapsed: t(relativeTime(dashboard.lastOutcomeAt, Date.now()).key, {
+                          count: relativeTime(dashboard.lastOutcomeAt, Date.now()).count,
+                        }),
+                      })}
+                      <span style={{ color: 'var(--ink-muted)' }} className="text-sm">
+                        {' · '}
+                        {t(outcomeKey, { count: summary.count ?? 0 })}
+                      </span>
+                    </>
+                  ) : (
+                    t(outcomeKey, { count: summary.count ?? 0 })
+                  )}
+                </div>
+              ) : (
+                <div className="mt-1 text-lg font-semibold tone-accent">
+                  {t(progress.key, progress.values)}
+                </div>
+              )}
 
               {running && dashboard.nextSessionAt !== null && (
                 <div className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
@@ -147,7 +165,7 @@ export function Dashboard(): React.JSX.Element {
               <button
                 type="button"
                 className="btn"
-                disabled={busy}
+                disabled={busy || progress !== null}
                 onClick={() => void act(() => api.runOnce())}
               >
                 {t('status.runOnce')}

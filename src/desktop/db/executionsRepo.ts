@@ -60,6 +60,7 @@ export interface QueuedRow {
   readonly cafeId: string
   readonly boardId: string
   readonly targetPostId: string
+  readonly targetAuthor: string | null
   readonly renderedText: string
   readonly templateId: string | null
   readonly attempts: number
@@ -188,6 +189,7 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
                   cafeId: r.cafeId,
                   boardId: r.boardId,
                   targetPostId: r.targetPostId,
+                  targetAuthor: r.targetAuthor,
                   renderedText: r.renderedText,
                   templateId: r.templateId,
                   attempts: r.attempts,
