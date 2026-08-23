@@ -75,7 +75,7 @@ function candidate(postId: string, postedAt = MON_10_00 - 60_000): RawCandidate 
     title: '가입인사',
     bodyText: '반갑습니다',
     authorNickname: 'nick',
-    authorId: 'm1',
+    authorId: `m${postId}`,
     postedAt,
     existingCommentAuthors: [],
   }

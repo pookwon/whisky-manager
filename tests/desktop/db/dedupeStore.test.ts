@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
