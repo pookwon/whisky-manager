@@ -79,6 +79,7 @@ export const ko = {
     templates: {
       heading: '환영 문구',
       hint: '여러 개를 등록하면 매번 무작위로 하나를 고릅니다. {닉네임}을 쓸 수 있습니다.',
+      submitHint: '줄바꿈은 Enter, 등록은 ⌘/Ctrl+Enter 또는 추가 버튼입니다.',
       placeholder: '{닉네임}님 환영합니다',
       add: '추가',
       remove: '삭제',

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
+import { isSubmitKey } from './templateInput.js'
 
 interface TemplatesProps {
   readonly automationId: string
@@ -30,16 +31,23 @@ export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
         <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
           {t('templates.hint')}
         </p>
+        <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          {t('templates.submitHint')}
+        </p>
       </header>
 
-      <div className="flex gap-2">
-        <input
-          className="field"
+      <div className="flex items-start gap-2">
+        <textarea
+          className="field field-multiline"
           value={draft}
+          rows={3}
           placeholder={t('templates.placeholder')}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') submit()
+            if (isSubmitKey(e)) {
+              e.preventDefault()
+              submit()
+            }
           }}
         />
         <button type="button" className="btn btn-primary shrink-0" disabled={busy} onClick={submit}>
@@ -53,7 +61,7 @@ export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
         <ul className="flex flex-col gap-2">
           {templates.map((template) => (
             <li key={template.id} className="panel flex items-center justify-between gap-4 px-4 py-3">
-              <span className="text-sm">{template.body}</span>
+              <span className="text-sm whitespace-pre-wrap">{template.body}</span>
               <button
                 type="button"
                 className="btn btn-danger shrink-0"
