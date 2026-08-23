@@ -24,7 +24,7 @@ async function claim(postId: string, postedAt: number): Promise<string> {
     postId,
     title: null,
     authorNickname: 'nick',
-    authorId: 'member',
+    authorId: `member-${postId}`,
     postedAt,
     detectedAt: postedAt + 1000,
   })

@@ -8,6 +8,7 @@ import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSet
 import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
+import { createMembersRepo } from '../../src/desktop/db/membersRepo.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createWatermarksRepo } from '../../src/desktop/db/watermarksRepo.js'
@@ -31,6 +32,7 @@ function build() {
     automationSettings: createAutomationSettingsRepo(db),
     watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => `exec-${++counter}`),
+    members: createMembersRepo(db),
   }
   const settings = createSettingsRepo(db)
   control = { running: false, killed: false, ranOnce: 0 }

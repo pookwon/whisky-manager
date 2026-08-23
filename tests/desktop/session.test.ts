@@ -8,6 +8,7 @@ import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSettingsRepo.js'
+import { createMembersRepo } from '../../src/desktop/db/membersRepo.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createWatermarksRepo } from '../../src/desktop/db/watermarksRepo.js'
@@ -25,7 +26,7 @@ function candidate(postId: string, nickname: string | null = '신입회원'): Ra
   return {
     postId,
     title: '가입인사',
-    bodyText: '반갑습니다',
+    bodyText: nickname ? `${nickname}님이 우리 카페에 가입하였습니다.\n댓글로 ${nickname}님을 환영해주세요.` : '반갑습니다',
     authorNickname: nickname,
     authorId: 'm1',
     postedAt: MON_10_00 - 60_000,
@@ -58,6 +59,9 @@ function transportWith(candidates: RawCandidate[]) {
         if (message.type === 'CHECK_COMMENTS') {
           return Promise.resolve({ type: 'COMMENTS', requestId: message.requestId, authors: [] })
         }
+        if (message.type === 'FETCH_MEMBERS') {
+          return Promise.resolve({ type: 'MEMBERS', requestId: message.requestId, members: [] })
+        }
         if (message.type === 'EXECUTE') {
           executed.push(message.action.body)
           return Promise.resolve({
@@ -88,6 +92,7 @@ function build(candidates: RawCandidate[]) {
     automationSettings: createAutomationSettingsRepo(db),
     watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => `exec-${++counter}`),
+    members: createMembersRepo(db),
   }
   const settings = createSettingsRepo(db)
   const run = createSessionRunner({

@@ -9,6 +9,7 @@ import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
+import type { MembershipResolver } from './membership.js'
 import { sweepApprovals } from './approvals.js'
 import { promoteRetries } from './retries.js'
 import type { ExtensionTransport } from './ws/server.js'
@@ -38,6 +39,9 @@ export interface SessionDeps {
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
   readonly watermark: string | null
+  /** Decides whether a post's author is a member this tool watched join. */
+  readonly resolveMembership: MembershipResolver
+  readonly newMemberWindowDays: number
 }
 
 export type RenderOutcome =
@@ -298,6 +302,12 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   let lastProcessedPostId: string | null = null
   /** Requests actually sent this session. Caps count attempts, not successes. */
   let attempted = 0
+  /**
+   * Set when a post could not be judged this session. The watermark is a single
+   * high-water mark, so advancing past a held post would lose it: the whole
+   * session's advance is withheld instead.
+   */
+  let deferred = false
 
   const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
   let dailyCount = deps.repo.countExecutedSince(deps.automationId, dailyStart)
@@ -326,7 +336,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     awaitingApproval,
     failed,
     expired,
-    lastProcessedPostId,
+    lastProcessedPostId: deferred ? null : lastProcessedPostId,
   })
 
   // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
@@ -353,6 +363,12 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
 
   for (const raw of raws) {
+    const membership = deps.resolveMembership(raw)
+    if (membership === 'DEFER') {
+      deferred = true
+      continue
+    }
+
     const now = deps.clock.now()
 
     // Advance per post handled, not once after collection: if the app dies
@@ -391,9 +407,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors: raw.existingCommentAuthors,
-      // Placeholders: newMemberGuard not yet registered, no guard reads these values.
-      authorMembership: { kind: 'NOT_TRACKED' },
-      newMemberWindowDays: 7,
+      authorMembership: membership,
+      newMemberWindowDays: deps.newMemberWindowDays,
     })
     const evaluation = rendered.ok
       ? guardEvaluation

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createMembershipResolver } from '../../src/desktop/membership.js'
 import type { MembersRepo } from '../../src/desktop/db/membersRepo.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'

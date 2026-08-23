@@ -110,6 +110,8 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
     watermark: null,
+    resolveMembership: () => ({ kind: 'NOT_TRACKED' }),
+    newMemberWindowDays: 7,
     ...overrides,
   }
 }
@@ -342,6 +344,41 @@ describe('runSession — watermark', () => {
 
     // 9001 executes, 9002 is claimed then parked by the cap, 9003 is untouched.
     expect(await runSession(deps({ transport, limits }))).toMatchObject({ lastProcessedPostId: '9002' })
+  })
+})
+
+describe('runSession — membership resolution and watermark', () => {
+  it('holds the watermark when a candidate could not be judged', async () => {
+    const transport = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
+    const outcome = await runSession(
+      deps({
+        transport,
+        resolveMembership: (raw) => (raw.postId === '1002' ? 'DEFER' : { kind: 'NOT_TRACKED' }),
+      }),
+    )
+    // Nothing advances while a post is still owed a decision, so the next session
+    // collects the same range again and claim keeps that idempotent.
+    expect(outcome).toMatchObject({ opened: true, lastProcessedPostId: null })
+  })
+
+  it('advances the watermark when every candidate was judged', async () => {
+    const transport = fakeTransport({ candidates: [candidate('1001'), candidate('1002')] })
+    const outcome = await runSession(
+      deps({ transport, resolveMembership: () => ({ kind: 'NOT_TRACKED' }) }),
+    )
+    expect(outcome).toMatchObject({ opened: true, lastProcessedPostId: '1002' })
+  })
+
+  it('does nothing at all with a deferred post', async () => {
+    const transport = fakeTransport({ candidates: [candidate('1001')] })
+    const outcome = await runSession(deps({ transport, resolveMembership: () => 'DEFER' }))
+    expect(outcome).toMatchObject({
+      opened: true,
+      executed: 0,
+      skipped: 0,
+      awaitingApproval: 0,
+      lastProcessedPostId: null,
+    })
   })
 })
 
