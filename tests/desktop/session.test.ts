@@ -12,7 +12,7 @@ import { createMembersRepo } from '../../src/desktop/db/membersRepo.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createWatermarksRepo } from '../../src/desktop/db/watermarksRepo.js'
-import { SETTING_KEYS, createSessionRunner } from '../../src/desktop/session.js'
+import { SETTING_KEYS, createSessionRunner, parseWindowDays, DEFAULT_NEW_MEMBER_WINDOW_DAYS } from '../../src/desktop/session.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
@@ -128,6 +128,47 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe('parseWindowDays', () => {
+  it('returns the default when raw is undefined', () => {
+    expect(parseWindowDays(undefined)).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+  })
+
+  it('returns the default when raw is an empty string', () => {
+    expect(parseWindowDays('')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+  })
+
+  it('returns the default when raw is a whitespace-only string', () => {
+    expect(parseWindowDays('   ')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+    expect(parseWindowDays('\t')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+    expect(parseWindowDays('\n')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+  })
+
+  it('returns 0 when raw is explicitly "0"', () => {
+    expect(parseWindowDays('0')).toBe(0)
+  })
+
+  it('returns the parsed value for a valid positive integer string', () => {
+    expect(parseWindowDays('14')).toBe(14)
+    expect(parseWindowDays('7')).toBe(7)
+    expect(parseWindowDays('1')).toBe(1)
+  })
+
+  it('returns the default when raw is a non-numeric string', () => {
+    expect(parseWindowDays('abc')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+    expect(parseWindowDays('14 days')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+  })
+
+  it('returns the default when raw is a negative value', () => {
+    expect(parseWindowDays('-1')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+    expect(parseWindowDays('-14')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+  })
+
+  it('returns the default when raw is a fractional value', () => {
+    expect(parseWindowDays('7.5')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+    expect(parseWindowDays('14.1')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
+  })
 })
 
 describe('createSessionRunner', () => {

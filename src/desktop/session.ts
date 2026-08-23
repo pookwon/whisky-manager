@@ -53,6 +53,7 @@ export function parseOperatorAccounts(raw: string | undefined): string[] {
 }
 
 export function parseWindowDays(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_NEW_MEMBER_WINDOW_DAYS
   const parsed = Number(raw)
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_NEW_MEMBER_WINDOW_DAYS
 }
