@@ -61,7 +61,7 @@ export const ko = {
     },
     progress: {
       heading: '진행 중',
-      COLLECTING: '가입인사 글을 모으는 중',
+      COLLECTING: '가입인사 글을 모으는 중{{#pages}} ({{pages}}쪽{{#count}}, {{count}}건{{/count}}){{/pages}}',
       backlog: '밀린 {{total}}건 중 {{position}}건째',
       backlogOn: '밀린 {{total}}건 중 {{position}}건째 · {{nickname}}님',
       working: '{{total}}건 중 {{position}}건째',

@@ -4,6 +4,7 @@ import {
   isWithinActiveHours,
   nextActionDelayMs,
   nextActiveStart,
+  nextPageFetchDelayMs,
   nextSessionStart,
 } from '../../src/shared/schedule.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
@@ -64,5 +65,26 @@ describe('nextSessionStart', () => {
 describe('nextActionDelayMs', () => {
   it('draws from the action interval range', () => {
     expect(nextActionDelayMs(limits, new SequenceRandom([12_000]))).toBe(12_000)
+  })
+})
+
+describe('nextPageFetchDelayMs', () => {
+  it('returns the lower bound when random returns its minimum', () => {
+    // SequenceRandom clamps to [min, max], so passing 0 means it uses 0
+    // which maps to 1750ms in the range [1750, 2500]
+    const delay = nextPageFetchDelayMs(new SequenceRandom([0]))
+    expect(delay).toBe(1_750)
+  })
+
+  it('returns the upper bound when random returns its maximum', () => {
+    // Passing a high value should clamp to the max
+    const delay = nextPageFetchDelayMs(new SequenceRandom([10_000]))
+    expect(delay).toBe(2_500)
+  })
+
+  it('returns a value in the middle when random returns a midpoint', () => {
+    const delay = nextPageFetchDelayMs(new SequenceRandom([2_125]))
+    expect(delay).toBeGreaterThanOrEqual(1_750)
+    expect(delay).toBeLessThanOrEqual(2_500)
   })
 })

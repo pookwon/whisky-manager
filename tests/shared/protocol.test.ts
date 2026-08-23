@@ -102,3 +102,20 @@ describe('probe messages', () => {
   })
 })
 
+describe('collection progress messages', () => {
+  it('accepts a COLLECT_PROGRESS interim message', () => {
+    expect(
+      isExtensionMessage({
+        type: 'COLLECT_PROGRESS',
+        requestId: 'r11',
+        pagesRead: 2,
+        collected: 87,
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps app and extension sides separate', () => {
+    expect(isAppMessage({ type: 'COLLECT_PROGRESS', requestId: 'r11' })).toBe(false)
+  })
+})
+

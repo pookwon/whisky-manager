@@ -1,8 +1,13 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
 
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 
-/** No call may wait forever. Every value stays under the MV3 30s fetch ceiling. */
+/**
+ * No call may wait forever. Every value bounds the gap between messages, not
+ * total elapsed time. Interim collection progress messages reset the timer,
+ * so a collection that pages with 2s gaps will report progress every 2s and
+ * stay within the timeout despite taking several seconds total.
+ */
 export const TIMEOUTS = {
   loginCheckMs: 10_000,
   collectMs: 15_000,
@@ -58,6 +63,7 @@ export type ExtensionMessage =
   | { type: 'LOGIN_STATE'; requestId: string; loggedIn: boolean; account: string | null }
   | { type: 'COLLECTED'; requestId: string; candidates: RawCandidate[] }
   | { type: 'COMMENTS'; requestId: string; authors: CommentAuthor[] | null }
+  | { type: 'COLLECT_PROGRESS'; requestId: string; pagesRead: number; collected: number }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -97,6 +103,7 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'LOGIN_STATE',
   'COLLECTED',
   'COMMENTS',
+  'COLLECT_PROGRESS',
   'EXECUTED',
   'PROBE_RESULT',
   'ERROR',

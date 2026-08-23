@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import type { Random } from '../../src/shared/ports.js'
 import { createCafeClient, type HttpRequest, type HttpResponse } from '../../src/extension/cafeClient.js'
 
 const listHtml = readFileSync(fileURLToPath(new URL('../fixtures/memo-list.html', import.meta.url)), 'utf8')
@@ -27,11 +28,18 @@ interface Route {
 
 function harness(routes: Route[], fallback: HttpResponse = ok('')) {
   const seen: HttpRequest[] = []
+  const testRandom: Random = {
+    intInclusive(min, _max) {
+      return min // Always return min to avoid delays in tests
+    },
+  }
   const client = createCafeClient({
     http: (request) => {
       seen.push(request)
       return Promise.resolve(routes.find((r) => r.match(request))?.reply ?? fallback)
     },
+    random: testRandom,
+    sleep: () => Promise.resolve(), // No actual sleep in tests
   })
   return { client, seen }
 }
@@ -150,6 +158,11 @@ describe('execute', () => {
 
   it('runs the page hook immediately before posting the comment', async () => {
     const events: string[] = []
+    const testRandom: Random = {
+      intInclusive(min) {
+        return min
+      },
+    }
     const client = createCafeClient({
       beforeCommentPost: async () => {
         events.push('lcs_do')
@@ -160,6 +173,8 @@ describe('execute', () => {
         if (request.url.includes('MemoCommentView')) return comments({ nickname: '운영', memberKey: 'MINE' })
         return ok('')
       },
+      random: testRandom,
+      sleep: () => Promise.resolve(),
     })
 
     await client.execute(source, '334381', '환영합니다')

@@ -90,7 +90,7 @@ interface PostWalk {
  * lists it is.
  */
 export type SessionProgress =
-  | { readonly phase: 'COLLECTING' }
+  | { readonly phase: 'COLLECTING'; readonly pagesRead?: number; readonly collected?: number }
   | ({ readonly phase: 'BACKLOG' } & PostWalk)
   | ({ readonly phase: 'WORKING' } & PostWalk)
 
@@ -154,15 +154,25 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
 
 async function collect(deps: SessionDeps, sincePostedAt: number) {
   try {
+    const requestId = deps.newRequestId()
     const reply = await deps.transport.request(
       {
         type: 'COLLECT',
-        requestId: deps.newRequestId(),
+        requestId,
         automationId: deps.automationId,
         source: { cafeId: deps.cafeId, boardId: deps.boardId },
         sincePostedAt,
       },
       TIMEOUTS.collectMs,
+      (interim) => {
+        if (interim.type === 'COLLECT_PROGRESS') {
+          deps.onProgress?.({
+            phase: 'COLLECTING',
+            pagesRead: interim.pagesRead,
+            collected: interim.collected,
+          })
+        }
+      },
     )
     return reply.type === 'COLLECTED' ? reply.candidates : null
   } catch {

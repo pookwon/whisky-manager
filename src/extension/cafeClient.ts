@@ -9,6 +9,8 @@ import {
 } from '../shared/automations/welcome-comment/cafe.js'
 import { parseMemoList } from '../shared/automations/welcome-comment/parse.js'
 import { comparePostId } from '../shared/postId.js'
+import { nextPageFetchDelayMs } from '../shared/schedule.js'
+import type { Random } from '../shared/ports.js'
 import type { RawCandidate, SourceRef } from '../shared/protocol.js'
 import type { CommentAuthor } from '../shared/types.js'
 
@@ -32,11 +34,22 @@ export type Http = (request: HttpRequest) => Promise<HttpResponse>
 
 export interface CafeClientDeps {
   readonly http: Http
+  readonly random: Random
   /**
    * Runs in the board page's JavaScript context immediately before the form
    * write. Naver's `lcs_do` records the interaction there.
    */
   readonly beforeCommentPost?: (source: SourceRef, postId: string) => Promise<void>
+  /**
+   * Called after each page during collection to report progress. Allows the
+   * orchestrator to display what is happening while collection is underway.
+   */
+  readonly onCollectionProgress?: (pagesRead: number, collected: number) => void
+  /**
+   * Wait for the specified number of milliseconds. Injected so tests can
+   * control timing without actually sleeping.
+   */
+  readonly sleep: (ms: number) => Promise<void>
 }
 
 export interface ExecuteResult {
@@ -130,9 +143,20 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
           collected.set(memo.postId, memo)
           added += 1
         }
+
+        // Report progress after this page to the app, so it can display what
+        // collection is doing. This happens before the delay, so the app sees
+        // progress immediately and does not have to wait.
+        deps.onCollectionProgress?.(page, collected.size)
+
         // Nothing new on a whole page means paging is not moving; stop rather
         // than walk to the ceiling.
         if (reachedFloor || added === 0) break
+
+        // Wait before fetching the next page, but not after the last one.
+        // The delay is randomized to avoid mechanical traffic patterns.
+        const delayMs = nextPageFetchDelayMs(deps.random)
+        await deps.sleep(delayMs)
       }
 
       // Oldest first: a session that stops at its cap must leave the newest
