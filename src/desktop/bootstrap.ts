@@ -162,8 +162,14 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     runOnce: () => loop.runOnce(),
   }
 
-  // Monitor bridge connection and run preview once when it connects.
-  // The preview is run exactly once per app session to avoid repeated cafe hits.
+  /**
+   * Polls rather than listening because `onBind` fires only on an extension's
+   * first ever pairing — after a restart the extension is already bound and no
+   * event arrives. A second is soon enough for a banner, and the MV3 service
+   * worker cycles often enough that a live extension is seen almost at once.
+   */
+  const PREVIEW_POLL_MS = 1_000
+
   const startPreviewMonitor = (): void => {
     previewMonitorHandle = setInterval(() => {
       if (bridge.isConnected() && startupPreview === null) {
@@ -196,7 +202,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
           startupPreview = { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
         })
       }
-    }, 100)
+    }, PREVIEW_POLL_MS)
   }
 
   // Start monitoring after bridge is initialized
