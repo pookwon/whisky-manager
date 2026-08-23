@@ -643,6 +643,67 @@ describe('runSession — progress', () => {
   })
 })
 
+describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
+  it('revives an unfinished row on the next session', async () => {
+    // First session: skips the post (not approved to execute)
+    const firstTransport = fakeTransport({ candidates: [candidate('1050')], executeOk: false })
+    await runSession(deps({ transport: firstTransport, policy: 'AUTO' }))
+
+    const firstRow = db.select().from(executions).all()[0]
+    expect(firstRow?.status).toBe('RETRY_WAIT')
+
+    // Manually reset to SKIPPED to simulate an earlier unfinished state
+    repo.applyPatch(firstRow!.id, { status: 'SKIPPED' })
+
+    // Second session: same post is collected again and should be revived
+    const secondTransport = fakeTransport({ candidates: [candidate('1050')] })
+    const outcome = await runSession(deps({ transport: secondTransport }))
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1, skipped: 0 })
+    const finalRow = db.select().from(executions).all()[0]
+    expect(finalRow?.id).toBe(firstRow?.id)
+    expect(finalRow?.status).toBe('SUCCESS')
+  })
+
+  it('records NOT_FIRST_POST reason when the same author has two posts', async () => {
+    const sameAuthorId = 'author-shared'
+    const earlierPost: RawCandidate = {
+      postId: '2001',
+      title: '가입인사',
+      bodyText: '반갑습니다',
+      authorNickname: 'shared-nick',
+      authorId: sameAuthorId,
+      postedAt: MON_10_00 - 60_000,
+      existingCommentAuthors: [],
+    }
+    const laterPost: RawCandidate = {
+      postId: '2002',
+      title: '가입인사',
+      bodyText: '또 반갑습니다',
+      authorNickname: 'shared-nick',
+      authorId: sameAuthorId,
+      postedAt: MON_10_00 - 30_000,
+      existingCommentAuthors: [],
+    }
+
+    const transport = fakeTransport({ candidates: [earlierPost, laterPost] })
+    const outcome = await runSession(deps({ transport }))
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1, skipped: 1 })
+
+    const rows = db.select().from(executions).all().sort((a, b) => a.targetPostId.localeCompare(b.targetPostId))
+    expect(rows).toHaveLength(2)
+
+    const [first, second] = rows
+    expect(first?.targetPostId).toBe('2001')
+    expect(first?.status).toBe('SUCCESS')
+
+    expect(second?.targetPostId).toBe('2002')
+    expect(second?.status).toBe('SKIPPED')
+    expect(second?.reason).toBe('NOT_FIRST_POST')
+  })
+})
+
 describe('runSession — first post detection', () => {
   it('identifies earliest post per author regardless of collection order', async () => {
     const sameAuthorId = 'author-1'

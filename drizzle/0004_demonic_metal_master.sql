@@ -1,0 +1,1 @@
+DROP INDEX `executions_cafe_automation_author`;

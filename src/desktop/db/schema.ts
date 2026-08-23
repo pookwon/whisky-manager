@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { ExecutionStatus, ExecutionStrategy } from '../../shared/types.js'
 
 /**
@@ -37,14 +37,6 @@ export const executions = sqliteTable(
       table.cafeId,
       table.automationId,
       table.targetPostId,
-    ),
-    // Not unique on purpose. `claim` enforces one greeting per author; making
-    // the database enforce it would mean deleting rows that already carry a
-    // posted comment before the index could be created.
-    index('executions_cafe_automation_author').on(
-      table.cafeId,
-      table.automationId,
-      table.targetAuthorId,
     ),
   ],
 )

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { openDatabase, type AppDatabase } from '../../../src/desktop/db/client.js'
 import { createSqliteDedupeStore, type ClaimInput } from '../../../src/desktop/db/dedupeStore.js'
 import { executions } from '../../../src/desktop/db/schema.js'
@@ -69,12 +70,13 @@ describe('createSqliteDedupeStore', () => {
     expect(db.select().from(executions).all()).toHaveLength(2)
   })
 
-  it('claims only the first post from an author, whichever post it is', async () => {
+  it('does not reject different posts from the same author', async () => {
     const s = store()
     const first = await s.claim({ ...input, postId: '1001', authorId: 'member-1' })
     const second = await s.claim({ ...input, postId: '1002', authorId: 'member-1' })
     expect(first).not.toBeNull()
-    expect(second).toBeNull()
+    expect(second).not.toBeNull()
+    expect(first).not.toBe(second)
   })
 
   it('still claims a different author on the same board', async () => {
@@ -95,5 +97,154 @@ describe('createSqliteDedupeStore', () => {
     await expect(
       s.claim({ ...input, cafeId: '99999', postId: '1001', authorId: 'member-1' }),
     ).resolves.not.toBeNull()
+  })
+
+  describe('reopen revivable rows', () => {
+    it('revives a SKIPPED row with the same id and reset state', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      // Manually set to SKIPPED
+      db.update(executions)
+        .set({ status: 'SKIPPED', reason: 'ALREADY_COMMENTED', resolvedAt: 12345 })
+        .where(eq(executions.id, firstId!))
+        .run()
+
+      // Claiming the same post again
+      const revivedId = await s.claim(input)
+      expect(revivedId).toBe(firstId)
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('AWAITING_APPROVAL')
+      expect(row?.reason).toBeNull()
+      expect(row?.riskFlags).toBe('[]')
+      expect(row?.resolvedAt).toBeNull()
+      expect(row?.attempts).toBe(0)
+    })
+
+    it('revives an EXPIRED row with the same id and reset state', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      db.update(executions)
+        .set({ status: 'EXPIRED', reason: 'APPROVAL_EXPIRED', resolvedAt: 12345 })
+        .where(eq(executions.id, firstId!))
+        .run()
+
+      const revivedId = await s.claim(input)
+      expect(revivedId).toBe(firstId)
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('AWAITING_APPROVAL')
+      expect(row?.reason).toBeNull()
+      expect(row?.riskFlags).toBe('[]')
+      expect(row?.resolvedAt).toBeNull()
+      expect(row?.attempts).toBe(0)
+    })
+
+    it('revives a CANCELLED row with the same id and reset state', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      db.update(executions)
+        .set({ status: 'CANCELLED', reason: 'KILLED', resolvedAt: 12345 })
+        .where(eq(executions.id, firstId!))
+        .run()
+
+      const revivedId = await s.claim(input)
+      expect(revivedId).toBe(firstId)
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('AWAITING_APPROVAL')
+      expect(row?.reason).toBeNull()
+      expect(row?.riskFlags).toBe('[]')
+      expect(row?.resolvedAt).toBeNull()
+      expect(row?.attempts).toBe(0)
+    })
+
+    it('does not revive a SUCCESS row', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      db.update(executions)
+        .set({ status: 'SUCCESS', executedAt: 12345, resolvedAt: 12346 })
+        .where(eq(executions.id, firstId!))
+        .run()
+
+      const result = await s.claim(input)
+      expect(result).toBeNull()
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('SUCCESS')
+      expect(row?.executedAt).toBe(12345)
+      expect(row?.resolvedAt).toBe(12346)
+    })
+
+    it('does not revive a FAILED row', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      db.update(executions)
+        .set({ status: 'FAILED', reason: 'NO_REPLY', attempts: 3, resolvedAt: 12345 })
+        .where(eq(executions.id, firstId!))
+        .run()
+
+      const result = await s.claim(input)
+      expect(result).toBeNull()
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('FAILED')
+      expect(row?.attempts).toBe(3)
+      expect(row?.resolvedAt).toBe(12345)
+    })
+
+    it('does not revive a QUEUED row', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      db.update(executions).set({ status: 'QUEUED' }).where(eq(executions.id, firstId!)).run()
+
+      const result = await s.claim(input)
+      expect(result).toBeNull()
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('QUEUED')
+    })
+
+    it('does not revive a RETRY_WAIT row', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      expect(firstId).not.toBeNull()
+
+      db.update(executions)
+        .set({ status: 'RETRY_WAIT', attempts: 1 })
+        .where(eq(executions.id, firstId!))
+        .run()
+
+      const result = await s.claim(input)
+      expect(result).toBeNull()
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('RETRY_WAIT')
+      expect(row?.attempts).toBe(1)
+    })
+
+    it('does not revive an AWAITING_APPROVAL row', async () => {
+      const s = store()
+      const firstId = await s.claim(input)
+      // Already AWAITING_APPROVAL from creation
+
+      const result = await s.claim(input)
+      expect(result).toBeNull()
+
+      const row = db.select().from(executions).where(eq(executions.id, firstId!)).get()
+      expect(row?.status).toBe('AWAITING_APPROVAL')
+    })
   })
 })
