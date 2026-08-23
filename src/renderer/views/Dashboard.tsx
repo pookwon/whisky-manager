@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { findAutomation } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
+import type { StartupPreview } from '../../desktop/preview.js'
 import {
+  estimatedMinutes,
   outcomeSummary,
   progressSummary,
   relativeTime,
@@ -30,17 +33,59 @@ function Stat({
   )
 }
 
+/** A run described to the operator and waiting on their answer. */
+interface PendingRun {
+  readonly dayStartMs: number | null
+  readonly reason: 'OUTSIDE_HOURS' | 'CHOSEN_DAY'
+  readonly preview: StartupPreview | null
+}
+
+/** `YYYY-MM-DD` in KST, which is what the date input speaks. */
+function kstDateValue(epochMs: number): string {
+  return new Date(epochMs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+/** Midnight KST of a `YYYY-MM-DD` the operator picked. */
+function kstMidnightOf(value: string): number {
+  return Date.parse(`${value}T00:00:00+09:00`)
+}
+
 export function Dashboard(): React.JSX.Element {
   const { t } = useTranslation()
   const dashboard = useApp((s) => s.dashboard)
   const setRoute = useApp((s) => s.setRoute)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
+  const [day, setDay] = useState(() => kstDateValue(Date.now()))
+  const [pending, setPending] = useState<PendingRun | null>(null)
 
   if (dashboard === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
   const running = dashboard.loopRunning
   const preview = dashboard.startupPreview
+  /**
+   * Shows the run before it happens, then counts what it would answer. The
+   * panel opens on the first line rather than after the count, because
+   * counting reaches the cafe and takes seconds an operator should not spend
+   * wondering whether their click registered.
+   */
+  const openConfirmation = async (run: Omit<PendingRun, 'preview'>): Promise<void> => {
+    setPending({ ...run, preview: null })
+    const preview = await api
+      .previewDay(run.dayStartMs ?? kstMidnightOf(kstDateValue(Date.now())))
+      .catch(() => ({ kind: 'UNAVAILABLE', reason: 'READ_FAILED' }) as StartupPreview)
+    setPending((current) => (current === null ? null : { ...current, preview }))
+  }
+
+  /** What the count says, in the operator's terms. */
+  const describe = (preview: StartupPreview | null): string => {
+    if (preview === null) return t('run.counting')
+    if (preview.kind === 'UNAVAILABLE') return t('run.countFailed')
+    return `${t('run.target', { count: preview.count })} · ${t('run.estimate', {
+      minutes: estimatedMinutes(preview.count, dashboard.averageActionGapMs),
+    })}`
+  }
+
   /** Non-null exactly while a session is in flight. */
   const progress =
     dashboard.sessionProgress === null ? null : progressSummary(dashboard.sessionProgress)
@@ -166,7 +211,13 @@ export function Dashboard(): React.JSX.Element {
                 type="button"
                 className="btn"
                 disabled={busy || progress !== null}
-                onClick={() => void act(() => api.runOnce())}
+                onClick={() => {
+                  if (dashboard.withinActiveHours) {
+                    void act(() => api.runOnce())
+                    return
+                  }
+                  void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
+                }}
               >
                 {t('status.runOnce')}
               </button>
@@ -189,6 +240,81 @@ export function Dashboard(): React.JSX.Element {
             </div>
           </div>
         </div>
+      </section>
+
+      {pending !== null && (
+        <section className="panel overflow-hidden">
+          <div className="flex">
+            <div className="w-1 shrink-0 bar-warn" />
+            <div className="flex-1 px-5 py-4">
+              <div
+                className="text-[0.6875rem] font-medium uppercase tracking-wider"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                {t('run.confirmHeading')}
+              </div>
+              <p className="mt-1 text-sm font-semibold tone-warn">
+                {pending.reason === 'OUTSIDE_HOURS'
+                  ? t('run.outsideHours')
+                  : t('run.chosenDay', { date: day })}
+              </p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                {t('run.bypasses')}
+              </p>
+              <p className="mt-2 text-sm">{describe(pending.preview)}</p>
+
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  onClick={() => {
+                    const request = pending.dayStartMs === null
+                      ? { force: true }
+                      : { force: true, dayStartMs: pending.dayStartMs }
+                    setPending(null)
+                    void act(() => api.runOnce(request))
+                  }}
+                >
+                  {t('run.confirm')}
+                </button>
+                <button type="button" className="btn" onClick={() => setPending(null)}>
+                  {t('run.cancel')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="panel flex flex-wrap items-end gap-3 px-5 py-4">
+        <div>
+          <label
+            className="block text-[0.6875rem] font-medium uppercase tracking-wider"
+            style={{ color: 'var(--ink-muted)' }}
+            htmlFor="run-day"
+          >
+            {t('run.dayLabel')}
+          </label>
+          <input
+            id="run-day"
+            type="date"
+            className="field mt-1"
+            value={day}
+            max={kstDateValue(Date.now())}
+            onChange={(event) => setDay(event.target.value)}
+          />
+        </div>
+        <button
+          type="button"
+          className="btn"
+          disabled={busy || progress !== null}
+          onClick={() =>
+            void openConfirmation({ dayStartMs: kstMidnightOf(day), reason: 'CHOSEN_DAY' })
+          }
+        >
+          {t('run.dayRun')}
+        </button>
       </section>
 
       <section className="grid grid-cols-4 gap-3">

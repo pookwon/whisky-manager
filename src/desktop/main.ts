@@ -108,6 +108,7 @@ void app.whenReady().then(async () => {
       lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
       nextSessionAt: () => appContext.automation.nextRunAt(),
       sessionProgress: () => appContext.sessionProgress(),
+      previewDay: (dayStartMs) => appContext.previewDay(dayStartMs),
       clock: systemClock,
       limits: PROFILES[profile],
       newId: () => crypto.randomUUID(),

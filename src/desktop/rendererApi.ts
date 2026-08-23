@@ -2,6 +2,7 @@ import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalo
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { kstDayRange } from '../shared/kst.js'
+import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
@@ -43,6 +44,8 @@ export interface RendererApiDeps {
   readonly nextSessionAt: () => number | null
   /** What the session in flight is doing, or null when none is running. */
   readonly sessionProgress: () => import('./orchestrator.js').SessionProgress | null
+  /** Counts what a run on that day would answer. Reaches the cafe. */
+  readonly previewDay: (dayStartMs: number) => Promise<import('./preview.js').StartupPreview>
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -147,6 +150,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         nextSessionAt: deps.nextSessionAt(),
         sessionProgress: deps.sessionProgress(),
         bridgeStatus: calculateBridgeStatus(),
+        withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
+        averageActionGapMs: Math.round(
+          (deps.limits.actionIntervalMinMs + deps.limits.actionIntervalMaxMs) / 2,
+        ),
       })
     },
 
@@ -268,14 +275,21 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve()
     },
 
-    runOnce() {
+    previewDay(dayStartMs) {
+      return deps.previewDay(dayStartMs)
+    },
+
+    runOnce(request = {}) {
       // Resolves once the session has started rather than when it ends. A full
       // day's greetings take the better part of an hour, and a renderer waiting
       // that out would hold its controls — the stop switches included — shut
       // for the whole run. Failures inside the session are the loop's to report.
-      void deps.automation.runOnce().catch((error: unknown) => {
-        console.error('[session] run-once failed to start:', error)
-      })
+      const mode = request.force === true ? 'FORCED' : 'MANUAL'
+      void deps.automation
+        .runOnce({ mode, ...(request.dayStartMs === undefined ? {} : { dayStartMs: request.dayStartMs }) })
+        .catch((error: unknown) => {
+          console.error('[session] run-once failed to start:', error)
+        })
       return Promise.resolve()
     },
   }

@@ -25,7 +25,7 @@ let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
 let progress: SessionProgress | null
 
-function build() {
+function build(nowMs = MON_10_00) {
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -65,7 +65,8 @@ function build() {
     lastBridgeConnectedAt: () => null,
     nextSessionAt: () => null,
     sessionProgress: () => progress,
-    clock: new FakeClock(MON_10_00),
+    previewDay: () => Promise.resolve({ kind: 'READY' as const, count: 0, checkedAt: 0 }),
+    clock: new FakeClock(nowMs),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
@@ -133,7 +134,18 @@ describe('getDashboard', () => {
       nextSessionAt: null,
       sessionProgress: null,
       bridgeStatus: 'CONNECTED',
+      withinActiveHours: true,
+      averageActionGapMs: 16_500,
     })
+  })
+
+  it('reports whether the operating window is open, so the screen need not work it out', async () => {
+    expect((await build(MON_10_00).api.getDashboard()).withinActiveHours).toBe(true)
+
+    // 03:00 is before the window opens; this is the state that makes the
+    // screen ask before running instead of running.
+    const night = Date.UTC(2026, 7, 24, 3, 0, 0)
+    expect((await build(night).api.getDashboard()).withinActiveHours).toBe(false)
   })
 
   it('reports what a session in flight is doing, and nothing when none is', async () => {

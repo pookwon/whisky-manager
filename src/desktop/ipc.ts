@@ -26,6 +26,7 @@ export const IPC_CHANNELS = {
   stopAutomation: 'wm:stopAutomation',
   killSwitch: 'wm:killSwitch',
   runOnce: 'wm:runOnce',
+  previewDay: 'wm:previewDay',
 } as const
 
 export interface DashboardSnapshot {
@@ -68,6 +69,17 @@ export interface DashboardSnapshot {
    * Distinguishes normal brief disconnections from real failures.
    */
   readonly bridgeStatus: BridgeStatus
+  /**
+   * Whether the operating window is open right now. The app decides it so the
+   * renderer never works out the hours a second time and disagrees.
+   */
+  readonly withinActiveHours: boolean
+  /**
+   * Midway between the shortest and longest gap the tool leaves between
+   * comments. The screen estimates how long a run will take from it rather
+   * than carrying its own copy of numbers the profile owns.
+   */
+  readonly averageActionGapMs: number
 }
 
 export interface AwaitingItem {
@@ -123,6 +135,18 @@ export interface RendererApi {
   startAutomation(): Promise<void>
   stopAutomation(): Promise<void>
   killSwitch(): Promise<void>
-  /** Starts a session now. Resolves once it has started, not once it has finished. */
-  runOnce(): Promise<void>
+  /**
+   * Starts a session now. Resolves once it has started, not once it has
+   * finished — a day's greetings take the better part of an hour, and a
+   * renderer waiting that out would hold its own controls shut.
+   *
+   * `force` carries the operator's answer to being told what it overrides.
+   * `dayStartMs` picks the day to work; omitted means today.
+   */
+  runOnce(request?: { force?: boolean; dayStartMs?: number }): Promise<void>
+  /**
+   * How many greetings a run would answer, without answering any. Reaches the
+   * cafe, so it belongs behind a deliberate press rather than the poll loop.
+   */
+  previewDay(dayStartMs: number): Promise<StartupPreview>
 }
