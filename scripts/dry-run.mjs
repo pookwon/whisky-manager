@@ -10,7 +10,7 @@
  *
  * Run `pnpm build` first.
  *
- *   node scripts/dry-run.mjs
+ *   node scripts/dry-run.mjs [며칠 전]     # 인자를 주지 않으면 오늘
  */
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -29,6 +29,20 @@ const PORT = 39217
 const PAIR_TIMEOUT_MS = 900_000
 const REPLY_TIMEOUT_MS = 60_000
 const SOURCE = { cafeId: '10000000', boardId: '5' }
+const DAY_MS = 86_400_000
+
+/**
+ * Which day to rehearse, counting back from today in KST. Rehearsing an earlier
+ * day is how an operator checks the rule against a board that has already been
+ * worked, rather than against whatever has been posted since midnight.
+ */
+const daysBack = Number(process.argv[2] ?? 0)
+if (!Number.isInteger(daysBack) || daysBack < 0) {
+  console.error(`며칠 전인지는 0 이상의 정수여야 합니다: ${process.argv[2]}`)
+  process.exit(1)
+}
+const dayStart = kstDayStartMs(Date.now()) - daysBack * DAY_MS
+const dayEnd = dayStart + DAY_MS
 
 /**
  * Resolve the database path where the Electron app stores settings.
@@ -128,15 +142,18 @@ try {
   console.log('로그인:', login.loggedIn ? `${login.account} 로 로그인됨` : '미로그인')
   if (!login.loggedIn) throw new Error('로그인되지 않아 중단합니다')
 
-  // Collect candidates
   const collected = await ask({
     type: 'COLLECT',
     automationId: 'welcome-comment',
     source: SOURCE,
-    // Reach back to the start of today
-    sincePostedAt: kstDayStartMs(Date.now()),
+    sincePostedAt: dayStart,
   })
-  const candidates = collected.candidates ?? []
+
+  // Collection takes a floor and no ceiling, so rehearsing an earlier day drags
+  // in everything since. Trimming to the day reproduces what a session running
+  // that day actually had in hand — which matters for the earliest-post-per-
+  // author rule, decided over exactly this set.
+  const candidates = (collected.candidates ?? []).filter((c) => c.postedAt < dayEnd)
   console.log(`\n수집 ${candidates.length}건 (오래된 순)`)
   for (const c of candidates) {
     const when = new Date(c.postedAt).toLocaleString('ko-KR')
@@ -146,7 +163,8 @@ try {
   // Determine which posts are first by author
   const firstPosts = firstPostIdByAuthor(candidates)
 
-  console.log(`\n판정 (규칙: 안내 댓글 없음 + 작성자의 최초 글):`)
+  const dayLabel = new Date(dayStart).toLocaleDateString('ko-KR')
+  console.log(`\n판정 — ${dayLabel} 기준 (안내 댓글 없음 + 작성자의 최초 글):`)
   for (const c of candidates) {
     const isFirstPost = firstPosts.get(c.authorId) === c.postId
 
