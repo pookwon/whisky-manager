@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ApprovalPolicy } from '../../shared/types.js'
+import { WELCOME_AUTOMATION_ID } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
 
@@ -37,7 +38,10 @@ export function Settings(): React.JSX.Element {
   if (settings === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
   const saveCafe = (): void => {
-    void act(() => api.setCafe(cafeId, boardId, cafeUrlName))
+    void act(async () => {
+      await api.setCafe(cafeId, cafeUrlName)
+      await api.setBoardId(WELCOME_AUTOMATION_ID, boardId)
+    })
   }
 
   const addAccount = (): void => {
@@ -67,7 +71,7 @@ export function Settings(): React.JSX.Element {
           type="button"
           className={settings.enabled ? 'btn btn-primary' : 'btn'}
           disabled={busy}
-          onClick={() => void act(() => api.setEnabled(!settings.enabled))}
+          onClick={() => void act(() => api.setEnabled(WELCOME_AUTOMATION_ID, !settings.enabled))}
         >
           {t(settings.enabled ? 'status.running' : 'status.stopped')}
         </button>
@@ -84,7 +88,7 @@ export function Settings(): React.JSX.Element {
             className="panel px-4 py-3 text-left"
             style={settings.policy === policy ? { borderColor: 'var(--accent)' } : undefined}
             disabled={busy}
-            onClick={() => void act(() => api.setPolicy(policy))}
+            onClick={() => void act(() => api.setPolicy(WELCOME_AUTOMATION_ID, policy))}
           >
             <div className={`text-sm font-semibold ${settings.policy === policy ? 'tone-warn' : ''}`}>
               {t(POLICY_LABEL[policy].label)}

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { assertRuntimesRegistered } from '../shared/automations/catalog.js'
+import { WELCOME_AUTOMATION_ID, assertRuntimesRegistered } from '../shared/automations/catalog.js'
 import { PROFILES } from '../shared/profiles.js'
 import type { Profile } from '../shared/types.js'
 import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/automationSettingsRepo.js'
@@ -16,7 +16,8 @@ import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 
-export const WELCOME_AUTOMATION_ID = 'welcome-comment'
+// Re-exported so the many main-process callers keep their existing import.
+export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 
 export interface AppContextOptions {
   readonly databasePath: string

@@ -9,10 +9,12 @@ export const IPC_CHANNELS = {
   listTemplates: 'wm:listTemplates',
   addTemplate: 'wm:addTemplate',
   removeTemplate: 'wm:removeTemplate',
-  getSettings: 'wm:getSettings',
+  getCommonSettings: 'wm:getCommonSettings',
+  getAutomationSettings: 'wm:getAutomationSettings',
   getCafeImage: 'wm:getCafeImage',
   setPolicy: 'wm:setPolicy',
   setEnabled: 'wm:setEnabled',
+  setBoardId: 'wm:setBoardId',
   setOperatorAccounts: 'wm:setOperatorAccounts',
   setCafe: 'wm:setCafe',
   getPairingToken: 'wm:getPairingToken',
@@ -34,6 +36,8 @@ export interface DashboardSnapshot {
    * DISABLED / NO_TEMPLATE / KILLED / NOT_LOGGED_IN rather than just silence.
    */
   readonly lastOutcome: SessionOutcome | null
+  /** One row per catalogued automation, so "why is it quiet?" is answerable per feature. */
+  readonly automations: readonly AutomationStatus[]
 }
 
 export interface AwaitingItem {
@@ -46,31 +50,45 @@ export interface AwaitingItem {
   readonly detectedAt: number
 }
 
-export interface SettingsView {
-  readonly policy: ApprovalPolicy
-  readonly enabled: boolean
+/** Settings that belong to the app, not to any one automation. */
+export interface CommonSettingsView {
   readonly cafeId: string
-  readonly boardId: string
   /** Vanity url segment, e.g. `examplecafe`; what a person opens the cafe by. */
   readonly cafeUrlName: string
   readonly operatorAccounts: string[]
 }
 
+export interface AutomationSettingsView {
+  readonly policy: ApprovalPolicy
+  readonly enabled: boolean
+  readonly boardId: string
+}
+
+export interface AutomationStatus {
+  readonly id: string
+  readonly enabled: boolean
+  readonly awaitingApproval: number
+  readonly executedToday: number
+  readonly lastOutcome: SessionOutcome | null
+}
+
 export interface RendererApi {
   getDashboard(): Promise<DashboardSnapshot>
-  listAwaiting(): Promise<AwaitingItem[]>
+  listAwaiting(automationId: string): Promise<AwaitingItem[]>
   approve(id: string): Promise<void>
   reject(id: string): Promise<void>
-  listTemplates(): Promise<Template[]>
-  addTemplate(body: string): Promise<void>
+  listTemplates(automationId: string): Promise<Template[]>
+  addTemplate(automationId: string, body: string): Promise<void>
   removeTemplate(id: string): Promise<void>
-  getSettings(): Promise<SettingsView>
+  getCommonSettings(): Promise<CommonSettingsView>
+  getAutomationSettings(automationId: string): Promise<AutomationSettingsView>
   /** Cached; only probes the cafe again after the daily TTL expires. */
   getCafeImage(): Promise<string | null>
-  setPolicy(policy: ApprovalPolicy): Promise<void>
-  setEnabled(enabled: boolean): Promise<void>
+  setPolicy(automationId: string, policy: ApprovalPolicy): Promise<void>
+  setEnabled(automationId: string, enabled: boolean): Promise<void>
+  setBoardId(automationId: string, boardId: string): Promise<void>
   setOperatorAccounts(accounts: string[]): Promise<void>
-  setCafe(cafeId: string, boardId: string, cafeUrlName: string): Promise<void>
+  setCafe(cafeId: string, cafeUrlName: string): Promise<void>
   getPairingToken(): Promise<string>
   startAutomation(): Promise<void>
   stopAutomation(): Promise<void>

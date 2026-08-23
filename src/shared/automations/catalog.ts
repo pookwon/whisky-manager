@@ -18,9 +18,16 @@ export interface AutomationDescriptor {
   readonly panels: readonly AutomationPanel[]
 }
 
+/**
+ * Lives here rather than in `bootstrap.ts` so the renderer can name an
+ * automation without importing the main process — that import drags
+ * better-sqlite3 and ws into the browser bundle and blanks the window.
+ */
+export const WELCOME_AUTOMATION_ID = 'welcome-comment'
+
 export const AUTOMATIONS: readonly AutomationDescriptor[] = [
   {
-    id: 'welcome-comment',
+    id: WELCOME_AUTOMATION_ID,
     labelKey: 'automation.welcomeComment',
     panels: ['approvals', 'templates', 'settings'],
   },

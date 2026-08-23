@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DashboardSnapshot, SettingsView } from '../../src/desktop/ipc.js'
+import type {
+  AutomationSettingsView,
+  CommonSettingsView,
+  DashboardSnapshot,
+} from '../../src/desktop/ipc.js'
 
 const wm = {
   getDashboard: vi.fn(),
@@ -9,7 +13,10 @@ const wm = {
   listTemplates: vi.fn(),
   addTemplate: vi.fn(),
   removeTemplate: vi.fn(),
-  getSettings: vi.fn(),
+  getCommonSettings: vi.fn(),
+  getAutomationSettings: vi.fn(),
+  getCafeImage: vi.fn(),
+  setBoardId: vi.fn(),
   setPolicy: vi.fn(),
   setEnabled: vi.fn(),
   setOperatorAccounts: vi.fn(),
@@ -33,15 +40,19 @@ const snapshot: DashboardSnapshot = {
   succeededToday: 0,
   failedToday: 0,
   lastOutcome: null,
+  automations: [],
 }
 
-const settings: SettingsView = {
-  policy: 'AUTO',
-  enabled: false,
+const commonSettings: CommonSettingsView = {
   cafeId: '10000000',
-  boardId: '5',
   cafeUrlName: 'examplecafe',
   operatorAccounts: [],
+}
+
+const automationSettings: AutomationSettingsView = {
+  policy: 'AUTO',
+  enabled: false,
+  boardId: '5',
 }
 
 describe('useApp.act', () => {
@@ -49,7 +60,8 @@ describe('useApp.act', () => {
     wm.getDashboard.mockResolvedValue(snapshot)
     wm.listAwaiting.mockResolvedValue([])
     wm.listTemplates.mockResolvedValue([])
-    wm.getSettings.mockResolvedValue(settings)
+    wm.getCommonSettings.mockResolvedValue(commonSettings)
+    wm.getAutomationSettings.mockResolvedValue(automationSettings)
     useApp.setState({ dashboard: null, error: null, busy: false })
   })
 

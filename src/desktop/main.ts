@@ -92,14 +92,17 @@ void app.whenReady().then(async () => {
     },
   })
 
+  const appContext = context
   registerIpc(
     createRendererApi({
-      automationId: WELCOME_AUTOMATION_ID,
-      repos: context.repos,
-      settings: context.settings,
-      bridge: context.bridge,
-      automation: context.automation,
-      lastOutcome: context.lastOutcome,
+      repos: appContext.repos,
+      settings: appContext.settings,
+      bridge: appContext.bridge,
+      automation: appContext.automation,
+      // Only one automation has a runtime, so its outcome is the only one there
+      // is to report. When a second runtime appears this becomes a lookup.
+      lastOutcome: (automationId) =>
+        automationId === WELCOME_AUTOMATION_ID ? appContext.lastOutcome() : null,
       clock: systemClock,
       limits: PROFILES[profile],
       newId: () => crypto.randomUUID(),

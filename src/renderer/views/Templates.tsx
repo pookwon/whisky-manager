@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { WELCOME_AUTOMATION_ID } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
 
@@ -13,7 +14,7 @@ export function Templates(): React.JSX.Element {
   const submit = (): void => {
     const body = draft.trim()
     if (body === '') return
-    void act(() => api.addTemplate(body)).then((ok) => {
+    void act(() => api.addTemplate(WELCOME_AUTOMATION_ID, body)).then((ok) => {
       // A failed add keeps the draft so the operator does not retype it.
       if (ok) setDraft('')
     })

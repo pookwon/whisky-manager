@@ -1,3 +1,4 @@
+import { AUTOMATIONS } from '../shared/automations/catalog.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { dailyWindowStart } from '../shared/limits.js'
@@ -14,17 +15,23 @@ import {
   parseOperatorAccounts,
 } from './session.js'
 import type { ExtensionTransport } from './ws/server.js'
-import type { DashboardSnapshot, RendererApi, SettingsView } from './ipc.js'
+import type {
+  AutomationSettingsView,
+  AutomationStatus,
+  CommonSettingsView,
+  DashboardSnapshot,
+  RendererApi,
+} from './ipc.js'
 
 const PAIRING_TOKEN_KEY = 'pairingToken'
 
 export interface RendererApiDeps {
-  readonly automationId: string
   readonly repos: AppRepos
   readonly settings: SettingsRepo
   readonly bridge: ExtensionTransport
   readonly automation: AutomationControl
-  readonly lastOutcome: () => SessionOutcome | null
+  /** The most recent session result for one automation, or null if it never ran. */
+  readonly lastOutcome: (automationId: string) => SessionOutcome | null
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -35,14 +42,15 @@ export interface RendererApiDeps {
  * forwards IPC channels here, which keeps this whole surface unit-testable.
  */
 export function createRendererApi(deps: RendererApiDeps): RendererApi {
-  const { automationId, repos, settings } = deps
+  const { repos, settings } = deps
 
-  const setting = () => repos.automationSettings.get(automationId)
+  const setting = (automationId: string) => repos.automationSettings.get(automationId)
 
   const upsert = (
+    automationId: string,
     patch: Partial<{ policy: ApprovalPolicy; enabled: boolean; boardId: string }>,
   ): void => {
-    const current = setting()
+    const current = setting(automationId)
     repos.automationSettings.upsert({
       automationId,
       policy: patch.policy ?? current?.policy ?? 'AUTO',
@@ -56,18 +64,38 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     getDashboard(): Promise<DashboardSnapshot> {
       const now = deps.clock.now()
       const since = dailyWindowStart(now, deps.limits, deps.clock)
+
+      const automations: AutomationStatus[] = AUTOMATIONS.map((automation) => ({
+        id: automation.id,
+        enabled: setting(automation.id)?.enabled ?? false,
+        awaitingApproval: repos.executions.countByStatus(automation.id, 'AWAITING_APPROVAL'),
+        executedToday: repos.executions.countExecutedSince(automation.id, since),
+        lastOutcome: deps.lastOutcome(automation.id),
+      }))
+
+      const sum = (pick: (automation: AutomationStatus) => number): number =>
+        automations.reduce((total, automation) => total + pick(automation), 0)
+
+      const sumByStatus = (status: 'SUCCESS' | 'FAILED'): number =>
+        AUTOMATIONS.reduce(
+          (total, automation) =>
+            total + repos.executions.countByStatusSince(automation.id, status, since),
+          0,
+        )
+
       return Promise.resolve({
         bridgeConnected: deps.bridge.isConnected(),
         loopRunning: deps.automation.isRunning(),
-        awaitingApproval: repos.executions.countByStatus(automationId, 'AWAITING_APPROVAL'),
-        executedToday: repos.executions.countExecutedSince(automationId, since),
-        succeededToday: repos.executions.countByStatusSince(automationId, 'SUCCESS', since),
-        failedToday: repos.executions.countByStatusSince(automationId, 'FAILED', since),
-        lastOutcome: deps.lastOutcome(),
+        awaitingApproval: sum((automation) => automation.awaitingApproval),
+        executedToday: sum((automation) => automation.executedToday),
+        succeededToday: sumByStatus('SUCCESS'),
+        failedToday: sumByStatus('FAILED'),
+        lastOutcome: automations[0]?.lastOutcome ?? null,
+        automations,
       })
     },
 
-    listAwaiting() {
+    listAwaiting(automationId) {
       return Promise.resolve(
         repos.executions.listAwaitingDetail(automationId).map((r) => ({
           id: r.id,
@@ -91,11 +119,11 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve()
     },
 
-    listTemplates() {
+    listTemplates(automationId) {
       return Promise.resolve(repos.templates.listEnabled(automationId))
     },
 
-    addTemplate(body) {
+    addTemplate(automationId, body) {
       const trimmed = body.trim()
       if (trimmed === '') {
         // An empty template would post an empty comment.
@@ -115,15 +143,20 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve()
     },
 
-    getSettings(): Promise<SettingsView> {
-      const current = setting()
+    getCommonSettings(): Promise<CommonSettingsView> {
+      return Promise.resolve({
+        cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
+        cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
+        operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
+      })
+    },
+
+    getAutomationSettings(automationId): Promise<AutomationSettingsView> {
+      const current = setting(automationId)
       return Promise.resolve({
         policy: current?.policy ?? 'AUTO',
         enabled: current?.enabled ?? false,
-        cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
         boardId: current?.boardId ?? DEFAULT_BOARD_ID,
-        cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
-        operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       })
     },
 
@@ -134,13 +167,18 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       )
     },
 
-    setPolicy(policy) {
-      upsert({ policy })
+    setPolicy(automationId, policy) {
+      upsert(automationId, { policy })
       return Promise.resolve()
     },
 
-    setEnabled(enabled) {
-      upsert({ enabled })
+    setEnabled(automationId, enabled) {
+      upsert(automationId, { enabled })
+      return Promise.resolve()
+    },
+
+    setBoardId(automationId, boardId) {
+      upsert(automationId, { boardId: boardId.trim() })
       return Promise.resolve()
     },
 
@@ -150,12 +188,9 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve()
     },
 
-    setCafe(cafeId, boardId, cafeUrlName) {
+    setCafe(cafeId, cafeUrlName) {
       settings.set(SETTING_KEYS.cafeId, cafeId.trim())
       settings.set(SETTING_KEYS.cafeUrlName, cafeUrlName.trim())
-      // The board now lives on the automation. This signature keeps the screen
-      // working unchanged until the settings split moves it to its own call.
-      upsert({ boardId: boardId.trim() })
       return Promise.resolve()
     },
 

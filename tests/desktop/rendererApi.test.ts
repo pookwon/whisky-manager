@@ -53,7 +53,6 @@ function build() {
     },
   }
   const api = createRendererApi({
-    automationId: WELCOME_AUTOMATION_ID,
     repos,
     settings,
     bridge: { isConnected: () => true, request: () => Promise.reject(new Error('not used in this test')) },
@@ -109,6 +108,15 @@ describe('getDashboard', () => {
       succeededToday: 0,
       failedToday: 0,
       lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
+      automations: [
+        {
+          id: WELCOME_AUTOMATION_ID,
+          enabled: false,
+          awaitingApproval: 0,
+          executedToday: 0,
+          lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
+        },
+      ],
     })
   })
 
@@ -148,7 +156,7 @@ describe('approval queue', () => {
     const { api, repos } = build()
     const id = await seedAwaiting(repos, '2001')
 
-    expect(await api.listAwaiting()).toEqual([
+    expect(await api.listAwaiting(WELCOME_AUTOMATION_ID)).toEqual([
       {
         id,
         postId: '2001',
@@ -168,7 +176,7 @@ describe('approval queue', () => {
     await api.approve(id)
 
     expect(repos.executions.getById(id)?.status).toBe('QUEUED')
-    expect(await api.listAwaiting()).toEqual([])
+    expect(await api.listAwaiting(WELCOME_AUTOMATION_ID)).toEqual([])
   })
 
   it('terminates a rejected item with the operator reason', async () => {
@@ -187,18 +195,18 @@ describe('templates', () => {
   it('adds, lists and removes', async () => {
     const { api } = build()
 
-    await api.addTemplate('{닉네임}님 환영합니다')
-    const listed = await api.listTemplates()
+    await api.addTemplate(WELCOME_AUTOMATION_ID, '{닉네임}님 환영합니다')
+    const listed = await api.listTemplates(WELCOME_AUTOMATION_ID)
     expect(listed).toHaveLength(1)
     expect(listed[0]?.body).toBe('{닉네임}님 환영합니다')
 
     await api.removeTemplate(listed[0]!.id)
-    expect(await api.listTemplates()).toEqual([])
+    expect(await api.listTemplates(WELCOME_AUTOMATION_ID)).toEqual([])
   })
 
   it('refuses a blank template', async () => {
     const { api } = build()
-    await expect(api.addTemplate('   ')).rejects.toThrow()
+    await expect(api.addTemplate(WELCOME_AUTOMATION_ID, '   ')).rejects.toThrow()
   })
 })
 
@@ -206,38 +214,71 @@ describe('settings', () => {
   it('returns defaults before anything is configured', async () => {
     const { api } = build()
 
-    expect(await api.getSettings()).toEqual({
-      policy: 'AUTO',
-      enabled: false,
+    expect(await api.getCommonSettings()).toEqual({
       cafeId: '10000000',
-      boardId: '5',
       cafeUrlName: 'examplecafe',
       operatorAccounts: [],
+    })
+    expect(await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).toEqual({
+      policy: 'AUTO',
+      enabled: false,
+      boardId: '5',
     })
   })
 
   it('round-trips policy, enabled, cafe and operator accounts', async () => {
     const { api } = build()
 
-    await api.setPolicy('SEMI')
-    await api.setEnabled(true)
-    await api.setCafe('99999999', '7', 'othercafe')
+    await api.setPolicy(WELCOME_AUTOMATION_ID, 'SEMI')
+    await api.setEnabled(WELCOME_AUTOMATION_ID, true)
+    await api.setCafe('99999999', 'othercafe')
+    await api.setBoardId(WELCOME_AUTOMATION_ID, '7')
     await api.setOperatorAccounts(['cafe-ops', 'staff-personal'])
 
-    expect(await api.getSettings()).toEqual({
-      policy: 'SEMI',
-      enabled: true,
+    expect(await api.getCommonSettings()).toEqual({
       cafeId: '99999999',
-      boardId: '7',
       cafeUrlName: 'othercafe',
       operatorAccounts: ['cafe-ops', 'staff-personal'],
     })
+    expect(await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).toEqual({
+      policy: 'SEMI',
+      enabled: true,
+      boardId: '7',
+    })
+  })
+
+  it('keeps templates separate per automation', async () => {
+    const { api } = build()
+    await api.addTemplate(WELCOME_AUTOMATION_ID, '환영합니다')
+    await api.addTemplate('other-automation', '안녕하세요')
+
+    expect((await api.listTemplates(WELCOME_AUTOMATION_ID)).map((t) => t.body)).toEqual([
+      '환영합니다',
+    ])
+    expect((await api.listTemplates('other-automation')).map((t) => t.body)).toEqual(['안녕하세요'])
+  })
+
+  it('keeps policy separate per automation', async () => {
+    const { api } = build()
+    await api.setPolicy(WELCOME_AUTOMATION_ID, 'MANUAL')
+    await api.setPolicy('other-automation', 'SEMI')
+
+    expect((await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).policy).toBe('MANUAL')
+    expect((await api.getAutomationSettings('other-automation')).policy).toBe('SEMI')
+  })
+
+  it('keeps the board separate per automation', async () => {
+    const { api } = build()
+    await api.setBoardId(WELCOME_AUTOMATION_ID, '77')
+
+    expect((await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).boardId).toBe('77')
+    expect((await api.getAutomationSettings('other-automation')).boardId).toBe('5')
   })
 
   it('drops blank operator accounts', async () => {
     const { api } = build()
     await api.setOperatorAccounts(['cafe-ops', '  ', ''])
-    expect((await api.getSettings()).operatorAccounts).toEqual(['cafe-ops'])
+    expect((await api.getCommonSettings()).operatorAccounts).toEqual(['cafe-ops'])
   })
 })
 

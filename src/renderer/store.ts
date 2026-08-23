@@ -1,9 +1,22 @@
 import { create } from 'zustand'
-import type { AwaitingItem, DashboardSnapshot, SettingsView } from '../desktop/ipc.js'
+import type {
+  AutomationSettingsView,
+  AwaitingItem,
+  CommonSettingsView,
+  DashboardSnapshot,
+} from '../desktop/ipc.js'
 import type { Template } from '../shared/types.js'
+import { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import { api } from './api.js'
 
 export type ViewName = 'dashboard' | 'approvals' | 'templates' | 'settings'
+
+/**
+ * The settings screen still reads one flat object. Recomposing the two halves
+ * here keeps that screen untouched while the API underneath is already split;
+ * the navigation rework replaces this with the two halves held separately.
+ */
+type SettingsView = CommonSettingsView & AutomationSettingsView
 
 interface AppState {
   view: ViewName
@@ -35,13 +48,14 @@ export const useApp = create<AppState>((set, get) => ({
   setView: (view) => set({ view }),
 
   refresh: async () => {
-    const [dashboard, awaiting, templates, settings] = await Promise.all([
+    const [dashboard, awaiting, templates, common, automation] = await Promise.all([
       api.getDashboard(),
-      api.listAwaiting(),
-      api.listTemplates(),
-      api.getSettings(),
+      api.listAwaiting(WELCOME_AUTOMATION_ID),
+      api.listTemplates(WELCOME_AUTOMATION_ID),
+      api.getCommonSettings(),
+      api.getAutomationSettings(WELCOME_AUTOMATION_ID),
     ])
-    set({ dashboard, awaiting, templates, settings })
+    set({ dashboard, awaiting, templates, settings: { ...common, ...automation } })
   },
 
   loadCafeImage: async () => {
