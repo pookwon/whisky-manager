@@ -1,15 +1,18 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
-import type { RawMember } from './members.js'
 
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 5
 
-/** No call may wait forever. Every value stays under the MV3 30s fetch ceiling. */
+/**
+ * No call may wait forever. Every value bounds the gap between messages, not
+ * total elapsed time. Interim collection progress messages reset the timer,
+ * so a collection that pages with 2s gaps will report progress every 2s and
+ * stay within the timeout despite taking several seconds total.
+ */
 export const TIMEOUTS = {
   loginCheckMs: 10_000,
   collectMs: 15_000,
   executeMs: 15_000,
   commentCheckMs: 10_000,
-  fetchMembersMs: 15_000,
   probeMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
@@ -48,11 +51,9 @@ export type AppMessage =
   | { type: 'HELLO_ACK'; accepted: boolean; reason: string | null }
   /** Carries the board so the check proves access to it, not just to naver. */
   | { type: 'CHECK_LOGIN'; requestId: string; source: SourceRef }
-  | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null; sincePostedAt: number | null }
+  | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostedAt: number }
   | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
-  /** Cafe-wide, not board-scoped: a member belongs to the cafe, not a board. */
-  | { type: 'FETCH_MEMBERS'; requestId: string; cafeId: string; page: number; perPage: number }
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -62,6 +63,7 @@ export type ExtensionMessage =
   | { type: 'LOGIN_STATE'; requestId: string; loggedIn: boolean; account: string | null }
   | { type: 'COLLECTED'; requestId: string; candidates: RawCandidate[] }
   | { type: 'COMMENTS'; requestId: string; authors: CommentAuthor[] | null }
+  | { type: 'COLLECT_PROGRESS'; requestId: string; pagesRead: number; collected: number }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -76,8 +78,6 @@ export type ExtensionMessage =
        */
       diagnostic: string | null
     }
-  | /** `null` means the list could not be read, as with `COMMENTS`. */
-    { type: 'MEMBERS'; requestId: string; members: RawMember[] | null }
   | {
       type: 'PROBE_RESULT'
       requestId: string
@@ -89,13 +89,30 @@ export type ExtensionMessage =
     }
   | { type: 'ERROR'; requestId: string | null; code: string; message: string }
 
+/**
+ * Replies that report on a request still in flight. They are answered by
+ * refreshing the caller's patience, never by completing the request.
+ *
+ * Adding one here without teaching the transport about it would end the request
+ * early and silently, so the two are tied together: the record below must name
+ * every member of this union, and the compiler rejects it when one is missing.
+ */
+type InterimType = 'COLLECT_PROGRESS'
+
+const INTERIM_MESSAGE_TYPES: Record<InterimType, true> = { COLLECT_PROGRESS: true }
+
+export type InterimMessage = Extract<ExtensionMessage, { type: InterimType }>
+
+export function isInterimMessage(message: ExtensionMessage): message is InterimMessage {
+  return message.type in INTERIM_MESSAGE_TYPES
+}
+
 const APP_MESSAGE_TYPES = new Set<string>([
   'HELLO_ACK',
   'CHECK_LOGIN',
   'COLLECT',
   'CHECK_COMMENTS',
   'EXECUTE',
-  'FETCH_MEMBERS',
   'PROBE',
   'ABORT',
 ])
@@ -104,8 +121,8 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'LOGIN_STATE',
   'COLLECTED',
   'COMMENTS',
+  'COLLECT_PROGRESS',
   'EXECUTED',
-  'MEMBERS',
   'PROBE_RESULT',
   'ERROR',
 ])

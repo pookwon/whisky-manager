@@ -1,10 +1,15 @@
 import { WebSocketServer, type WebSocket } from 'ws'
-import { isExtensionMessage, type AppMessage, type ExtensionMessage } from '../../shared/protocol.js'
+import {
+  isExtensionMessage,
+  isInterimMessage,
+  type AppMessage,
+  type ExtensionMessage,
+} from '../../shared/protocol.js'
 import { verifyHello, type PairingState } from './pairing.js'
 
 export interface ExtensionTransport {
   isConnected(): boolean
-  request(message: AppMessage, timeoutMs: number): Promise<ExtensionMessage>
+  request(message: AppMessage, timeoutMs: number, onInterim?: (message: ExtensionMessage) => void): Promise<ExtensionMessage>
 }
 
 export interface BridgeServer extends ExtensionTransport {
@@ -22,6 +27,9 @@ interface Pending {
   resolve(message: ExtensionMessage): void
   reject(error: Error): void
   timer: NodeJS.Timeout
+  timeoutMs: number
+  messageType: string
+  onInterim: ((message: ExtensionMessage) => void) | undefined
 }
 
 function requestIdOf(message: AppMessage): string | null {
@@ -81,6 +89,22 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 
       const waiting = pending.get(requestId)
       if (waiting === undefined) return
+
+      // A message about a request still running refreshes the wait rather than
+      // ending it, so the timeout measures silence instead of total work. Which
+      // types those are is declared with the messages themselves, so a new one
+      // cannot reach this line as a final reply by omission.
+      if (isInterimMessage(parsed)) {
+        waiting.onInterim?.(parsed)
+        clearTimeout(waiting.timer)
+        waiting.timer = setTimeout(() => {
+          pending.delete(requestId)
+          waiting.reject(new Error(`request ${waiting.messageType} timed out after ${waiting.timeoutMs}ms`))
+        }, waiting.timeoutMs)
+        return
+      }
+
+      // Final message: resolve the request and stop waiting.
       clearTimeout(waiting.timer)
       pending.delete(requestId)
       waiting.resolve(parsed)
@@ -98,7 +122,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       return peer !== null
     },
 
-    request(message, timeoutMs) {
+    request(message, timeoutMs, onInterim) {
       const socket = peer
       if (socket === null) {
         return Promise.reject(new Error('extension is not connected'))
@@ -114,7 +138,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
           reject(new Error(`request ${message.type} timed out after ${timeoutMs}ms`))
         }, timeoutMs)
 
-        pending.set(requestId, { resolve, reject, timer })
+        pending.set(requestId, { resolve, reject, timer, timeoutMs, messageType: message.type, onInterim })
         socket.send(JSON.stringify(message))
       })
     },

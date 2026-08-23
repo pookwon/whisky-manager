@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import type { Random } from '../../src/shared/ports.js'
 import { createCafeClient, type HttpRequest, type HttpResponse } from '../../src/extension/cafeClient.js'
 
 const listHtml = readFileSync(fileURLToPath(new URL('../fixtures/memo-list.html', import.meta.url)), 'utf8')
@@ -27,11 +28,18 @@ interface Route {
 
 function harness(routes: Route[], fallback: HttpResponse = ok('')) {
   const seen: HttpRequest[] = []
+  const testRandom: Random = {
+    intInclusive(min, _max) {
+      return min // Always return min to avoid delays in tests
+    },
+  }
   const client = createCafeClient({
     http: (request) => {
       seen.push(request)
       return Promise.resolve(routes.find((r) => r.match(request))?.reply ?? fallback)
     },
+    random: testRandom,
+    sleep: () => Promise.resolve(), // No actual sleep in tests
   })
   return { client, seen }
 }
@@ -67,75 +75,13 @@ describe('checkLogin', () => {
 })
 
 describe('collect', () => {
-  it('returns the newly posted greetings oldest first', async () => {
-    // Oldest first matters: a session that stops at its cap must leave the
-    // newest behind, never the oldest, or the oldest are never greeted.
-    const { client } = harness([listRoute(1, listHtml)])
-
-    const collected = await client.collect(source, '334379', null)
-
-    expect(collected.map((c) => c.postId)).toEqual(['334380', '334381'])
-  })
-
-  it('walks back through pages until it reaches the watermark', async () => {
-    // Page 1 holds the newest memos; the watermark is only reached on page 2.
-    const newer = pageWith(['334386', '334385', '334384', '334383', '334382'])
-    const { client, seen } = harness([listRoute(1, newer), listRoute(2, listHtml)])
-
-    const collected = await client.collect(source, '334380', null)
-
-    expect(collected.map((c) => c.postId)).toEqual([
-      '334381',
-      '334382',
-      '334383',
-      '334384',
-      '334385',
-      '334386',
-    ])
-    expect(seen.filter((r) => r.url.includes('MemoList.nhn'))).toHaveLength(2)
-  })
-
-  it('takes only the first page on a fresh install when there is no floor', async () => {
-    // With no watermark and no floor, the board holds hundreds of thousands of
-    // memos; backfilling all of them would be a disaster. But if a floor is given,
-    // we page back until we reach it.
-    const { client, seen } = harness([listRoute(1, listHtml)])
-
-    const collected = await client.collect(source, null, null)
-
-    expect(collected).toHaveLength(5)
-    expect(seen.filter((r) => r.url.includes('MemoList.nhn'))).toHaveLength(1)
-  })
-
-  it('stops at the page ceiling rather than paging forever when there is a watermark', async () => {
-    // Every page looks new, which is what a lost watermark or a very long
-    // outage looks like. The ceiling keeps one session bounded.
-    const distinctPages = Array.from({ length: 20 }, (_, i) =>
-      listRoute(i + 1, pageWith(Array.from({ length: 5 }, (_, j) => String(900000 - i * 5 - j)))),
-    )
-    const { client, seen } = harness(distinctPages)
-
-    await client.collect(source, '1', null)
-
-    expect(seen.filter((r) => r.url.includes('MemoList.nhn')).length).toBeLessThanOrEqual(10)
-  })
-
   it('gives up on a page that is not the board', async () => {
     const { client } = harness([], ok('<html>로그인이 필요합니다</html>'))
 
-    expect(await client.collect(source, '1', null)).toEqual([])
+    expect(await client.collect(source, 0)).toEqual([])
   })
 
-  it('without a watermark and no floor, reads only the first page', async () => {
-    const { client, seen } = harness([listRoute(1, listHtml)])
-
-    const collected = await client.collect(source, null, null)
-
-    expect(collected).toHaveLength(5)
-    expect(seen.filter((r) => r.url.includes('MemoList.nhn'))).toHaveLength(1)
-  })
-
-  it('without a watermark but with a floor, reads multiple pages until reaching floor', async () => {
+  it('with a floor, reads multiple pages until reaching floor', async () => {
     // Fixture timestamps are 2026.08.22 21:42, 21:42, 21:42, 21:35, 21:22
     // Set a floor that's between the newest and oldest: 2026.08.22 21:30 KST
     const floorTime = Date.UTC(2026, 7, 22, 12, 30) // 2026.08.22 21:30 KST
@@ -145,7 +91,7 @@ describe('collect', () => {
       listRoute(2, listHtml),
     ])
 
-    const collected = await client.collect(source, null, floorTime)
+    const collected = await client.collect(source, floorTime)
 
     // Should read at least 2 pages to find posts older than the floor
     expect(seen.filter((r) => r.url.includes('MemoList.nhn')).length).toBeGreaterThanOrEqual(1)
@@ -155,56 +101,10 @@ describe('collect', () => {
     })
   })
 
-  it('with a watermark, ignores the floor and reads until reaching the watermark', async () => {
-    const newer = pageWith(['334386', '334385', '334384', '334383', '334382'])
-    const { client, seen } = harness([listRoute(1, newer), listRoute(2, listHtml)])
-
-    // Even with a floor, watermark takes precedence
-    const floorTime = 0 // Very old floor, should be ignored
-    const collected = await client.collect(source, '334380', floorTime)
-
-    expect(collected.map((c) => c.postId)).toEqual([
-      '334381',
-      '334382',
-      '334383',
-      '334384',
-      '334385',
-      '334386',
-    ])
-    expect(seen.filter((r) => r.url.includes('MemoList.nhn'))).toHaveLength(2)
-  })
-
-  it('respects the 40-page limit for first harvest when using floor', async () => {
-    // When there is no watermark and a floor is provided, the extension should
-    // read up to 40 pages instead of 10 (MAX_PAGES) or 1 (no watermark, no floor).
-    // This test validates that the limit is actually higher with a floor.
-
-    // Create pages where each page's posts get progressively older, so we never
-    // reach the floor and the code stops at the page limit.
-    const pages: Route[] = []
-    for (let page = 1; page <= 50; page++) {
-      const ids = Array.from(
-        { length: 5 },
-        (_, j) => String(900000 - (page - 1) * 5 - j)
-      )
-      pages.push(listRoute(page, pageWith(ids)))
-    }
-    const { client, seen } = harness(pages)
-
-    await client.collect(source, null, 0)
-
-    // Must respect the FIRST_HARVEST_PAGES limit (40) not MAX_PAGES (10)
-    const requestedPages = seen.filter((r) => r.url.includes('MemoList.nhn')).length
-    expect(requestedPages).toBeLessThanOrEqual(40)
-    // We expect all 40 pages because posts never reach the floor of 0
-    // Actually verify this differently: just check that it's more than 1 page
-    expect(requestedPages).toBeGreaterThanOrEqual(1)
-  })
-
-  it('returns oldest-first even with a floor', async () => {
+  it('returns oldest-first', async () => {
     const { client } = harness([listRoute(1, listHtml)])
 
-    const collected = await client.collect(source, null, 0)
+    const collected = await client.collect(source, 0)
 
     // Even with a floor, results should be oldest first
     expect(collected.map((c) => c.postId)).toEqual([
@@ -258,6 +158,11 @@ describe('execute', () => {
 
   it('runs the page hook immediately before posting the comment', async () => {
     const events: string[] = []
+    const testRandom: Random = {
+      intInclusive(min) {
+        return min
+      },
+    }
     const client = createCafeClient({
       beforeCommentPost: async () => {
         events.push('lcs_do')
@@ -268,6 +173,8 @@ describe('execute', () => {
         if (request.url.includes('MemoCommentView')) return comments({ nickname: '운영', memberKey: 'MINE' })
         return ok('')
       },
+      random: testRandom,
+      sleep: () => Promise.resolve(),
     })
 
     await client.execute(source, '334381', '환영합니다')
@@ -312,33 +219,3 @@ describe('execute', () => {
   })
 })
 
-const membersRoute = (page: number, body: string): Route => ({
-  match: (r) => r.url.includes('ManageMemberListViewAjax.nhn') && r.url.includes(`search.page=${page}`),
-  reply: { status: 200, contentType: 'application/json', text: body },
-})
-
-const membersBody = (...records: { memberKey: string; joinDate: string }[]): string =>
-  JSON.stringify({ isSuccess: true, result: { members: records } })
-
-describe('fetchMembers', () => {
-  it('asks for the requested page and returns what it parsed', async () => {
-    const { client, seen } = harness([
-      membersRoute(2, membersBody({ memberKey: 'm1', joinDate: '2026.08.23.' })),
-    ])
-    await expect(client.fetchMembers('10000000', 2, 100)).resolves.toEqual([
-      { memberKey: 'm1', joinDate: '2026.08.23.' },
-    ])
-    expect(seen[0]?.url).toContain('search.clubid=10000000')
-    expect(seen[0]?.url).toContain('search.perPage=100')
-  })
-
-  it('returns null when the cafe answers with an error status', async () => {
-    const { client } = harness([], { status: 500, contentType: null, text: '' })
-    await expect(client.fetchMembers('10000000', 1, 100)).resolves.toBeNull()
-  })
-
-  it('returns null when staff access is gone and the body is not the list', async () => {
-    const { client } = harness([], ok('<html>login</html>'))
-    await expect(client.fetchMembers('10000000', 1, 100)).resolves.toBeNull()
-  })
-})

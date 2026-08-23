@@ -1,4 +1,4 @@
-import type { AuthorMembership, Candidate, CommentAuthor, RiskFlag, SkipReason } from './types.js'
+import type { Candidate, CommentAuthor, RiskFlag, SkipReason } from './types.js'
 
 export type GuardOutcome =
   | { kind: 'RISK'; flag: RiskFlag }
@@ -11,10 +11,11 @@ export interface GuardContext {
   readonly operatorAccounts: readonly string[]
   /** Authors of comments already on the post. `null` means the check failed. */
   readonly existingCommentAuthors: readonly CommentAuthor[] | null
-  /** What the members table knows about this post's author. */
-  readonly authorMembership: AuthorMembership
-  /** How many days after joining a greeting still counts as a new member's. */
-  readonly newMemberWindowDays: number
+  /**
+   * Whether this is the earliest post its author made in this collection.
+   * Computed by the caller, which is the only place that sees the whole set.
+   */
+  readonly isFirstPostByAuthor: boolean
 }
 
 export type Guard = (candidate: Candidate, ctx: GuardContext) => GuardOutcome

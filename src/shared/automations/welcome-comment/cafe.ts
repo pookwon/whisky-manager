@@ -12,11 +12,14 @@ import type { CommentAuthor } from '../../types.js'
  */
 const ORIGIN = 'https://cafe.naver.com'
 
+/** Posts per page when fetching the memo list. Larger pages mean fewer requests. */
+export const MEMO_PAGE_SIZE = 50
+
 export function memoListUrl(source: SourceRef, page: number): string {
   // `viewType=pc` is what returns the server-rendered list rather than a shell.
   return (
     `${ORIGIN}/MemoList.nhn?search.clubid=${source.cafeId}` +
-    `&search.menuid=${source.boardId}&search.page=${page}&viewType=pc`
+    `&search.menuid=${source.boardId}&search.page=${page}&search.perPage=${MEMO_PAGE_SIZE}&viewType=pc`
   )
 }
 

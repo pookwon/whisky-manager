@@ -6,13 +6,11 @@ import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/
 import { openDatabase, type AppDatabase } from './db/client.js'
 import { createSqliteDedupeStore, type DedupeStore } from './db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from './db/executionsRepo.js'
-import { createMembersRepo, type MembersRepo } from './db/membersRepo.js'
 import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
-import { createWatermarksRepo, type WatermarksRepo } from './db/watermarksRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
-import { createSessionRunner, parseWindowDays, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
+import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
@@ -34,9 +32,7 @@ export interface AppRepos {
   readonly executions: ExecutionsRepo
   readonly templates: TemplatesRepo
   readonly automationSettings: AutomationSettingsRepo
-  readonly watermarks: WatermarksRepo
   readonly dedupe: DedupeStore
-  readonly members: MembersRepo
 }
 
 export interface AutomationControl {
@@ -108,9 +104,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
     automationSettings,
-    watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => randomUUID()),
-    members: createMembersRepo(db),
   }
 
   let killed = false
@@ -209,7 +203,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
           previewMonitorHandle = null
         }
 
-        const windowDays = parseWindowDays(settings.get(SETTING_KEYS.newMemberWindowDays))
         const operatorAccounts = parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts))
         const automationSetting = repos.automationSettings.get(WELCOME_AUTOMATION_ID)
         const boardId = automationSetting?.boardId ?? DEFAULT_BOARD_ID
@@ -217,11 +210,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         // Run the preview asynchronously; don't block the monitor loop
         void previewToday({
           transport: bridge,
-          repo: repos.members,
           cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
           boardId,
           automationId: WELCOME_AUTOMATION_ID,
-          windowDays,
           nowMs: systemClock.now(),
           newRequestId: () => randomUUID(),
           operatorAccounts,

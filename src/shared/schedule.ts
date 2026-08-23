@@ -44,3 +44,16 @@ export function nextSessionStart(
 export function nextActionDelayMs(limits: Limits, random: Random): number {
   return random.intInclusive(limits.actionIntervalMinMs, limits.actionIntervalMaxMs)
 }
+
+/**
+ * Delay between successive page requests during collection. Drawn at random to
+ * avoid mechanical-looking traffic patterns that might trigger rate limits.
+ * The bounds are chosen to stay well under the extension's 30s message timeout
+ * while giving Naver time to serve responses.
+ */
+const PAGE_FETCH_MIN_MS = 1_750
+const PAGE_FETCH_MAX_MS = 2_500
+
+export function nextPageFetchDelayMs(random: Random): number {
+  return random.intInclusive(PAGE_FETCH_MIN_MS, PAGE_FETCH_MAX_MS)
+}

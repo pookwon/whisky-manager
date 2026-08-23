@@ -8,11 +8,9 @@ import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSettingsRepo.js'
-import { createMembersRepo } from '../../src/desktop/db/membersRepo.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
-import { createWatermarksRepo } from '../../src/desktop/db/watermarksRepo.js'
-import { SETTING_KEYS, createSessionRunner, parseWindowDays, DEFAULT_NEW_MEMBER_WINDOW_DAYS } from '../../src/desktop/session.js'
+import { SETTING_KEYS, createSessionRunner } from '../../src/desktop/session.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
@@ -59,19 +57,6 @@ function transportWith(candidates: RawCandidate[]) {
         if (message.type === 'CHECK_COMMENTS') {
           return Promise.resolve({ type: 'COMMENTS', requestId: message.requestId, authors: [] })
         }
-        if (message.type === 'FETCH_MEMBERS') {
-          // Return candidate authors as members on page 1, empty on later pages.
-          // This ensures the membership resolver can find them on first page, and
-          // the pagination logic stops at page 2.
-          if (message.page !== 1) {
-            return Promise.resolve({ type: 'MEMBERS', requestId: message.requestId, members: [] })
-          }
-          const dateStr = new Date(MON_10_00).toISOString().split('T')[0]!.replace(/-/g, '.')
-          const members = candidates
-            .filter((c): c is RawCandidate & { authorId: string } => c.authorId !== null)
-            .map((c) => ({ memberKey: c.authorId, joinDate: dateStr + '.' }))
-          return Promise.resolve({ type: 'MEMBERS', requestId: message.requestId, members })
-        }
         if (message.type === 'EXECUTE') {
           executed.push(message.action.body)
           return Promise.resolve({
@@ -100,9 +85,7 @@ function build(candidates: RawCandidate[]) {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
     automationSettings: createAutomationSettingsRepo(db),
-    watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => `exec-${++counter}`),
-    members: createMembersRepo(db),
   }
   const settings = createSettingsRepo(db)
   const run = createSessionRunner({
@@ -138,47 +121,6 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
-})
-
-describe('parseWindowDays', () => {
-  it('returns the default when raw is undefined', () => {
-    expect(parseWindowDays(undefined)).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-  })
-
-  it('returns the default when raw is an empty string', () => {
-    expect(parseWindowDays('')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-  })
-
-  it('returns the default when raw is a whitespace-only string', () => {
-    expect(parseWindowDays('   ')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-    expect(parseWindowDays('\t')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-    expect(parseWindowDays('\n')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-  })
-
-  it('returns 0 when raw is explicitly "0"', () => {
-    expect(parseWindowDays('0')).toBe(0)
-  })
-
-  it('returns the parsed value for a valid positive integer string', () => {
-    expect(parseWindowDays('14')).toBe(14)
-    expect(parseWindowDays('7')).toBe(7)
-    expect(parseWindowDays('1')).toBe(1)
-  })
-
-  it('returns the default when raw is a non-numeric string', () => {
-    expect(parseWindowDays('abc')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-    expect(parseWindowDays('14 days')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-  })
-
-  it('returns the default when raw is a negative value', () => {
-    expect(parseWindowDays('-1')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-    expect(parseWindowDays('-14')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-  })
-
-  it('returns the default when raw is a fractional value', () => {
-    expect(parseWindowDays('7.5')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-    expect(parseWindowDays('14.1')).toBe(DEFAULT_NEW_MEMBER_WINDOW_DAYS)
-  })
 })
 
 describe('createSessionRunner', () => {
@@ -267,16 +209,6 @@ describe('createSessionRunner', () => {
 
     expect(await run()).toMatchObject({ opened: true, executed: 0, skipped: 1 })
     expect(executed).toEqual([])
-  })
-
-  it('persists the watermark so the next session collects from there', async () => {
-    const { run, repos } = build([candidate('2001'), candidate('2002')])
-    enable(repos)
-    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
-
-    await run()
-
-    expect(repos.watermarks.get(WELCOME_AUTOMATION_ID, CAFE, BOARD)).toBe('2002')
   })
 
   it('picks up a policy change without a restart', async () => {

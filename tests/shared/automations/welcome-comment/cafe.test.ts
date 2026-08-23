@@ -17,12 +17,16 @@ const source = { cafeId: '10000000', boardId: '5' }
 describe('memoListUrl', () => {
   it('asks for the pc view, which is the server-rendered list', () => {
     expect(memoListUrl(source, 1)).toBe(
-      'https://cafe.naver.com/MemoList.nhn?search.clubid=10000000&search.menuid=5&search.page=1&viewType=pc',
+      'https://cafe.naver.com/MemoList.nhn?search.clubid=10000000&search.menuid=5&search.page=1&search.perPage=50&viewType=pc',
     )
   })
 
   it('walks pages, because the board shows only a handful at a time', () => {
     expect(memoListUrl(source, 3)).toContain('search.page=3')
+  })
+
+  it('requests 50 posts per page to reduce the number of requests', () => {
+    expect(memoListUrl(source, 1)).toContain('search.perPage=50')
   })
 })
 

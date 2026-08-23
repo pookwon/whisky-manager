@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
 import { containsOperator } from '../dist/shared/guards.js'
+import { kstDayStartMs } from '../dist/shared/kst.js'
 
 const TOKEN_FILE = '.wm-probe-token'
 const PORT = 39217
@@ -76,7 +77,14 @@ try {
   if (!login.loggedIn) throw new Error('로그인되어 있지 않습니다')
   console.log(`로그인: ${login.account}\n`)
 
-  const { candidates = [] } = await ask({ type: 'COLLECT', automationId, source, sincePostId: null })
+  const { candidates = [] } = await ask({
+    type: 'COLLECT',
+    automationId,
+    source,
+    // Today only. Without a floor the walk runs back through the board's whole
+    // history, and this script writes to the oldest unanswered post it finds.
+    sincePostedAt: kstDayStartMs(Date.now()),
+  })
   if (candidates.length === 0) throw new Error('수집된 글이 없습니다')
 
   let target = null

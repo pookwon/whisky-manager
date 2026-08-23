@@ -86,4 +86,62 @@ describe('createBridgeServer', () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
     await expect(server.request({ type: 'CHECK_LOGIN', requestId: 'r3', source: { cafeId: 'c', boardId: 'b' } }, 50)).rejects.toThrow(/not connected/i)
   })
+
+  it('does not resolve on interim COLLECT_PROGRESS messages', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const ws = await connect(TOKEN)
+    await nextMessage(ws)
+
+    let resolved = false
+    const request = server.request(
+      { type: 'COLLECT', requestId: 'r4', automationId: 'welcome-comment', source: { cafeId: 'c', boardId: 'b' }, sincePostedAt: 0 },
+      5_000,
+    )
+
+    const promise = request.then(() => {
+      resolved = true
+      return 'done'
+    })
+
+    // Send an interim progress message
+    ws.send(JSON.stringify({ type: 'COLLECT_PROGRESS', requestId: 'r4', pagesRead: 1, collected: 50 }))
+
+    // Let the async handler run
+    await new Promise((r) => setTimeout(r, 20))
+
+    // Interim message should not have resolved the request
+    expect(resolved).toBe(false)
+
+    // Now send the final message
+    ws.send(JSON.stringify({ type: 'COLLECTED', requestId: 'r4', candidates: [] }))
+
+    const result = await promise
+    expect(result).toEqual('done')
+    ws.close()
+  })
+
+  it('refreshes timeout on interim COLLECT_PROGRESS messages', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const ws = await connect(TOKEN)
+    await nextMessage(ws)
+
+    const promise = server.request(
+      { type: 'COLLECT', requestId: 'r5', automationId: 'welcome-comment', source: { cafeId: 'c', boardId: 'b' }, sincePostedAt: 0 },
+      50, // Very short timeout
+    )
+
+    // Send interim progress before timeout
+    await new Promise((r) => setTimeout(r, 30))
+    ws.send(JSON.stringify({ type: 'COLLECT_PROGRESS', requestId: 'r5', pagesRead: 1, collected: 50 }))
+
+    // Should still be waiting, not timed out
+    await new Promise((r) => setTimeout(r, 30))
+
+    // Send final message while still within refreshed timeout
+    ws.send(JSON.stringify({ type: 'COLLECTED', requestId: 'r5', candidates: [] }))
+
+    const result = await promise
+    expect(result).toEqual({ type: 'COLLECTED', requestId: 'r5', candidates: [] })
+    ws.close()
+  })
 })

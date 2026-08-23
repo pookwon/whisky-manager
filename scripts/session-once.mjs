@@ -1,6 +1,6 @@
 /**
  * Runs one real session through the whole app — settings, templates, dedupe,
- * guards, policy, database, watermark — not just the bridge.
+ * guards, policy, database — not just the bridge.
  *
  * The automation's policy decides whether anything is written. Run it with the
  * policy on MANUAL to exercise every stage while the cafe stays untouched: each
@@ -74,11 +74,6 @@ for (const row of rows) {
       `${JSON.stringify(row.rendered_text)}  ${row.reason ?? ''} ${row.risk_flags}`,
   )
 }
-
-const watermark = context.db.$client
-  .prepare('SELECT last_seen_post_id FROM watermarks WHERE automation_id = ?')
-  .get(WELCOME_AUTOMATION_ID)
-console.log('\n워터마크:', watermark?.last_seen_post_id ?? '없음')
 
 await context.shutdown()
 console.log('\n카페에는 아무것도 쓰지 않았습니다 (정책 MANUAL).\n')

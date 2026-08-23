@@ -16,12 +16,22 @@ export interface ClaimInput {
 
 export interface DedupeStore {
   /**
-   * Atomically takes ownership of a post. Returns the new execution id, or null
-   * if someone already owns it.
+   * Atomically takes ownership of a post. Returns the execution id (new or revived),
+   * or null if the post is terminal or already in progress.
    *
    * Claiming means "we handle this post", not "we finished it". Approval,
    * execution and retries are all status transitions on the row this creates —
    * retries never call claim again.
+   *
+   * If an earlier run started but did not finish this post, that row may be
+   * revived: its state is reset to the initial state (AWAITING_APPROVAL, reason
+   * null, risk flags empty, resolved timestamp cleared, attempts zeroed). The
+   * caller's current post details win (title, author, timestamp). Returns the
+   * revived row's id.
+   *
+   * Terminal rows (SUCCESS, FAILED) are never touched: they represent finished
+   * work and their state must persist. In-progress rows (QUEUED, RETRY_WAIT,
+   * AWAITING_APPROVAL) are left for their own handlers to manage.
    */
   claim(input: ClaimInput): Promise<string | null>
 }
@@ -33,26 +43,57 @@ function isUniqueViolation(error: unknown): boolean {
 export function createSqliteDedupeStore(db: AppDatabase, newId: () => string): DedupeStore {
   return {
     async claim(input: ClaimInput): Promise<string | null> {
-      const id = newId()
       try {
-        // One transaction so the author check and the insert cannot interleave.
-        // The post id index still guards against the same post twice.
         const claimed = db.transaction((tx) => {
-          if (input.authorId !== null) {
-            const existing = tx
-              .select({ id: executions.id })
-              .from(executions)
-              .where(
-                and(
-                  eq(executions.cafeId, input.cafeId),
-                  eq(executions.automationId, input.automationId),
-                  eq(executions.targetAuthorId, input.authorId),
-                ),
-              )
-              .get()
-            // Already greeted this member on another post of theirs.
-            if (existing !== undefined) return null
+          const existing = tx
+            .select({ id: executions.id, status: executions.status })
+            .from(executions)
+            .where(
+              and(
+                eq(executions.cafeId, input.cafeId),
+                eq(executions.automationId, input.automationId),
+                eq(executions.targetPostId, input.postId),
+              ),
+            )
+            .get()
+
+          if (existing !== undefined) {
+            // Rows whose work is done stay untouched. A successful post is not
+            // re-judged even if a human later deletes our comment—that was their
+            // choice. A post we abandoned after maxAttempts tries should not
+            // restart on its own and hammer the API again.
+            const TERMINAL: readonly typeof existing.status[] = ['SUCCESS', 'FAILED']
+            if (TERMINAL.includes(existing.status)) return null
+
+            // Rows that are in progress must be left to their handlers. They have
+            // their own channels: a queued row will be promoted by retry logic, an
+            // approval request will expire or be approved by humans.
+            const IN_PROGRESS: readonly typeof existing.status[] = ['QUEUED', 'RETRY_WAIT', 'AWAITING_APPROVAL']
+            if (IN_PROGRESS.includes(existing.status)) return null
+
+            // The row is revivable (SKIPPED, EXPIRED, CANCELLED). Reset it as if
+            // newly created but preserve the row id so the orchestrator's patch calls
+            // still work. The caller's current values (title, author, timestamp) win.
+            tx.update(executions)
+              .set({
+                targetTitle: input.title,
+                targetAuthor: input.authorNickname,
+                targetAuthorId: input.authorId,
+                targetPostedAt: input.postedAt,
+                detectedAt: input.detectedAt,
+                status: 'AWAITING_APPROVAL',
+                strategy: null,
+                riskFlags: '[]',
+                reason: null,
+                resolvedAt: null,
+                attempts: 0,
+              })
+              .where(eq(executions.id, existing.id))
+              .run()
+            return existing.id
           }
+
+          const id = newId()
           tx.insert(executions)
             .values({
               id,

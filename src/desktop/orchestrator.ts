@@ -1,16 +1,15 @@
 import { containsOperator, evaluateGuards, type Guard } from '../shared/guards.js'
 import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
-import { laterPostId } from '../shared/postId.js'
+import { comparePostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
-import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
+import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
 import { kstDayStartMs } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
-import type { MembershipResolver } from './membership.js'
 import { sweepApprovals } from './approvals.js'
 import { promoteRetries } from './retries.js'
 import type { ExtensionTransport } from './ws/server.js'
@@ -39,10 +38,6 @@ export interface SessionDeps {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
-  readonly watermark: string | null
-  /** Decides whether a post's author is a member this tool watched join. */
-  readonly resolveMembership: MembershipResolver
-  readonly newMemberWindowDays: number
   /**
    * True when the session was started directly by the operator. False for
    * automated scheduled runs. Manual runs bypass the per-session cap.
@@ -75,8 +70,6 @@ export type SessionOutcome =
       awaitingApproval: number
       failed: number
       expired: number
-      /** Furthest post this session finished handling, for the watermark. */
-      lastProcessedPostId: string | null
     }
 
 interface PostWalk {
@@ -97,8 +90,7 @@ interface PostWalk {
  * lists it is.
  */
 export type SessionProgress =
-  | { readonly phase: 'PREPARING' }
-  | { readonly phase: 'COLLECTING' }
+  | { readonly phase: 'COLLECTING'; readonly pagesRead?: number; readonly collected?: number }
   | ({ readonly phase: 'BACKLOG' } & PostWalk)
   | ({ readonly phase: 'WORKING' } & PostWalk)
 
@@ -119,6 +111,30 @@ interface Counters {
   readonly sessionCount: number
 }
 
+/**
+ * The earliest post each author made in this collection, by post id.
+ *
+ * Computed rather than read off the incoming order. Collection does sort oldest
+ * first, but that exists so a session stopped by its cap leaves the newest
+ * behind — a separate promise that must not quietly become this rule's
+ * foundation. Posts with no readable author are left out: they cannot be
+ * grouped, and `firstPostOnlyGuard` hands them to the policy instead.
+ */
+export function firstPostIdByAuthor(raws: readonly RawCandidate[]): ReadonlyMap<string, string> {
+  const earliest = new Map<string, RawCandidate>()
+  for (const raw of raws) {
+    if (raw.authorId === null) continue
+    const held = earliest.get(raw.authorId)
+    if (held === undefined || isEarlier(raw, held)) earliest.set(raw.authorId, raw)
+  }
+  return new Map([...earliest].map(([authorId, raw]) => [authorId, raw.postId]))
+}
+
+/** Ties break on post id so the choice never depends on collection order. */
+function isEarlier(a: RawCandidate, b: RawCandidate): boolean {
+  return a.postedAt === b.postedAt ? comparePostId(a.postId, b.postId) < 0 : a.postedAt < b.postedAt
+}
+
 async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> {
   try {
     const reply = await deps.transport.request(
@@ -136,18 +152,27 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
   }
 }
 
-async function collect(deps: SessionDeps, sincePostedAt: number | null) {
+async function collect(deps: SessionDeps, sincePostedAt: number) {
   try {
+    const requestId = deps.newRequestId()
     const reply = await deps.transport.request(
       {
         type: 'COLLECT',
-        requestId: deps.newRequestId(),
+        requestId,
         automationId: deps.automationId,
         source: { cafeId: deps.cafeId, boardId: deps.boardId },
-        sincePostId: deps.watermark,
         sincePostedAt,
       },
       TIMEOUTS.collectMs,
+      (interim) => {
+        if (interim.type === 'COLLECT_PROGRESS') {
+          deps.onProgress?.({
+            phase: 'COLLECTING',
+            pagesRead: interim.pagesRead,
+            collected: interim.collected,
+          })
+        }
+      },
     )
     return reply.type === 'COLLECTED' ? reply.candidates : null
   } catch {
@@ -332,15 +357,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   let awaitingApproval = 0
   let failed = 0
   let expired = 0
-  let lastProcessedPostId: string | null = null
   /** Requests actually sent this session. Caps count attempts, not successes. */
   let attempted = 0
-  /**
-   * Set when a post could not be judged this session. The watermark is a single
-   * high-water mark, so advancing past a held post would lose it: the whole
-   * session's advance is withheld instead.
-   */
-  let deferred = false
 
   const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
   let dailyCount = deps.repo.countExecutedSince(deps.automationId, dailyStart)
@@ -369,7 +387,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     awaitingApproval,
     failed,
     expired,
-    lastProcessedPostId: deferred ? null : lastProcessedPostId,
   })
 
   // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
@@ -402,12 +419,14 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     tally(result)
   }
 
-  // When there is no watermark, use the start of today in KST as the floor.
-  // When a watermark exists, sincePostedAt is ignored by the extension.
-  const sincePostedAt = deps.watermark === null ? kstDayStartMs(openedAt) : null
+  // The whole day, every session. A post passed over earlier has to come back
+  // into view, because what disqualified it can change on the cafe's side.
+  const sincePostedAt = kstDayStartMs(openedAt)
   deps.onProgress?.({ phase: 'COLLECTING' })
   const raws = await collect(deps, sincePostedAt)
   if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
+
+  const firstPosts = firstPostIdByAuthor(raws)
 
   for (const [index, raw] of raws.entries()) {
     deps.onProgress?.({
@@ -416,17 +435,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       total: raws.length,
       nickname: raw.authorNickname,
     })
-    const membership = deps.resolveMembership(raw)
-    if (membership === 'DEFER') {
-      deferred = true
-      continue
-    }
 
     const now = deps.clock.now()
-
-    // Advance per post handled, not once after collection: if the app dies
-    // mid-session, a collection-time advance would skip everything in between.
-    lastProcessedPostId = laterPostId(lastProcessedPostId, raw.postId)
 
     const executionId = await deps.dedupe.claim({
       automationId: deps.automationId,
@@ -460,8 +470,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors: raw.existingCommentAuthors,
-      authorMembership: membership,
-      newMemberWindowDays: deps.newMemberWindowDays,
+      isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     })
     const evaluation = rendered.ok
       ? guardEvaluation

@@ -70,7 +70,6 @@ describe('outcomeSummary', () => {
         awaitingApproval: 0,
         failed: 0,
         expired: 0,
-        lastProcessedPostId: '1003',
       }),
     ).toEqual({ tone: 'ok', key: 'outcome.ran', count: 3 })
   })
@@ -84,7 +83,6 @@ describe('outcomeSummary', () => {
         awaitingApproval: 0,
         failed: 2,
         expired: 0,
-        lastProcessedPostId: '1003',
       }),
     ).toEqual({ tone: 'alarm', key: 'outcome.ranWithFailures', count: 2 })
   })
@@ -96,7 +94,7 @@ describe('isRefusalStale', () => {
   })
 
   it('returns false when the outcome was not a refusal', () => {
-    const outcome = { opened: true as const, executed: 1, skipped: 0, awaitingApproval: 0, failed: 0, expired: 0, lastProcessedPostId: '123' }
+    const outcome = { opened: true as const, executed: 1, skipped: 0, awaitingApproval: 0, failed: 0, expired: 0 }
     expect(isRefusalStale(outcome, true)).toBe(false)
   })
 
@@ -150,9 +148,12 @@ describe('getBridgeStatusKey', () => {
 })
 
 describe('progressSummary', () => {
-  it('names the phase before any post is in hand', () => {
-    expect(progressSummary({ phase: 'PREPARING' })).toEqual({ key: 'progress.PREPARING', values: {} })
-    expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.COLLECTING', values: {} })
+  it('names the phase when collecting, and the counts once it has read a page', () => {
+    expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.collecting', values: {} })
+    expect(progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })).toEqual({
+      key: 'progress.collectingCounted',
+      values: { pages: 2, count: 87 },
+    })
   })
 
   it('counts the post in hand as the current position, not as finished', () => {

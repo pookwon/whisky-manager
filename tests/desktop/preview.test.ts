@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { previewToday } from '../../src/desktop/preview.js'
-import type { MembersRepo } from '../../src/desktop/db/membersRepo.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
-import type { RawMember } from '../../src/shared/members.js'
+import { kstDayStartMs } from '../../src/shared/kst.js'
 
 const CAFE = '10000000'
 /** 2026-08-23 12:00 KST. */
 const NOW = Date.UTC(2026, 7, 23, 3, 0)
-
-const autoGreeting = (nickname: string): string =>
-  `${nickname}님이 우리 카페에 가입하였습니다.\n댓글로 ${nickname}님을 환영해주세요.`
 
 function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
   return {
@@ -24,22 +20,7 @@ function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
   }
 }
 
-function fakeRepo(seed: Record<string, string> = {}): MembersRepo & { rows: Map<string, string> } {
-  const rows = new Map(Object.entries(seed))
-  return {
-    rows,
-    joinDateOf: (_cafeId, memberKey) => rows.get(memberKey) ?? null,
-    upsertMany: (_cafeId, batch) => {
-      for (const m of batch) rows.set(m.memberKey, m.joinDate)
-    },
-    isEmpty: () => rows.size === 0,
-    prune: (_cafeId, oldest) => {
-      for (const [key, date] of rows) if (date < oldest) rows.delete(key)
-    },
-  }
-}
-
-function transportReturning(collected: RawCandidate[], memberPages: (RawMember[] | null)[] = [[]]) {
+function transportReturning(collected: RawCandidate[]) {
   const asked: AppMessage[] = []
   return {
     asked,
@@ -49,9 +30,7 @@ function transportReturning(collected: RawCandidate[], memberPages: (RawMember[]
       if (message.type === 'COLLECT') {
         return Promise.resolve({ type: 'COLLECTED', requestId: 'r', candidates: collected } as ExtensionMessage)
       }
-      const page = message.type === 'FETCH_MEMBERS' ? message.page : 1
-      const members = memberPages[page - 1] ?? []
-      return Promise.resolve({ type: 'MEMBERS', requestId: 'r', members } as ExtensionMessage)
+      return Promise.reject(new Error(`unexpected ${message.type}`))
     },
   }
 }
@@ -68,44 +47,31 @@ const deps = (over: Partial<Parameters<typeof previewToday>[0]>) => ({
   cafeId: CAFE,
   boardId: '5',
   automationId: 'auto-1',
-  windowDays: 7,
   nowMs: NOW,
   newRequestId: () => 'r',
-  repo: fakeRepo(),
-  transport: transportReturning([], [[]]),
+  transport: transportReturning([]),
   operatorAccounts: [],
   ...over,
 })
 
 describe('previewToday', () => {
-  it('counts 3 auto-generated greeting posts from members in the table', async () => {
+  it('counts posts from different authors', async () => {
     const candidates = [
-      raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
-      raw({ postId: '1002', bodyText: autoGreeting('가입자둘'), authorNickname: '가입자둘', authorId: 'member-2' }),
-      raw({ postId: '1003', bodyText: autoGreeting('가입자셋'), authorNickname: '가입자셋', authorId: 'member-3' }),
+      raw({ postId: '1001', authorNickname: '가입자하나', authorId: 'member-1' }),
+      raw({ postId: '1002', authorNickname: '가입자둘', authorId: 'member-2' }),
+      raw({ postId: '1003', authorNickname: '가입자셋', authorId: 'member-3' }),
     ]
-    const members = [
-      { memberKey: 'member-1', joinDate: '2026.08.23.' },
-      { memberKey: 'member-2', joinDate: '2026.08.23.' },
-      { memberKey: 'member-3', joinDate: '2026.08.23.' },
-    ]
-    const result = await previewToday(deps({ transport: transportReturning(candidates, [members]) }))
+    const result = await previewToday(deps({ transport: transportReturning(candidates) }))
     expect(result).toEqual({ kind: 'READY', count: 3, checkedAt: NOW })
   })
 
-  it('skips a post from a member not in the table (outside window)', async () => {
+  it('counts only the first post when same author posts multiple times', async () => {
     const candidates = [
-      raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
-      // This one is not in the table, so resolved as NOT_TRACKED (outside window)
-      raw({ postId: '1002', bodyText: '게시글입니다', authorId: 'member-old', authorNickname: '오래된회원' }),
-      raw({ postId: '1003', bodyText: autoGreeting('가입자셋'), authorNickname: '가입자셋', authorId: 'member-3' }),
+      raw({ postId: '1001', authorNickname: '가입자하나', authorId: 'member-1', postedAt: NOW - 120_000 }),
+      raw({ postId: '1002', authorNickname: '가입자하나', authorId: 'member-1', postedAt: NOW - 60_000 }),
+      raw({ postId: '1003', authorNickname: '가입자둘', authorId: 'member-2' }),
     ]
-    const members = [
-      { memberKey: 'member-1', joinDate: '2026.08.23.' },
-      { memberKey: 'member-3', joinDate: '2026.08.23.' },
-    ]
-    const result = await previewToday(deps({ transport: transportReturning(candidates, [members]) }))
-    // Only the 2 members in the table count; the one not in the table is skipped
+    const result = await previewToday(deps({ transport: transportReturning(candidates) }))
     expect(result).toEqual({ kind: 'READY', count: 2, checkedAt: NOW })
   })
 
@@ -123,48 +89,32 @@ describe('previewToday', () => {
         if (message.type === 'COLLECT') {
           return Promise.reject(new Error('collect failed'))
         }
-        return Promise.resolve({ type: 'MEMBERS', requestId: 'r', members: [] } as ExtensionMessage)
+        return Promise.reject(new Error('unexpected'))
       },
     }
     const result = await previewToday(deps({ transport }))
     expect(result).toEqual({ kind: 'UNAVAILABLE', reason: 'READ_FAILED' })
   })
 
-  it('defers all posts when member list fails, including auto-generated', async () => {
-    const candidates = [
-      raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
-      raw({ postId: '1002', bodyText: '자기글입니다', authorId: 'member-unknown', authorNickname: '미추적회원' }),
-      raw({ postId: '1003', bodyText: autoGreeting('가입자셋'), authorNickname: '가입자셋', authorId: 'member-3' }),
-    ]
-    const transport = {
-      asked: [] as AppMessage[],
-      isConnected: () => true,
-      request: (message: AppMessage) => {
-        transport.asked.push(message)
-        if (message.type === 'COLLECT') {
-          return Promise.resolve({
-            type: 'COLLECTED',
-            requestId: 'r',
-            candidates,
-          } as ExtensionMessage)
-        }
-        // Member list fails - member lookup returns null
-        return Promise.resolve({ type: 'MEMBERS', requestId: 'r', members: null } as ExtensionMessage)
-      },
-    }
-    const result = await previewToday(deps({ transport, repo: fakeRepo() }))
-    // All posts are deferred because member lookup failed; none are counted
-    expect(result).toEqual({ kind: 'READY', count: 0, checkedAt: NOW })
-  })
-
   it('never sends EXECUTE messages', async () => {
     const candidates = [
-      raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
-      raw({ postId: '1002', bodyText: autoGreeting('가입자둘'), authorNickname: '가입자둘', authorId: 'member-2' }),
+      raw({ postId: '1001', authorNickname: '가입자하나', authorId: 'member-1' }),
+      raw({ postId: '1002', authorNickname: '가입자둘', authorId: 'member-2' }),
     ]
-    const transport = transportReturning(candidates, [[]])
+    const transport = transportReturning(candidates)
     await previewToday(deps({ transport }))
     const executeMessages = transport.asked.filter((msg) => msg.type === 'EXECUTE')
     expect(executeMessages).toHaveLength(0)
+  })
+
+  it('only collects from the start of today', async () => {
+    const candidates = [raw({ postId: '1001', authorId: 'member-1' })]
+    const transport = transportReturning(candidates)
+    await previewToday(deps({ transport }))
+    const collectMessage = transport.asked.find((msg) => msg.type === 'COLLECT')
+    expect(collectMessage).toBeDefined()
+    if (collectMessage && collectMessage.type === 'COLLECT') {
+      expect(collectMessage.sincePostedAt).toEqual(kstDayStartMs(NOW))
+    }
   })
 })

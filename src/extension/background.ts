@@ -1,11 +1,34 @@
 import { charsetFromContentType, isProbeTarget } from '../shared/probe.js'
-import type { AppMessage } from '../shared/protocol.js'
+import type { AppMessage, ExtensionMessage } from '../shared/protocol.js'
+import type { Random } from '../shared/ports.js'
 import { createBridgeClient, type Reply } from './bridgeClient.js'
 import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeClient.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
 const RECONNECT_ALARM = 'bridge-reconnect'
 const RECONNECT_PERIOD_MINUTES = 1
+
+/** Random number generator for the extension using crypto.getRandomValues. */
+const extensionRandom: Random = {
+  intInclusive(min, max) {
+    const range = max - min + 1
+    const bytesNeeded = Math.ceil(Math.log2(range) / 8)
+    const randomBytes = new Uint8Array(bytesNeeded)
+    const maxRandom = Math.pow(256, bytesNeeded)
+    const bucket = Math.floor(maxRandom / range) * range
+    let randomValue: number
+
+    do {
+      globalThis.crypto?.getRandomValues(randomBytes)
+      randomValue = 0
+      for (let i = 0; i < bytesNeeded; i++) {
+        randomValue = (randomValue << 8) | (randomBytes[i] ?? 0)
+      }
+    } while (randomValue >= bucket)
+
+    return min + (randomValue % range)
+  },
+}
 
 /**
  * `Referer` cannot be set through `fetch` — it is a forbidden header — and the
@@ -102,7 +125,15 @@ async function runLcsDo(): Promise<void> {
   }
 }
 
-const cafe = createCafeClient({ http: request, beforeCommentPost: async () => runLcsDo() })
+let onCollectionProgress: ((pagesRead: number, collected: number) => void) | null = null
+
+const cafe = createCafeClient({
+  http: request,
+  random: extensionRandom,
+  beforeCommentPost: async () => runLcsDo(),
+  onCollectionProgress: (pagesRead, collected) => onCollectionProgress?.(pagesRead, collected),
+  sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+})
 
 /** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
 async function probe(requestId: string, url: string, reply: Reply): Promise<void> {
@@ -154,8 +185,21 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
     }
 
     case 'COLLECT': {
-      const candidates = await cafe.collect(message.source, message.sincePostId, message.sincePostedAt)
-      reply({ type: 'COLLECTED', requestId: message.requestId, candidates })
+      onCollectionProgress = (pagesRead, collected) => {
+        const progressMessage: ExtensionMessage = {
+          type: 'COLLECT_PROGRESS',
+          requestId: message.requestId,
+          pagesRead,
+          collected,
+        }
+        reply(progressMessage)
+      }
+      try {
+        const candidates = await cafe.collect(message.source, message.sincePostedAt)
+        reply({ type: 'COLLECTED', requestId: message.requestId, candidates })
+      } finally {
+        onCollectionProgress = null
+      }
       return
     }
 
@@ -180,12 +224,6 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
         error: result.error,
         diagnostic: result.diagnostic,
       })
-      return
-    }
-
-    case 'FETCH_MEMBERS': {
-      const members = await cafe.fetchMembers(message.cafeId, message.page, message.perPage)
-      reply({ type: 'MEMBERS', requestId: message.requestId, members })
       return
     }
 

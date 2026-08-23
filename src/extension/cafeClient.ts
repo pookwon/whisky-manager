@@ -8,8 +8,9 @@ import {
   type LoginState,
 } from '../shared/automations/welcome-comment/cafe.js'
 import { parseMemoList } from '../shared/automations/welcome-comment/parse.js'
-import { memberListUrl, parseMemberList, type RawMember } from '../shared/members.js'
-import { laterPostId } from '../shared/postId.js'
+import { comparePostId } from '../shared/postId.js'
+import { nextPageFetchDelayMs } from '../shared/schedule.js'
+import type { Random } from '../shared/ports.js'
 import type { RawCandidate, SourceRef } from '../shared/protocol.js'
 import type { CommentAuthor } from '../shared/types.js'
 
@@ -33,11 +34,22 @@ export type Http = (request: HttpRequest) => Promise<HttpResponse>
 
 export interface CafeClientDeps {
   readonly http: Http
+  readonly random: Random
   /**
    * Runs in the board page's JavaScript context immediately before the form
    * write. Naver's `lcs_do` records the interaction there.
    */
   readonly beforeCommentPost?: (source: SourceRef, postId: string) => Promise<void>
+  /**
+   * Called after each page during collection to report progress. Allows the
+   * orchestrator to display what is happening while collection is underway.
+   */
+  readonly onCollectionProgress?: (pagesRead: number, collected: number) => void
+  /**
+   * Wait for the specified number of milliseconds. Injected so tests can
+   * control timing without actually sleeping.
+   */
+  readonly sleep: (ms: number) => Promise<void>
 }
 
 export interface ExecuteResult {
@@ -50,19 +62,22 @@ export interface ExecuteResult {
 
 export interface CafeClient {
   checkLogin(source: SourceRef): Promise<LoginState>
-  collect(source: SourceRef, sincePostId: string | null, sincePostedAt: number | null): Promise<RawCandidate[]>
+  collect(source: SourceRef, sincePostedAt: number): Promise<RawCandidate[]>
   checkComments(source: SourceRef, postId: string): Promise<CommentAuthor[] | null>
   execute(source: SourceRef, postId: string, content: string): Promise<ExecuteResult>
-  fetchMembers(cafeId: string, page: number, perPage: number): Promise<RawMember[] | null>
 }
 
 /**
  * Log a warning when paging exceeds this count. This is not a hard stop — the
- * loop continues until the data itself ends (an empty page, or reaching the
- * watermark/time floor). A warning makes abnormally long fetches visible
+ * loop continues until the data itself ends (an empty page, a page that adds
+ * nothing, or a post older than the floor). A warning makes long fetches visible
  * without stopping them, which would hide a broken stop condition.
+ *
+ * A day's greetings measured about 155 posts, which is four pages at
+ * `MEMO_PAGE_SIZE`. Twenty pages is a thousand posts: far past any real day, and
+ * therefore a stop condition that is not stopping.
  */
-const PAGES_WARNING_THRESHOLD = 50
+const PAGES_WARNING_THRESHOLD = 20
 
 /**
  * What a browser sends for a form post — no charset parameter. The page is
@@ -78,12 +93,8 @@ function diagnose(text: string): string {
   return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, DIAGNOSTIC_LENGTH)
 }
 
-function isNewerThan(watermark: string | null, postId: string): boolean {
-  return watermark === null || laterPostId(watermark, postId) !== watermark
-}
-
 function oldestFirst(a: RawCandidate, b: RawCandidate): number {
-  return laterPostId(a.postId, b.postId) === b.postId ? -1 : 1
+  return comparePostId(a.postId, b.postId)
 }
 
 export function createCafeClient(deps: CafeClientDeps): CafeClient {
@@ -106,23 +117,15 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
     checkLogin,
     checkComments,
 
-    async collect(source, sincePostId, sincePostedAt) {
+    async collect(source, sincePostedAt) {
       const collected = new Map<string, RawCandidate>()
 
-      // When neither a watermark nor a time floor exists, read only the first
-      // page to avoid walking the board's entire history on a fresh install.
-      // When either exists, read until the stop condition (reaching the watermark/
-      // floor, or reaching an empty page). Logs a warning past 50 pages if the
-      // stop condition seems broken.
-      const stopAtFirstPageOnly = sincePostId === null && sincePostedAt === null
-      const useTimeFloor = sincePostId === null && sincePostedAt !== null
-
+      // Collect from the time floor onwards. Stops when reaching a post older
+      // than the floor, an empty page, or a page that added nothing new.
       for (let page = 1; ; page += 1) {
         if (page > PAGES_WARNING_THRESHOLD) {
           console.warn(`Post collection exceeded ${PAGES_WARNING_THRESHOLD} pages`)
         }
-
-        if (stopAtFirstPageOnly && page > 1) break
 
         const response = await deps.http({ url: memoListUrl(source, page) })
         if (response.status !== 200) break
@@ -135,30 +138,29 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
         let reachedFloor = false
         let added = 0
         for (const memo of memos) {
-          // When using watermark: skip until newer than watermark
-          if (sincePostId !== null) {
-            if (!isNewerThan(sincePostId, memo.postId)) {
-              reachedFloor = true
-              continue
-            }
-          }
-          // When using time floor: collect posts from today onwards, stop when older
-          if (useTimeFloor) {
-            // Stop if we reach a post older than the floor
-            if (memo.postedAt < sincePostedAt) {
-              reachedFloor = true
-              // Do not collect this post, it's too old
-              continue
-            }
-            // Post is from today onwards, collect it
+          // Stop if we reach a post older than the floor
+          if (memo.postedAt < sincePostedAt) {
+            reachedFloor = true
+            continue
           }
           if (collected.has(memo.postId)) continue
           collected.set(memo.postId, memo)
           added += 1
         }
+
+        // Report progress after this page to the app, so it can display what
+        // collection is doing. This happens before the delay, so the app sees
+        // progress immediately and does not have to wait.
+        deps.onCollectionProgress?.(page, collected.size)
+
         // Nothing new on a whole page means paging is not moving; stop rather
         // than walk to the ceiling.
         if (reachedFloor || added === 0) break
+
+        // Wait before fetching the next page, but not after the last one.
+        // The delay is randomized to avoid mechanical traffic patterns.
+        const delayMs = nextPageFetchDelayMs(deps.random)
+        await deps.sleep(delayMs)
       }
 
       // Oldest first: a session that stops at its cap must leave the newest
@@ -212,14 +214,6 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
         error: landed ? null : 'COMMENT_NOT_VISIBLE',
         diagnostic: landed ? null : diagnose(posted.text),
       }
-    },
-
-    async fetchMembers(cafeId, page, perPage) {
-      // Staff-only. Losing staff rights looks like a redirect to a page that is
-      // not the list, which the parser reports as a failed read rather than as
-      // an empty cafe.
-      const response = await deps.http({ url: memberListUrl(cafeId, page, perPage) })
-      return response.status === 200 ? parseMemberList(response.text) : null
     },
   }
 }
