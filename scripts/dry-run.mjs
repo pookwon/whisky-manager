@@ -106,7 +106,7 @@ try {
     nowMs: Date.now(),
     newRequestId: () => randomUUID(),
   })
-  console.log(`\n가입자 표: ${repo.size()}명 적재 (첫 실행이라 1페이지)`)
+  console.log(`\n가입자 표: ${repo.size()}명 적재 (판정 창 ${WINDOW_DAYS}일을 덮을 때까지)`)
 
   console.log(`\n판정 (창 ${WINDOW_DAYS}일):`)
   for (const c of candidates) {

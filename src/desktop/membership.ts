@@ -63,7 +63,9 @@ async function refresh(deps: MembershipDeps): Promise<boolean> {
   const windowFloorDate = kstDayToJoinDate(windowFloorDay)
 
   for (let page = 1; ; page += 1) {
-    if (page > PAGES_WARNING_THRESHOLD) {
+    // Once, not per page: a broken stop condition would otherwise bury the
+    // signal under hundreds of identical lines.
+    if (page === PAGES_WARNING_THRESHOLD + 1) {
       console.warn(`Member list refresh exceeded ${PAGES_WARNING_THRESHOLD} pages`)
     }
 
