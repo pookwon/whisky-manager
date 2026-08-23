@@ -24,7 +24,7 @@ export const DEFAULT_BOARD_ID = '5'
 export const DEFAULT_CAFE_URL_NAME = 'examplecafe'
 
 /** How long after joining a greeting still counts as a new member's. */
-export const DEFAULT_NEW_MEMBER_WINDOW_DAYS = 7
+export const DEFAULT_NEW_MEMBER_WINDOW_DAYS = 3
 
 const NICKNAME_VARIABLE = '닉네임'
 

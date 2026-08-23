@@ -42,6 +42,7 @@ const snapshot: DashboardSnapshot = {
   failedToday: 0,
   lastOutcome: null,
   automations: [],
+  startupPreview: null,
 }
 
 const commonSettings: CommonSettingsView = {

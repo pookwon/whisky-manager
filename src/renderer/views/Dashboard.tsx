@@ -34,12 +34,63 @@ export function Dashboard(): React.JSX.Element {
 
   const summary = outcomeSummary(dashboard.lastOutcome)
   const running = dashboard.loopRunning
+  const preview = dashboard.startupPreview
+
+  // Show startup preview banner only when it's READY and loop is not running
+  const showStartupBanner = preview?.kind === 'READY' && !running
 
   return (
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-lg font-bold tracking-tight">{t('dashboard.heading')}</h1>
       </header>
+
+      {/* Startup preview banner: shows today's greeting target count when the
+          app starts and the bridge connects. Helps the operator decide whether
+          to trigger the automation. Hidden once the loop is running. */}
+      {showStartupBanner && (
+        <section className="panel overflow-hidden">
+          <div className="flex">
+            <div className="w-1 shrink-0 bar-info" />
+            <div className="flex flex-1 items-center gap-6 px-5 py-4">
+              <div>
+                <div
+                  className="text-[0.6875rem] font-medium uppercase tracking-wider"
+                  style={{ color: 'var(--ink-muted)' }}
+                >
+                  {t('startup.heading')}
+                </div>
+                <div className="mt-1 text-lg font-semibold tone-info">
+                  {t('startup.count', { count: preview.count })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Preview unavailable banner: shown when the startup count could not be
+          determined. Visibly different from the ready state to avoid confusion. */}
+      {preview?.kind === 'UNAVAILABLE' && !running && (
+        <section className="panel overflow-hidden">
+          <div className="flex">
+            <div className="w-1 shrink-0 bar-warn" />
+            <div className="flex flex-1 items-center gap-6 px-5 py-4">
+              <div>
+                <div
+                  className="text-[0.6875rem] font-medium uppercase tracking-wider"
+                  style={{ color: 'var(--ink-muted)' }}
+                >
+                  {t('startup.heading')}
+                </div>
+                <div className="mt-1 text-lg font-semibold tone-warn">
+                  {t(`startup.unavailable.${preview.reason}`)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* The banner comes first because "why is it quiet?" is the question an
           operator opens this window to answer. */}

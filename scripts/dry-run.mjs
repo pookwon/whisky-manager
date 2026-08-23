@@ -23,7 +23,7 @@ const REPLY_TIMEOUT_MS = 60_000
 const SOURCE = { cafeId: '10000000', boardId: '5' }
 
 const sincePostId = process.argv[2] ?? null
-const WINDOW_DAYS = 7
+const WINDOW_DAYS = 3
 
 /**
  * Stands in for the sqlite members table. A rehearsal must not write to the

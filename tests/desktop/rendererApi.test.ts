@@ -60,6 +60,7 @@ function build() {
     bridge: { isConnected: () => true, request: () => Promise.reject(new Error('not used in this test')) },
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
+    getStartupPreview: () => null,
     clock: new FakeClock(MON_10_00),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
@@ -119,6 +120,7 @@ describe('getDashboard', () => {
           lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
         },
       ],
+      startupPreview: null,
     })
   })
 
