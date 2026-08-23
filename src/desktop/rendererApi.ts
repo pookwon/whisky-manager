@@ -39,14 +39,16 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
   const setting = () => repos.automationSettings.get(automationId)
 
-  const upsert = (patch: Partial<{ policy: ApprovalPolicy; enabled: boolean }>): void => {
+  const upsert = (
+    patch: Partial<{ policy: ApprovalPolicy; enabled: boolean; boardId: string }>,
+  ): void => {
     const current = setting()
     repos.automationSettings.upsert({
       automationId,
       policy: patch.policy ?? current?.policy ?? 'AUTO',
       limits: current?.limits ?? {},
       enabled: patch.enabled ?? current?.enabled ?? false,
-      boardId: current?.boardId ?? null,
+      boardId: patch.boardId ?? current?.boardId ?? null,
     })
   }
 
@@ -119,7 +121,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         policy: current?.policy ?? 'AUTO',
         enabled: current?.enabled ?? false,
         cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
-        boardId: settings.get(SETTING_KEYS.boardId) ?? DEFAULT_BOARD_ID,
+        boardId: current?.boardId ?? DEFAULT_BOARD_ID,
         cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       })
@@ -150,8 +152,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     setCafe(cafeId, boardId, cafeUrlName) {
       settings.set(SETTING_KEYS.cafeId, cafeId.trim())
-      settings.set(SETTING_KEYS.boardId, boardId.trim())
       settings.set(SETTING_KEYS.cafeUrlName, cafeUrlName.trim())
+      // The board now lives on the automation. This signature keeps the screen
+      // working unchanged until the settings split moves it to its own call.
+      upsert({ boardId: boardId.trim() })
       return Promise.resolve()
     },
 

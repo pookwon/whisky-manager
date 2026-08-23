@@ -10,7 +10,6 @@ import type { ExtensionTransport } from './ws/server.js'
 
 export const SETTING_KEYS = {
   cafeId: 'cafeId',
-  boardId: 'boardId',
   cafeUrlName: 'cafeUrlName',
   operatorAccounts: 'operatorAccounts',
 } as const
@@ -56,13 +55,13 @@ export function createSessionRunner(options: SessionRunnerOptions): () => Promis
   const { automationId, repos, settings } = options
 
   const cafeId = () => settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID
-  const boardId = () => settings.get(SETTING_KEYS.boardId) ?? DEFAULT_BOARD_ID
 
   return async function run(): Promise<SessionOutcome> {
     const setting = repos.automationSettings.get(automationId)
     const limits = { ...PROFILES[options.profile], ...(setting?.limits ?? {}) }
     const cafe = cafeId()
-    const board = boardId()
+    // The board belongs to the automation, so a second one can watch its own.
+    const board = setting?.boardId ?? DEFAULT_BOARD_ID
 
     const renderBody = (candidate: Candidate): RenderOutcome => {
       const template = pickTemplate(repos.templates.listEnabled(automationId), options.random)

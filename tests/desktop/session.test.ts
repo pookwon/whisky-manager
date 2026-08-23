@@ -35,12 +35,16 @@ function candidate(postId: string, nickname: string | null = '신입회원'): Ra
 
 function transportWith(candidates: RawCandidate[]) {
   const executed: string[] = []
+  /** Every board the session actually asked about, in order. */
+  const boards: string[] = []
   return {
     executed,
+    boards,
     transport: {
       isConnected: () => true,
       request(message: AppMessage): Promise<ExtensionMessage> {
         if (message.type === 'CHECK_LOGIN') {
+          boards.push(message.source.boardId)
           return Promise.resolve({
             type: 'LOGIN_STATE',
             requestId: message.requestId,
@@ -77,7 +81,7 @@ let db: AppDatabase
 let counter = 0
 
 function build(candidates: RawCandidate[]) {
-  const { transport, executed } = transportWith(candidates)
+  const { transport, executed, boards } = transportWith(candidates)
   const repos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -98,7 +102,7 @@ function build(candidates: RawCandidate[]) {
     sleep: () => Promise.resolve(),
     newId: () => `req-${++counter}`,
   })
-  return { run, repos, settings, executed }
+  return { run, repos, settings, executed, boards }
 }
 
 function enable(repos: ReturnType<typeof build>['repos']): void {
@@ -122,6 +126,44 @@ afterEach(() => {
 })
 
 describe('createSessionRunner', () => {
+  it('watches the board recorded on the automation, not the global setting', async () => {
+    const { run, repos, settings, boards } = build([])
+    repos.automationSettings.upsert({
+      automationId: WELCOME_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+      boardId: '77',
+    })
+    repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '{닉네임}님 환영합니다',
+      createdAt: MON_10_00 - 1000,
+    })
+    settings.set(SETTING_KEYS.cafeId, CAFE)
+
+    await run()
+
+    expect(boards).toEqual(['77'])
+  })
+
+  it('falls back to the default board when the automation has none', async () => {
+    const { run, repos, settings, boards } = build([])
+    enable(repos)
+    repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '{닉네임}님 환영합니다',
+      createdAt: MON_10_00 - 1000,
+    })
+    settings.set(SETTING_KEYS.cafeId, CAFE)
+
+    await run()
+
+    expect(boards).toEqual([BOARD])
+  })
+
   it('refuses while the automation is disabled', async () => {
     const { run, repos } = build([candidate('1001')])
     repos.automationSettings.upsert({
