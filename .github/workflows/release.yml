@@ -97,4 +97,16 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" release-assets/* --title "Whisky Manager ${GITHUB_REF_NAME}" --generate-notes
+        run: |
+          mapfile -d '' assets < <(find release-assets -type f \( \
+            -name '*.dmg' -o \
+            -name '*.dmg.blockmap' -o \
+            -name '*.msi' -o \
+            -name '*Chrome-Extension.zip' -o \
+            -name 'latest-mac.yml' \
+          \) -print0)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo 'No release files found' >&2
+            exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" "${assets[@]}" --title "Whisky Manager ${GITHUB_REF_NAME}" --generate-notes
