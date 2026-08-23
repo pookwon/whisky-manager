@@ -43,6 +43,11 @@ export interface SessionDeps {
   /** Decides whether a post's author is a member this tool watched join. */
   readonly resolveMembership: MembershipResolver
   readonly newMemberWindowDays: number
+  /**
+   * True when the session was started directly by the operator. False for
+   * automated scheduled runs. Manual runs bypass the per-session cap.
+   */
+  readonly isManualRun: boolean
 }
 
 export type RenderOutcome =
@@ -170,6 +175,7 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters):
   const gate = checkGates(
     { killed: deps.isKilled(), dailyCount: counters.dailyCount, sessionCount: counters.sessionCount },
     deps.limits,
+    deps.isManualRun,
   )
   if (!gate.allowed) {
     const now = deps.clock.now()

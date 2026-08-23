@@ -11,14 +11,18 @@ export interface GateContext {
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: GateBlockReason }
 
-export function checkGates(ctx: GateContext, limits: Limits): GateVerdict {
+export function checkGates(
+  ctx: GateContext,
+  limits: Limits,
+  isManualRun?: boolean,
+): GateVerdict {
   if (ctx.killed) {
     return { allowed: false, reason: 'KILLED' }
   }
   if (ctx.dailyCount >= limits.dailyCap) {
     return { allowed: false, reason: 'DAILY_CAP_EXCEEDED' }
   }
-  if (ctx.sessionCount >= limits.perSessionCap) {
+  if (!isManualRun && ctx.sessionCount >= limits.perSessionCap) {
     return { allowed: false, reason: 'SESSION_CAP_REACHED' }
   }
   return { allowed: true }

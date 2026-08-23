@@ -112,6 +112,7 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     watermark: null,
     resolveMembership: () => ({ kind: 'NOT_TRACKED' }),
     newMemberWindowDays: 7,
+    isManualRun: false,
     ...overrides,
   }
 }
@@ -344,6 +345,31 @@ describe('runSession — watermark', () => {
 
     // 9001 executes, 9002 is claimed then parked by the cap, 9003 is untouched.
     expect(await runSession(deps({ transport, limits }))).toMatchObject({ lastProcessedPostId: '9002' })
+  })
+
+  it('a scheduled run stops at the per-session cap (15 executions)', async () => {
+    const many = Array.from({ length: 20 }, (_, i) => candidate(`${6000 + i}`))
+    const transport = fakeTransport({ candidates: many })
+
+    const outcome = await runSession(deps({ transport, isManualRun: false }))
+    expect(outcome).toMatchObject({ opened: true, executed: 15 })
+  })
+
+  it('a manual run bypasses the per-session cap and processes all within daily limit', async () => {
+    const many = Array.from({ length: 20 }, (_, i) => candidate(`${7000 + i}`))
+    const transport = fakeTransport({ candidates: many })
+
+    const outcome = await runSession(deps({ transport, isManualRun: true }))
+    expect(outcome).toMatchObject({ opened: true, executed: 20 })
+  })
+
+  it('a manual run still respects the daily cap', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => candidate(`${8000 + i}`))
+    const transport = fakeTransport({ candidates: many })
+    const limits = { ...PROFILES.production, dailyCap: 20 }
+
+    const outcome = await runSession(deps({ transport, limits, isManualRun: true }))
+    expect(outcome).toMatchObject({ opened: true, executed: 20, expired: 10 })
   })
 })
 
