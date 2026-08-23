@@ -142,17 +142,13 @@ type AuthorMembership = { kind: 'JOINED'; joinDate: string } | { kind: 'NOT_TRAC
 
 `executions`의 유니크 인덱스는 `(cafeId, automationId, targetPostId)`다. 한 회원의 두 글은 서로 다른 글 ID라 둘 다 선점되고 댓글이 두 번 나간다.
 
-작성자 기준 부분 유니크 인덱스를 추가한다.
+작성자 확인을 `claim` 안으로 넣는다. 같은 카페·자동화에 같은 `target_author_id` 행이 이미 있으면 `null`을 돌려주고, [기존 `continue` 경로](../../../src/desktop/orchestrator.ts)가 그대로 처리한다. 조회와 삽입은 한 트랜잭션에 묶는다. 앱은 단일 프로세스에서 세션 루프가 순차로 돌므로 이것으로 충분하다.
 
-```
-UNIQUE (cafe_id, automation_id, target_author_id) WHERE target_author_id IS NOT NULL
-```
+`(cafe_id, automation_id, target_author_id)`에 **비유니크** 인덱스를 함께 만든다. 규칙은 `claim`이 강제하고, 인덱스는 그 조회를 받쳐줄 뿐이다. `target_author_id`는 이미 저장되고 있어 컬럼 추가는 없다.
 
-두 번째 글은 `claim`이 `null`을 돌려주고 [기존 `continue` 경로](../../../src/desktop/orchestrator.ts)가 그대로 처리한다. **판별 로직을 타지 않고 저장소가 보장한다.** `target_author_id`는 이미 저장되고 있어 컬럼 추가는 없다.
+**부분 유니크 인덱스를 쓰지 않는 이유.** 유니크 인덱스는 저장소가 규칙을 강제한다는 점에서 더 강하지만, 기존 행에 같은 작성자가 둘 이상 있으면 생성이 실패한다. 그것을 통과시키려면 중복 행을 지워야 하는데, **그 행들은 이미 댓글이 나간 `SUCCESS` 이력일 수 있다.** 규칙 하나를 위해 실행 이력을 잃는 것은 맞바꿀 만한 거래가 아니다. `authorId`가 `null`인 행끼리 충돌하지 않도록 부분 인덱스로 만들어야 하는 번거로움도 함께 사라진다.
 
-부분 인덱스인 것은 `authorId`가 `null`일 수 있기 때문이다. 회원 링크를 못 읽은 행끼리 서로 충돌해서는 안 된다.
-
-**마이그레이션에 정리가 함께 간다.** 기존 행에 같은 작성자가 둘 이상 있으면 인덱스 생성이 실패한다. 가장 이른 행을 남기고 나머지를 정리한 뒤 인덱스를 만든다.
+`authorId`가 `null`이면 작성자를 특정할 수 없으므로 이 확인을 건너뛴다. 글 ID 기준 중복 방지는 그대로 남아 있다.
 
 ## 8. 보류와 워터마크
 
