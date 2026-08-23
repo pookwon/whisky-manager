@@ -78,9 +78,9 @@ bodyText === `${authorNickname}님이 우리 카페에 가입하였습니다.\n�
 
 비교 대상은 **정규화된 `bodyText`**다. 원본 HTML은 공백이 `&nbsp;`(U+00A0), 줄바꿈이 `<br>`인데 [`parse.ts`](../../../src/shared/automations/welcome-comment/parse.ts)가 이미 일반 공백과 `\n`으로 바꿔 둔다. 원본 HTML에 매칭하면 걸리지 않는다.
 
-**그 외의 글 — 가입일로 판정.** `글 작성일 − 가입일 ≤ N일`이면 신입이다. `N`은 설정값이며 기본 7이다.
+**그 외의 글 — 가입일로 판정.** `세션 실행 날짜 − 가입일 ≤ N일`이면 신입이다. `N`은 설정값이며 기본 3이다.
 
-`joinDate`는 KST 날짜 문자열이고 `postedAt`은 UTC epoch ms다. `parse.ts`의 `KST_OFFSET_MS`를 재사용해 `postedAt`을 KST 날짜로 환산한 뒤 **일 단위로** 뺀다. `joinDate`에 시각이 없으므로 시각 단위 비교를 흉내 내면 안 된다.
+`joinDate`는 KST 날짜 문자열이고 `nowMs`는 UTC epoch ms다. `parse.ts`의 `KST_OFFSET_MS`를 재사용해 `nowMs`을 KST 날짜로 환산한 뒤 **일 단위로** 뺀다. `joinDate`에 시각이 없으므로 시각 단위 비교를 흉내 내면 안 된다.
 
 ## 5. 가입자 표
 
