@@ -1,5 +1,10 @@
 import { WebSocketServer, type WebSocket } from 'ws'
-import { isExtensionMessage, type AppMessage, type ExtensionMessage } from '../../shared/protocol.js'
+import {
+  isExtensionMessage,
+  isInterimMessage,
+  type AppMessage,
+  type ExtensionMessage,
+} from '../../shared/protocol.js'
 import { verifyHello, type PairingState } from './pairing.js'
 
 export interface ExtensionTransport {
@@ -85,10 +90,11 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       const waiting = pending.get(requestId)
       if (waiting === undefined) return
 
-      // Interim messages (like COLLECT_PROGRESS) refresh the timeout but do not
-      // resolve the request. Only final messages resolve. This prevents the
-      // timeout from expiring while progress is being reported.
-      if (parsed.type === 'COLLECT_PROGRESS') {
+      // A message about a request still running refreshes the wait rather than
+      // ending it, so the timeout measures silence instead of total work. Which
+      // types those are is declared with the messages themselves, so a new one
+      // cannot reach this line as a final reply by omission.
+      if (isInterimMessage(parsed)) {
         waiting.onInterim?.(parsed)
         clearTimeout(waiting.timer)
         waiting.timer = setTimeout(() => {

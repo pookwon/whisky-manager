@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { PROTOCOL_VERSION, TIMEOUTS, isAppMessage, isExtensionMessage } from '../../src/shared/protocol.js'
+import {
+  PROTOCOL_VERSION,
+  TIMEOUTS,
+  isAppMessage,
+  isExtensionMessage,
+  isInterimMessage,
+} from '../../src/shared/protocol.js'
 
 describe('protocol version', () => {
   it('is a positive integer', () => {
@@ -119,3 +125,24 @@ describe('collection progress messages', () => {
   })
 })
 
+
+describe('isInterimMessage', () => {
+  it('knows the reply that reports on a request still running', () => {
+    expect(
+      isInterimMessage({ type: 'COLLECT_PROGRESS', requestId: 'r1', pagesRead: 2, collected: 87 }),
+    ).toBe(true)
+  })
+
+  it('leaves every reply that ends a request to the caller', () => {
+    // Anything answered here would end its request the moment it arrived, which
+    // for COLLECTED is the difference between a day's posts and none.
+    expect(isInterimMessage({ type: 'COLLECTED', requestId: 'r1', candidates: [] })).toBe(false)
+    expect(isInterimMessage({ type: 'COMMENTS', requestId: 'r1', authors: [] })).toBe(false)
+    expect(
+      isInterimMessage({ type: 'LOGIN_STATE', requestId: 'r1', loggedIn: true, account: 'a' }),
+    ).toBe(false)
+    expect(
+      isInterimMessage({ type: 'ERROR', requestId: 'r1', code: 'X', message: 'boom' }),
+    ).toBe(false)
+  })
+})

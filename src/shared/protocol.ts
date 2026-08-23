@@ -89,6 +89,24 @@ export type ExtensionMessage =
     }
   | { type: 'ERROR'; requestId: string | null; code: string; message: string }
 
+/**
+ * Replies that report on a request still in flight. They are answered by
+ * refreshing the caller's patience, never by completing the request.
+ *
+ * Adding one here without teaching the transport about it would end the request
+ * early and silently, so the two are tied together: the record below must name
+ * every member of this union, and the compiler rejects it when one is missing.
+ */
+type InterimType = 'COLLECT_PROGRESS'
+
+const INTERIM_MESSAGE_TYPES: Record<InterimType, true> = { COLLECT_PROGRESS: true }
+
+export type InterimMessage = Extract<ExtensionMessage, { type: InterimType }>
+
+export function isInterimMessage(message: ExtensionMessage): message is InterimMessage {
+  return message.type in INTERIM_MESSAGE_TYPES
+}
+
 const APP_MESSAGE_TYPES = new Set<string>([
   'HELLO_ACK',
   'CHECK_LOGIN',
