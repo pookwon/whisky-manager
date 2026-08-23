@@ -75,6 +75,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       policy: 'AUTO',
       limits: {},
       enabled: false,
+      boardId: null,
     })
   }
 

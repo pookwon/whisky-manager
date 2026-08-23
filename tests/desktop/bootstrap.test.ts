@@ -60,6 +60,7 @@ describe('createAppContext', () => {
       policy: 'AUTO',
       limits: {},
       enabled: true,
+      boardId: null,
     })
 
     await ctx.automation.runOnce()
@@ -72,6 +73,7 @@ describe('createAppContext', () => {
       policy: 'AUTO',
       limits: {},
       enabled: true,
+      boardId: null,
     })
     ctx.repos.templates.add({
       id: 't1',

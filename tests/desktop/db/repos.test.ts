@@ -68,20 +68,39 @@ describe('automationSettingsRepo', () => {
 
   it('round-trips policy, limit overrides and the enabled flag', () => {
     const repo = createAutomationSettingsRepo(db)
-    repo.upsert({ automationId: 'welcome-comment', policy: 'SEMI', limits: { dailyCap: 50 }, enabled: false })
+    repo.upsert({
+      automationId: 'welcome-comment',
+      policy: 'SEMI',
+      limits: { dailyCap: 50 },
+      enabled: false,
+      boardId: null,
+    })
 
     expect(repo.get('welcome-comment')).toEqual({
       automationId: 'welcome-comment',
       policy: 'SEMI',
       limits: { dailyCap: 50 },
       enabled: false,
+      boardId: null,
     })
   })
 
   it('overwrites on a second upsert', () => {
     const repo = createAutomationSettingsRepo(db)
-    repo.upsert({ automationId: 'welcome-comment', policy: 'MANUAL', limits: {}, enabled: true })
-    repo.upsert({ automationId: 'welcome-comment', policy: 'AUTO', limits: {}, enabled: true })
+    repo.upsert({
+      automationId: 'welcome-comment',
+      policy: 'MANUAL',
+      limits: {},
+      enabled: true,
+      boardId: null,
+    })
+    repo.upsert({
+      automationId: 'welcome-comment',
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+      boardId: null,
+    })
     expect(repo.get('welcome-comment')?.policy).toBe('AUTO')
   })
 })

@@ -107,6 +107,7 @@ function enable(repos: ReturnType<typeof build>['repos']): void {
     policy: 'AUTO',
     limits: {},
     enabled: true,
+    boardId: null,
   })
 }
 
@@ -128,6 +129,7 @@ describe('createSessionRunner', () => {
       policy: 'AUTO',
       limits: {},
       enabled: false,
+      boardId: null,
     })
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
 
@@ -189,6 +191,7 @@ describe('createSessionRunner', () => {
       policy: 'MANUAL',
       limits: {},
       enabled: true,
+      boardId: null,
     })
 
     expect(await run()).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
@@ -201,6 +204,7 @@ describe('createSessionRunner', () => {
       policy: 'AUTO',
       limits: { perSessionCap: 1 },
       enabled: true,
+      boardId: null,
     })
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
 

@@ -8,6 +8,8 @@ export interface AutomationSetting {
   readonly policy: ApprovalPolicy
   readonly limits: Partial<Limits>
   readonly enabled: boolean
+  /** `null` means never configured; the reader falls back to the default board. */
+  readonly boardId: string | null
 }
 
 export interface AutomationSettingsRepo {
@@ -38,6 +40,7 @@ export function createAutomationSettingsRepo(db: AppDatabase): AutomationSetting
         policy: row.policy as ApprovalPolicy,
         limits: parseLimits(row.limitsJson),
         enabled: row.enabled,
+        boardId: row.boardId,
       }
     },
     upsert(setting) {
@@ -46,12 +49,18 @@ export function createAutomationSettingsRepo(db: AppDatabase): AutomationSetting
         policy: setting.policy,
         limitsJson: JSON.stringify(setting.limits),
         enabled: setting.enabled,
+        boardId: setting.boardId,
       }
       db.insert(automationSettings)
         .values(values)
         .onConflictDoUpdate({
           target: automationSettings.automationId,
-          set: { policy: values.policy, limitsJson: values.limitsJson, enabled: values.enabled },
+          set: {
+            policy: values.policy,
+            limitsJson: values.limitsJson,
+            enabled: values.enabled,
+            boardId: values.boardId,
+          },
         })
         .run()
     },

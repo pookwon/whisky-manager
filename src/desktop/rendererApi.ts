@@ -46,6 +46,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       policy: patch.policy ?? current?.policy ?? 'AUTO',
       limits: current?.limits ?? {},
       enabled: patch.enabled ?? current?.enabled ?? false,
+      boardId: current?.boardId ?? null,
     })
   }
 
