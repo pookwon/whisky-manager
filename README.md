@@ -71,8 +71,8 @@ pnpm db:generate   # 스키마 변경 후 마이그레이션 생성
 버전 태그를 `main`에 푸시하면 GitHub Actions가 macOS DMG, Windows MSI 설치 파일, Chrome 확장 ZIP을 만들고 하나의 GitHub Release에 등록합니다.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 서명 인증서가 없는 빌드는 테스트용 산출물입니다. 실제 배포 전에는 macOS 공증·서명, Windows 코드 서명, Chrome 웹스토어 비공개 등록을 별도로 구성해야 합니다.

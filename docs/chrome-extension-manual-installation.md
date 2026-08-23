@@ -6,14 +6,14 @@
 
 - Chrome 브라우저
 - Whisky Manager 데스크톱 앱
-- [Whisky Manager v0.1.0 Release](https://github.com/pookwon/whisky-manager/releases/tag/v0.1.0)
+- [Whisky Manager v0.1.1 Release](https://github.com/pookwon/whisky-manager/releases/tag/v0.1.1)
 
 Chrome 확장은 Chrome 웹스토어에서 설치하는 것이 아니라, Release 페이지의 `Chrome-Extension.zip` 파일을 내려받아 설치합니다.
 
 ## 1. 확장 파일 내려받기
 
 1. Release 페이지를 엽니다.
-2. 아래쪽 **Assets**에서 `Whisky-Manager-0.1.0-Chrome-Extension.zip`을 클릭합니다.
+2. 아래쪽 **Assets**에서 `Whisky-Manager-0.1.1-Chrome-Extension.zip`을 클릭합니다.
 3. 다운로드한 ZIP 파일을 찾기 쉬운 곳(예: `문서\Whisky Manager\`)에 저장합니다.
 4. ZIP 파일을 마우스 오른쪽 버튼으로 클릭하고 **압축 풀기**를 선택합니다.
 
@@ -69,4 +69,3 @@ Chrome 확장은 Chrome 웹스토어에서 설치하는 것이 아니라, Releas
 ### 확장을 다시 설치해야 하는 경우
 
 기존 Whisky Manager Bridge를 `chrome://extensions`에서 제거한 뒤, 새 ZIP을 압축 해제하여 다시 **압축해제된 확장 프로그램을 로드**합니다. 다시 설치하면 확장 옵션에서 페어링 토큰을 한 번 더 저장해야 합니다.
-
