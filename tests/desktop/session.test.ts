@@ -60,7 +60,17 @@ function transportWith(candidates: RawCandidate[]) {
           return Promise.resolve({ type: 'COMMENTS', requestId: message.requestId, authors: [] })
         }
         if (message.type === 'FETCH_MEMBERS') {
-          return Promise.resolve({ type: 'MEMBERS', requestId: message.requestId, members: [] })
+          // Return candidate authors as members on page 1, empty on later pages.
+          // This ensures the membership resolver can find them on first page, and
+          // the pagination logic stops at page 2.
+          if (message.page !== 1) {
+            return Promise.resolve({ type: 'MEMBERS', requestId: message.requestId, members: [] })
+          }
+          const dateStr = new Date(MON_10_00).toISOString().split('T')[0]!.replace(/-/g, '.')
+          const members = candidates
+            .filter((c): c is RawCandidate & { authorId: string } => c.authorId !== null)
+            .map((c) => ({ memberKey: c.authorId, joinDate: dateStr + '.' }))
+          return Promise.resolve({ type: 'MEMBERS', requestId: message.requestId, members })
         }
         if (message.type === 'EXECUTE') {
           executed.push(message.action.body)

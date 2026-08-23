@@ -57,19 +57,12 @@ export interface CafeClient {
 }
 
 /**
- * One session's worth of paging. Every page looking new is what a lost
- * watermark or a long outage looks like, and without a ceiling that walks the
- * board's whole history.
+ * Log a warning when paging exceeds this count. This is not a hard stop — the
+ * loop continues until the data itself ends (an empty page, or reaching the
+ * watermark/time floor). A warning makes abnormally long fetches visible
+ * without stopping them, which would hide a broken stop condition.
  */
-const MAX_PAGES = 10
-
-/**
- * First harvest page limit. A fresh install has no watermark to page back to,
- * and the board holds hundreds of thousands of memos. With a time floor, read
- * back up to this many pages to cover a full day of new members without walking
- * the board's entire history.
- */
-const FIRST_HARVEST_PAGES = 40
+const PAGES_WARNING_THRESHOLD = 50
 
 /**
  * What a browser sends for a form post — no charset parameter. The page is
@@ -116,15 +109,21 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
     async collect(source, sincePostId, sincePostedAt) {
       const collected = new Map<string, RawCandidate>()
 
-      // When a watermark exists, use it: read up to MAX_PAGES until reaching it.
-      // When no watermark but a time floor exists, read up to FIRST_HARVEST_PAGES
-      // until finding a post older than the floor.
-      // When neither exists, read only the first page to avoid walking the board's
-      // entire history.
-      const pageLimit = sincePostId !== null ? MAX_PAGES : (sincePostedAt !== null ? FIRST_HARVEST_PAGES : 1)
+      // When neither a watermark nor a time floor exists, read only the first
+      // page to avoid walking the board's entire history on a fresh install.
+      // When either exists, read until the stop condition (reaching the watermark/
+      // floor, or reaching an empty page). Logs a warning past 50 pages if the
+      // stop condition seems broken.
+      const stopAtFirstPageOnly = sincePostId === null && sincePostedAt === null
       const useTimeFloor = sincePostId === null && sincePostedAt !== null
 
-      for (let page = 1; page <= pageLimit; page += 1) {
+      for (let page = 1; ; page += 1) {
+        if (page > PAGES_WARNING_THRESHOLD) {
+          console.warn(`Post collection exceeded ${PAGES_WARNING_THRESHOLD} pages`)
+        }
+
+        if (stopAtFirstPageOnly && page > 1) break
+
         const response = await deps.http({ url: memoListUrl(source, page) })
         if (response.status !== 200) break
 
