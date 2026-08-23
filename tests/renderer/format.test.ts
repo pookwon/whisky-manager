@@ -148,8 +148,12 @@ describe('getBridgeStatusKey', () => {
 })
 
 describe('progressSummary', () => {
-  it('names the phase when collecting', () => {
-    expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.COLLECTING', values: {} })
+  it('names the phase when collecting, and the counts once it has read a page', () => {
+    expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.collecting', values: {} })
+    expect(progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })).toEqual({
+      key: 'progress.collectingCounted',
+      values: { pages: 2, count: 87 },
+    })
   })
 
   it('counts the post in hand as the current position, not as finished', () => {

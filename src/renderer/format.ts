@@ -68,10 +68,13 @@ export interface ProgressSummary {
  */
 export function progressSummary(progress: SessionProgress): ProgressSummary {
   if (progress.phase === 'COLLECTING') {
-    const values: Record<string, string | number> = {}
-    if (progress.pagesRead !== undefined) values.pages = progress.pagesRead
-    if (progress.collected !== undefined) values.count = progress.collected
-    return { key: `progress.${progress.phase}`, values }
+    // A separate key rather than one string with optional parts: i18next
+    // interpolates variables and nothing else, so anything conditional has to
+    // be a choice between keys, the way the walks below do it.
+    const { pagesRead, collected } = progress
+    return pagesRead === undefined || collected === undefined
+      ? { key: 'progress.collecting', values: {} }
+      : { key: 'progress.collectingCounted', values: { pages: pagesRead, count: collected } }
   }
   // Named separately so the operator can tell a backlog being cleared from
   // today's own posts; the two carry different totals.
