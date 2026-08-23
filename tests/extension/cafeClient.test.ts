@@ -220,3 +220,34 @@ describe('execute', () => {
     expect(result.error).toContain('403')
   })
 })
+
+const membersRoute = (page: number, body: string): Route => ({
+  match: (r) => r.url.includes('ManageMemberListViewAjax.nhn') && r.url.includes(`search.page=${page}`),
+  reply: { status: 200, contentType: 'application/json', text: body },
+})
+
+const membersBody = (...records: { memberKey: string; joinDate: string }[]): string =>
+  JSON.stringify({ isSuccess: true, result: { members: records } })
+
+describe('fetchMembers', () => {
+  it('asks for the requested page and returns what it parsed', async () => {
+    const { client, seen } = harness([
+      membersRoute(2, membersBody({ memberKey: 'm1', joinDate: '2026.08.23.' })),
+    ])
+    await expect(client.fetchMembers('10000000', 2, 100)).resolves.toEqual([
+      { memberKey: 'm1', joinDate: '2026.08.23.' },
+    ])
+    expect(seen[0]?.url).toContain('search.clubid=10000000')
+    expect(seen[0]?.url).toContain('search.perPage=100')
+  })
+
+  it('returns null when the cafe answers with an error status', async () => {
+    const { client } = harness([], { status: 500, contentType: null, text: '' })
+    await expect(client.fetchMembers('10000000', 1, 100)).resolves.toBeNull()
+  })
+
+  it('returns null when staff access is gone and the body is not the list', async () => {
+    const { client } = harness([], ok('<html>login</html>'))
+    await expect(client.fetchMembers('10000000', 1, 100)).resolves.toBeNull()
+  })
+})
