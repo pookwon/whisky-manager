@@ -78,25 +78,34 @@ const deps = (over: Partial<Parameters<typeof previewToday>[0]>) => ({
 })
 
 describe('previewToday', () => {
-  it('counts 3 auto-generated greeting posts', async () => {
+  it('counts 3 auto-generated greeting posts from members in the table', async () => {
     const candidates = [
       raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
       raw({ postId: '1002', bodyText: autoGreeting('가입자둘'), authorNickname: '가입자둘', authorId: 'member-2' }),
       raw({ postId: '1003', bodyText: autoGreeting('가입자셋'), authorNickname: '가입자셋', authorId: 'member-3' }),
     ]
-    const result = await previewToday(deps({ transport: transportReturning(candidates, [[]]) }))
+    const members = [
+      { memberKey: 'member-1', joinDate: '2026.08.23.' },
+      { memberKey: 'member-2', joinDate: '2026.08.23.' },
+      { memberKey: 'member-3', joinDate: '2026.08.23.' },
+    ]
+    const result = await previewToday(deps({ transport: transportReturning(candidates, [members]) }))
     expect(result).toEqual({ kind: 'READY', count: 3, checkedAt: NOW })
   })
 
-  it('skips an old member not in the table', async () => {
+  it('skips a post from a member not in the table (outside window)', async () => {
     const candidates = [
       raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
-      // This one joined long ago and is not in the table, so resolved as NOT_TRACKED
+      // This one is not in the table, so resolved as NOT_TRACKED (outside window)
       raw({ postId: '1002', bodyText: '게시글입니다', authorId: 'member-old', authorNickname: '오래된회원' }),
       raw({ postId: '1003', bodyText: autoGreeting('가입자셋'), authorNickname: '가입자셋', authorId: 'member-3' }),
     ]
-    const result = await previewToday(deps({ transport: transportReturning(candidates, [[]]) }))
-    // Only the 2 auto-generated ones count; the old member's post is skipped
+    const members = [
+      { memberKey: 'member-1', joinDate: '2026.08.23.' },
+      { memberKey: 'member-3', joinDate: '2026.08.23.' },
+    ]
+    const result = await previewToday(deps({ transport: transportReturning(candidates, [members]) }))
+    // Only the 2 members in the table count; the one not in the table is skipped
     expect(result).toEqual({ kind: 'READY', count: 2, checkedAt: NOW })
   })
 
@@ -121,10 +130,9 @@ describe('previewToday', () => {
     expect(result).toEqual({ kind: 'UNAVAILABLE', reason: 'READ_FAILED' })
   })
 
-  it('counts auto-generated posts when member list fails, skipping deferred', async () => {
+  it('defers all posts when member list fails, including auto-generated', async () => {
     const candidates = [
       raw({ postId: '1001', bodyText: autoGreeting('가입자하나'), authorNickname: '가입자하나', authorId: 'member-1' }),
-      // This one is deferred because member lookup failed and it's not auto-generated
       raw({ postId: '1002', bodyText: '자기글입니다', authorId: 'member-unknown', authorNickname: '미추적회원' }),
       raw({ postId: '1003', bodyText: autoGreeting('가입자셋'), authorNickname: '가입자셋', authorId: 'member-3' }),
     ]
@@ -140,13 +148,13 @@ describe('previewToday', () => {
             candidates,
           } as ExtensionMessage)
         }
-        // Member list fails
+        // Member list fails - member lookup returns null
         return Promise.resolve({ type: 'MEMBERS', requestId: 'r', members: null } as ExtensionMessage)
       },
     }
     const result = await previewToday(deps({ transport, repo: fakeRepo() }))
-    // Only auto-generated ones count; deferred posts don't count
-    expect(result).toEqual({ kind: 'READY', count: 2, checkedAt: NOW })
+    // All posts are deferred because member lookup failed; none are counted
+    expect(result).toEqual({ kind: 'READY', count: 0, checkedAt: NOW })
   })
 
   it('never sends EXECUTE messages', async () => {

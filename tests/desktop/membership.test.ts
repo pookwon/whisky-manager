@@ -8,9 +8,6 @@ const CAFE = '10000000'
 /** 2026-08-23 12:00 KST. */
 const NOW = Date.UTC(2026, 7, 23, 3, 0)
 
-const autoGreeting = (nickname: string): string =>
-  `${nickname}님이 우리 카페에 가입하였습니다.\n댓글로 ${nickname}님을 환영해주세요.`
-
 function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
   return {
     postId: '1001',
@@ -65,13 +62,14 @@ const deps = (over: Partial<Parameters<typeof createMembershipResolver>[0]>) => 
 })
 
 describe('createMembershipResolver', () => {
-  it('reads only one page on the very first run', async () => {
+  it('on first run, reads multiple pages until reaching the window floor', async () => {
     const transport = transportReturning([
       [{ memberKey: 'member-1', joinDate: '2026.08.23.' }],
       [{ memberKey: 'member-9', joinDate: '2026.08.22.' }],
+      [{ memberKey: 'member-old', joinDate: '2026.08.15.' }], // Before window floor (23 - 7 = 16)
     ])
-    await createMembershipResolver(deps({ transport, repo: fakeRepo() }))
-    expect(transport.asked).toHaveLength(1)
+    await createMembershipResolver(deps({ transport, repo: fakeRepo(), windowDays: 7 }))
+    expect(transport.asked).toHaveLength(3)
   })
 
   it('stops once a page holds a member it already knows', async () => {
@@ -112,13 +110,36 @@ describe('createMembershipResolver', () => {
     expect(resolve(raw())).toBe('DEFER')
   })
 
-  it('never defers an auto-generated post, because it needs no lookup', async () => {
-    const transport = {
-      isConnected: () => true,
-      request: () => Promise.resolve({ type: 'MEMBERS', requestId: 'r', members: null } as ExtensionMessage),
-    }
-    const resolve = await createMembershipResolver(deps({ transport, repo: fakeRepo({ x: '2026.08.23.' }) }))
-    expect(resolve(raw({ bodyText: autoGreeting('가입자하나') }))).toEqual({ kind: 'NOT_TRACKED' })
+  it('on first run, continues reading until hitting an empty page or the window floor', async () => {
+    const transport = transportReturning([
+      [{ memberKey: 'a', joinDate: '2026.08.23.' }],
+      [{ memberKey: 'b', joinDate: '2026.08.22.' }],
+      [{ memberKey: 'c', joinDate: '2026.08.21.' }],
+      [{ memberKey: 'd', joinDate: '2026.08.20.' }], // Still inside 7-day window
+      [],
+    ])
+    await createMembershipResolver(deps({ transport, repo: fakeRepo(), windowDays: 7 }))
+    expect(transport.asked).toHaveLength(5)
+  })
+
+  it('on first run, stops reading once the oldest member on a page is before the window floor', async () => {
+    const transport = transportReturning([
+      [{ memberKey: 'today', joinDate: '2026.08.23.' }],
+      [{ memberKey: 'in-window', joinDate: '2026.08.22.' }],
+      [{ memberKey: 'outside-window', joinDate: '2026.08.15.' }], // Before window floor (23 - 7 = 16)
+    ])
+    await createMembershipResolver(deps({ transport, repo: fakeRepo(), windowDays: 7 }))
+    expect(transport.asked).toHaveLength(3)
+  })
+
+  it('stops reading at an empty page', async () => {
+    const transport = transportReturning([
+      [{ memberKey: 'a', joinDate: '2026.08.23.' }],
+      [{ memberKey: 'b', joinDate: '2026.08.22.' }],
+      [],
+    ])
+    await createMembershipResolver(deps({ transport, repo: fakeRepo(), windowDays: 7 }))
+    expect(transport.asked).toHaveLength(3)
   })
 
   it('prunes members older than the window plus a day', async () => {

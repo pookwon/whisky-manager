@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
+import { kstDayStartMs } from '../dist/shared/kst.js'
 import { createMembershipResolver } from '../dist/desktop/membership.js'
 import { newMemberGuard } from '../dist/shared/automations/welcome-comment/newMember.js'
 
@@ -86,6 +87,8 @@ try {
     automationId: 'welcome-comment',
     source: SOURCE,
     sincePostId,
+    // Mirrors a session with no watermark: reach back to the start of today.
+    sincePostedAt: sincePostId === null ? kstDayStartMs(Date.now()) : null,
   })
   const candidates = collected.candidates ?? []
   console.log(`\n수집 ${candidates.length}건 (오래된 순, sincePostId=${sincePostId ?? '없음'})`)
@@ -103,7 +106,7 @@ try {
     nowMs: Date.now(),
     newRequestId: () => randomUUID(),
   })
-  console.log(`\n가입자 표: ${repo.size()}명 적재 (첫 실행이라 1페이지)`)
+  console.log(`\n가입자 표: ${repo.size()}명 적재 (판정 창 ${WINDOW_DAYS}일을 덮을 때까지)`)
 
   console.log(`\n판정 (창 ${WINDOW_DAYS}일):`)
   for (const c of candidates) {
