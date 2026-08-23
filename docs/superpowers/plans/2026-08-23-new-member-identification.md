@@ -1656,3 +1656,186 @@ git commit -m "feat: greet only members this tool watched join"
 - [ ] 새로 만든 마이그레이션 두 개에 `DROP`·`DELETE` 문장이 없다
 - [ ] `tests/fixtures/member-list.json`에 실제 회원 정보가 없다
 - [ ] `PROTOCOL_VERSION`이 2다. **운영자는 확장을 다시 설치해야 한다** — 릴리스 노트에 적는다
+
+---
+
+### Task 9: 환영 문구 입력을 여러 줄로
+
+문구 입력이 `<input>`이라 줄바꿈을 넣을 수 없다. 네이버가 쓰는 자동 생성 인사도 두 줄이고, 환영 댓글도 두 줄 이상이 자연스럽다.
+
+**Enter의 의미가 바뀐다.** 지금은 Enter가 등록인데, 여러 줄 입력에서는 Enter가 줄바꿈이어야 한다. 등록은 버튼과 `⌘/Ctrl+Enter`로 옮긴다.
+
+**Files:**
+- Create: `src/renderer/views/templateInput.ts`
+- Modify: `src/renderer/views/Templates.tsx`
+- Modify: `src/renderer/locales/ko.ts`
+- Modify: `src/renderer/styles.css`
+- Test: `tests/renderer/templateInput.test.ts`
+
+**Interfaces:**
+- Consumes: 없음
+- Produces: `isSubmitKey(event: SubmitKeyEvent): boolean`
+
+이 저장소에는 컴포넌트를 렌더링하는 테스트 하네스가 없다(`tests/renderer`는 전부 순수 모듈 테스트다). 테스트 라이브러리를 새로 들이지 않고, **판단이 있는 부분만 순수 함수로 빼서** 테스트한다. 나머지는 마크업 교체라 눈으로 확인한다.
+
+- [ ] **Step 1: 실패하는 테스트를 쓴다**
+
+`tests/renderer/templateInput.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { isSubmitKey } from '../../src/renderer/views/templateInput.js'
+
+const key = (over: Partial<Parameters<typeof isSubmitKey>[0]> = {}) => ({
+  key: 'Enter',
+  ctrlKey: false,
+  metaKey: false,
+  shiftKey: false,
+  ...over,
+})
+
+describe('isSubmitKey', () => {
+  it('submits on Cmd+Enter and Ctrl+Enter', () => {
+    expect(isSubmitKey(key({ metaKey: true }))).toBe(true)
+    expect(isSubmitKey(key({ ctrlKey: true }))).toBe(true)
+  })
+
+  // Plain Enter has to reach the textarea, or a multi-line greeting cannot be
+  // typed at all.
+  it('leaves a plain Enter to the textarea', () => {
+    expect(isSubmitKey(key())).toBe(false)
+    expect(isSubmitKey(key({ shiftKey: true }))).toBe(false)
+  })
+
+  it('ignores other keys even with a modifier', () => {
+    expect(isSubmitKey(key({ key: 'a', metaKey: true }))).toBe(false)
+    expect(isSubmitKey(key({ key: 'Escape', ctrlKey: true }))).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: 실패를 확인한다**
+
+Run: `pnpm vitest run tests/renderer/templateInput.test.ts`
+Expected: FAIL — `Failed to resolve import ".../templateInput.js"`
+
+- [ ] **Step 3: 최소 구현을 쓴다**
+
+`src/renderer/views/templateInput.ts`:
+
+```ts
+/**
+ * Only the parts of a keyboard event this decision needs, so the rule can be
+ * tested without a DOM.
+ */
+export interface SubmitKeyEvent {
+  readonly key: string
+  readonly ctrlKey: boolean
+  readonly metaKey: boolean
+  readonly shiftKey: boolean
+}
+
+/**
+ * A greeting may span lines, so a plain Enter belongs to the textarea and
+ * submitting moves to the modifier — the convention every chat box uses.
+ */
+export function isSubmitKey(event: SubmitKeyEvent): boolean {
+  return event.key === 'Enter' && (event.ctrlKey || event.metaKey)
+}
+```
+
+- [ ] **Step 4: 통과를 확인한다**
+
+Run: `pnpm vitest run tests/renderer/templateInput.test.ts`
+Expected: PASS — 3 tests
+
+- [ ] **Step 5: 입력을 `textarea`로 바꾼다**
+
+`src/renderer/views/Templates.tsx`의 import에 더한다:
+
+```ts
+import { isSubmitKey } from './templateInput.js'
+```
+
+`<input …/>` 블록을 통째로 바꾼다:
+
+```tsx
+        <textarea
+          className="field field-multiline"
+          value={draft}
+          rows={3}
+          placeholder={t('templates.placeholder')}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (isSubmitKey(e)) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+        />
+```
+
+감싼 `div`의 정렬을 바꾼다. 버튼이 여러 줄 입력의 세로 가운데에 붙으면 어색하므로 위에 맞춘다:
+
+```tsx
+      <div className="flex items-start gap-2">
+```
+
+등록된 문구도 줄바꿈이 보여야 한다. 목록 항목의 `span`을 바꾼다:
+
+```tsx
+              <span className="text-sm whitespace-pre-wrap">{template.body}</span>
+```
+
+- [ ] **Step 6: 안내 문구를 더한다**
+
+`src/renderer/locales/ko.ts`의 `templates`에 한 줄 더한다:
+
+```ts
+      hint: '여러 개를 등록하면 매번 무작위로 하나를 고릅니다. {닉네임}을 쓸 수 있습니다.',
+      submitHint: '줄바꿈은 Enter, 등록은 ⌘/Ctrl+Enter 또는 추가 버튼입니다.',
+```
+
+`Templates.tsx`의 헤더 `<p>` 바로 뒤에 한 줄을 더한다:
+
+```tsx
+        <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          {t('templates.submitHint')}
+        </p>
+```
+
+- [ ] **Step 7: 스타일을 더한다**
+
+`src/renderer/styles.css`의 `.field:focus` 규칙 뒤에 더한다. `.field`가 이미 여백·테두리·색을 주므로 여러 줄에 필요한 것만 얹는다:
+
+```css
+.field-multiline {
+  resize: vertical;
+  min-height: 4.5rem;
+  font-family: inherit;
+  line-height: 1.5;
+}
+```
+
+- [ ] **Step 8: 전체 테스트와 타입, 빌드를 확인한다**
+
+Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm build:renderer`
+Expected: PASS — 전부 통과
+
+- [ ] **Step 9: 눈으로 확인한다**
+
+Run: `pnpm start`
+
+확인할 것:
+1. 문구 화면에서 Enter를 치면 **줄이 바뀐다**
+2. `⌘Enter`(mac) 또는 `Ctrl+Enter`로 등록된다
+3. 등록된 여러 줄 문구가 목록에서 **줄바꿈을 유지한 채** 보인다
+4. 입력창을 세로로 늘릴 수 있다
+5. 밝은 테마와 어두운 테마 모두에서 어색하지 않다
+
+- [ ] **Step 10: 커밋**
+
+```bash
+git add src/renderer/views/templateInput.ts src/renderer/views/Templates.tsx src/renderer/locales/ko.ts src/renderer/styles.css tests/renderer/templateInput.test.ts
+git commit -m "feat: let a welcome greeting span multiple lines"
+```
