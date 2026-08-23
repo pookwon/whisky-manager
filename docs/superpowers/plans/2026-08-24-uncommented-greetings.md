@@ -238,10 +238,11 @@ function isEarlier(a: RawCandidate, b: RawCandidate): boolean {
 
 오케스트레이터에 다음 테스트를 더한다.
 
-- 같은 작성자의 두 글 중 이른 글만 대상이 되고 늦은 글은 `NOT_FIRST_POST`로 건너뛴다
 - 수집이 최신 순으로 들어와도 같은 글이 대상이 된다
 - 작성자가 없는 글에 `AUTHOR_UNKNOWN`이 붙는다
 - 작성자가 없는 글이 다른 작성자의 최초 글 판정에 영향을 주지 않는다
+
+같은 작성자의 늦은 글이 `NOT_FIRST_POST`로 건너뛰어지는지는 **여기서 검증할 수 없다.** `claim`이 아직 같은 작성자의 두 번째 글을 거부하므로 가드까지 닿지 않는다. Task 2에서 그 거부를 없앤 뒤 검증한다.
 
 - [ ] **Step 12: 전체를 확인한다**
 
@@ -280,6 +281,8 @@ git commit -m "feat: greet each author's earliest greeting of the day"
 - `QUEUED`, `RETRY_WAIT`, `AWAITING_APPROVAL`은 `null`을 돌려주고 행이 그대로다
 - 같은 작성자의 **다른** 글은 거부되지 않는다
 
+기존 `dedupeStore.test.ts`에는 작성자 중복 거부를 못 박은 테스트가 넷 있다(`claims only the first post from an author`, `still claims a different author on the same board`, `claims posts with no author id independently`, `keeps authors of different cafes apart`). 첫 번째는 규칙이 뒤집혔으므로 같은 작성자의 다른 글이 **거부되지 않는다**로 바꾼다. 나머지는 새 동작에서도 참이므로 그대로 두되, 이유가 "작성자 중복 거부"가 아니라 "글 단위 유일성"임을 반영해 이름을 고친다.
+
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `npx vitest run tests/desktop/db/dedupeStore.test.ts`
@@ -300,6 +303,14 @@ const TERMINAL: readonly ExecutionStatus[] = ['SUCCESS', 'FAILED']
 
 Run: `npx vitest run tests/desktop/db/dedupeStore.test.ts`
 Expected: PASS
+
+- [ ] **Step 4b: Task 1이 미룬 종단 테스트를 더한다**
+
+작성자 중복 거부가 사라졌으므로 이제 최초 글 규칙이 세션 전체를 통과해 드러난다. `tests/desktop/orchestrator.test.ts`에 더한다.
+
+- 같은 작성자의 두 글을 수집하면 이른 글은 처리되고, 늦은 글은 행이 만들어지되 `SKIPPED` / `NOT_FIRST_POST`로 끝난다
+
+행에 남은 사유까지 확인한다. 세션 반환값의 건수만 보면 사유가 바뀌어도 통과한다.
 
 - [ ] **Step 5: 작성자 인덱스를 지운다**
 
