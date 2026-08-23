@@ -267,7 +267,11 @@ export function Dashboard(): React.JSX.Element {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={busy}
+                  // Held until the count arrives, so nobody approves a run
+                  // without the number it was supposed to show them. A count
+                  // that failed says so and lets them through anyway; a count
+                  // still running has an answer coming.
+                  disabled={busy || pending.preview === null}
                   onClick={() => {
                     const request = pending.dayStartMs === null
                       ? { force: true }
