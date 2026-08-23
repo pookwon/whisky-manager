@@ -2,6 +2,9 @@ import type { SessionOutcome } from './orchestrator.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
 import type { StartupPreview } from './preview.js'
 
+/** Socket is connected, reconnection is in progress, or truly offline. */
+export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
+
 export const IPC_CHANNELS = {
   getDashboard: 'wm:getDashboard',
   listAwaiting: 'wm:listAwaiting',
@@ -46,6 +49,20 @@ export interface DashboardSnapshot {
    * not be taken. Never re-counts during the app session to avoid repeated hits.
    */
   readonly startupPreview: StartupPreview | null
+  /**
+   * When the last session outcome arrived. Null if no session has ever run.
+   * Allows the renderer to show this as a past event rather than present state.
+   */
+  readonly lastOutcomeAt: number | null
+  /**
+   * When the next session is scheduled to run. Null if the loop is not running.
+   */
+  readonly nextSessionAt: number | null
+  /**
+   * Socket is connected, waiting for reconnection, or truly offline.
+   * Distinguishes normal brief disconnections from real failures.
+   */
+  readonly bridgeStatus: BridgeStatus
 }
 
 export interface AwaitingItem {

@@ -225,4 +225,53 @@ describe('createSessionLoop', () => {
     expect(loop.isRunning()).toBe(true)
     loop.stop()
   })
+
+  it('returns null from nextRunAt before start', () => {
+    const loop = createSessionLoop(loopDeps())
+    expect(loop.nextRunAt()).toBe(null)
+  })
+
+  it('returns the scheduled time from nextRunAt after start', () => {
+    const clock = new FakeClock(MON_10_00)
+    const loop = createSessionLoop(loopDeps({ clock, setTimer: () => 1 }))
+
+    loop.start()
+
+    const nextRun = loop.nextRunAt()
+    expect(nextRun).not.toBeNull()
+    expect(nextRun).toBeGreaterThan(MON_10_00)
+  })
+
+  it('returns null from nextRunAt after stop', () => {
+    const loop = createSessionLoop(loopDeps({ setTimer: () => 1 }))
+    loop.start()
+    loop.stop()
+
+    expect(loop.nextRunAt()).toBe(null)
+  })
+
+  it('updates nextRunAt after a session completes and reschedules', async () => {
+    const fired: Array<() => void> = []
+    const clock = new FakeClock(MON_10_00)
+    const setTimer = vi.fn((fn: () => void, _ms: number) => {
+      fired.push(fn)
+      return 1
+    })
+    const loop = createSessionLoop(loopDeps({ clock, setTimer }))
+
+    loop.start()
+    const firstNext = loop.nextRunAt()
+    expect(firstNext).not.toBeNull()
+
+    // Advance clock and run the scheduled session
+    clock.set(MON_10_00 + 50 * 60_000)
+    fired[0]?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const secondNext = loop.nextRunAt()
+    expect(secondNext).not.toBeNull()
+    expect(secondNext).toBeGreaterThan(firstNext!)
+
+    loop.stop()
+  })
 })

@@ -24,6 +24,9 @@ export const ko = {
       bridge: '확장 연결',
       connected: '연결됨',
       disconnected: '끊김',
+      bridgeConnected: '연결됨',
+      bridgeReconnecting: '연결 대기 중',
+      bridgeOffline: '끊김',
       automation: '자동화',
       running: '동작 중',
       stopped: '정지',
@@ -42,6 +45,7 @@ export const ko = {
     outcome: {
       heading: '마지막 세션',
       never: '아직 한 번도 실행하지 않았습니다',
+      neverWithCurrentConfig: '아직 이번 설정으로 돈 적 없습니다',
       ran: '{{count}}건 처리했습니다',
       ranWithFailures: '{{count}}건 실패했습니다',
       refused: {
@@ -68,6 +72,8 @@ export const ko = {
       minutesAgo: '{{count}}분 전',
       hoursAgo: '{{count}}시간 전',
       daysAgo: '{{count}}일 전',
+      lastSession: '마지막 세션 · {{elapsed}}',
+      nextSession: '다음 세션 · {{time}}',
     },
     approvals: {
       heading: '승인 큐',

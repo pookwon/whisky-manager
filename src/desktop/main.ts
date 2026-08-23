@@ -103,7 +103,10 @@ void app.whenReady().then(async () => {
       // is to report. When a second runtime appears this becomes a lookup.
       lastOutcome: (automationId) =>
         automationId === WELCOME_AUTOMATION_ID ? appContext.lastOutcome() : null,
+      lastOutcomeAt: () => appContext.lastOutcomeAt(),
       getStartupPreview: () => appContext.getStartupPreview(),
+      lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
+      nextSessionAt: () => appContext.automation.nextRunAt(),
       clock: systemClock,
       limits: PROFILES[profile],
       newId: () => crypto.randomUUID(),

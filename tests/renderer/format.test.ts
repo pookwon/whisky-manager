@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { outcomeSummary, relativeTime } from '../../src/renderer/format.js'
+import { outcomeSummary, relativeTime, isRefusalStale, formatNextSessionTime, getBridgeStatusKey } from '../../src/renderer/format.js'
 
 const NOW = Date.UTC(2026, 7, 24, 10, 0, 0)
 const MINUTE = 60_000
@@ -80,5 +80,64 @@ describe('outcomeSummary', () => {
         lastProcessedPostId: '1003',
       }),
     ).toEqual({ tone: 'alarm', key: 'outcome.ranWithFailures', count: 2 })
+  })
+})
+
+describe('isRefusalStale', () => {
+  it('returns false when outcome is null', () => {
+    expect(isRefusalStale(null, true)).toBe(false)
+  })
+
+  it('returns false when the outcome was not a refusal', () => {
+    const outcome = { opened: true as const, executed: 1, skipped: 0, awaitingApproval: 0, failed: 0, expired: 0, lastProcessedPostId: '123' }
+    expect(isRefusalStale(outcome, true)).toBe(false)
+  })
+
+  it('returns true when refused as DISABLED but automation is now enabled', () => {
+    const outcome = { opened: false as const, reason: 'DISABLED' as const }
+    expect(isRefusalStale(outcome, true)).toBe(true)
+  })
+
+  it('returns false when refused as DISABLED but automation is still disabled', () => {
+    const outcome = { opened: false as const, reason: 'DISABLED' as const }
+    expect(isRefusalStale(outcome, false)).toBe(false)
+  })
+
+  it('returns false when refused for other reasons', () => {
+    const outcome = { opened: false as const, reason: 'NOT_LOGGED_IN' as const }
+    expect(isRefusalStale(outcome, true)).toBe(false)
+  })
+})
+
+describe('formatNextSessionTime', () => {
+  it('returns null when nextSessionAt is null', () => {
+    expect(formatNextSessionTime(null)).toBe(null)
+  })
+
+  it('formats next session time as HH:MM', () => {
+    // 10:15 in milliseconds = 10*3600*1000 + 15*60*1000
+    const nextSessionMs = NOW + (15 * MINUTE + 30 * 1000) // 15 min 30 sec later
+    const result = formatNextSessionTime(nextSessionMs)
+    expect(result).toBe('10:15')
+  })
+
+  it('handles session time on next day', () => {
+    const nextSessionMs = NOW + DAY + (14 * HOUR + 30 * MINUTE)
+    const result = formatNextSessionTime(nextSessionMs)
+    expect(result).toBe('00:30')
+  })
+})
+
+describe('getBridgeStatusKey', () => {
+  it('returns connected key when status is CONNECTED', () => {
+    expect(getBridgeStatusKey('CONNECTED')).toBe('status.bridgeConnected')
+  })
+
+  it('returns reconnecting key when status is RECONNECTING', () => {
+    expect(getBridgeStatusKey('RECONNECTING')).toBe('status.bridgeReconnecting')
+  })
+
+  it('returns offline key when status is OFFLINE', () => {
+    expect(getBridgeStatusKey('OFFLINE')).toBe('status.bridgeOffline')
   })
 })

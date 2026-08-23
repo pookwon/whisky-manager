@@ -48,6 +48,8 @@ export interface AutomationControl {
   kill(): void
   isRunning(): boolean
   runOnce(): Promise<void>
+  /** Returns the epoch timestamp of the next scheduled session, or null if not running. */
+  nextRunAt(): number | null
 }
 
 export interface AppContext {
@@ -58,11 +60,15 @@ export interface AppContext {
   readonly automation: AutomationControl
   /** Result of the most recent session, for the tray and the dashboard. */
   lastOutcome(): SessionOutcome | null
+  /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
+  lastOutcomeAt(): number | null
   /**
    * Count of greeting targets available at startup, once the bridge connects.
    * Null while not yet counted; a READY or UNAVAILABLE result once obtained.
    */
   getStartupPreview(): StartupPreview | null
+  /** Epoch timestamp when the bridge last connected, or null if never. */
+  lastBridgeConnectedAt(): number | null
   shutdown(): Promise<void>
 }
 
@@ -107,8 +113,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
 
   let killed = false
   let lastOutcome: SessionOutcome | null = null
+  let lastOutcomeAt: number | null = null
   let startupPreview: StartupPreview | null = null
   let previewMonitorHandle: NodeJS.Timeout | null = null
+  let lastBridgeConnectedAt: number | null = null
 
   // The one runtime this build ships. Adding a catalogue entry without adding
   // it here fails the boot, which is the point: the seam where a second
@@ -136,6 +144,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     runSession,
     onOutcome: (outcome) => {
       lastOutcome = outcome
+      lastOutcomeAt = systemClock.now()
     },
     onError: (error) => console.error('[session]', error),
     onHalt: (reason) => {
@@ -159,6 +168,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       loop.stop()
     },
     isRunning: () => loop.isRunning(),
+    nextRunAt: () => loop.nextRunAt(),
     runOnce: () => loop.runOnce(),
   }
 
@@ -208,6 +218,19 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   // Start monitoring after bridge is initialized
   startPreviewMonitor()
 
+  // Monitor bridge connection state to track when it connects.
+  // This is called synchronously when the extension connects, and we record
+  // the timestamp so we can calculate how long it has been disconnected.
+  let monitorConnectionHandle: NodeJS.Timeout | null = null
+  const startBridgeMonitor = (): void => {
+    monitorConnectionHandle = setInterval(() => {
+      if (bridge.isConnected() && lastBridgeConnectedAt === null) {
+        lastBridgeConnectedAt = systemClock.now()
+      }
+    }, 1000)
+  }
+  startBridgeMonitor()
+
   return {
     db,
     settings,
@@ -215,10 +238,15 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     bridge,
     automation,
     lastOutcome: () => lastOutcome,
+    lastOutcomeAt: () => lastOutcomeAt,
     getStartupPreview: () => startupPreview,
+    lastBridgeConnectedAt: () => lastBridgeConnectedAt,
     async shutdown() {
       if (previewMonitorHandle !== null) {
         clearInterval(previewMonitorHandle)
+      }
+      if (monitorConnectionHandle !== null) {
+        clearInterval(monitorConnectionHandle)
       }
       loop.stop()
       await bridge.close()
