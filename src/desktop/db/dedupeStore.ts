@@ -1,3 +1,4 @@
+import { and, eq } from 'drizzle-orm'
 import type { AppDatabase } from './client.js'
 import { executions } from './schema.js'
 
@@ -34,34 +35,54 @@ export function createSqliteDedupeStore(db: AppDatabase, newId: () => string): D
     async claim(input: ClaimInput): Promise<string | null> {
       const id = newId()
       try {
-        db.insert(executions)
-          .values({
-            id,
-            automationId: input.automationId,
-            cafeId: input.cafeId,
-            boardId: input.boardId,
-            targetPostId: input.postId,
-            targetTitle: input.title,
-            targetAuthor: input.authorNickname,
-            targetAuthorId: input.authorId,
-            targetPostedAt: input.postedAt,
-            actorAccount: null,
-            // Parked until the policy engine decides; the orchestrator moves it
-            // to QUEUED or SKIPPED in the same session.
-            status: 'AWAITING_APPROVAL',
-            strategy: null,
-            riskFlags: '[]',
-            reason: null,
-            templateId: null,
-            renderedText: null,
-            attempts: 0,
-            detectedAt: input.detectedAt,
-            executedAt: null,
-            resolvedAt: null,
-            deletedAt: null,
-          })
-          .run()
-        return id
+        // One transaction so the author check and the insert cannot interleave.
+        // The post id index still guards against the same post twice.
+        const claimed = db.transaction((tx) => {
+          if (input.authorId !== null) {
+            const existing = tx
+              .select({ id: executions.id })
+              .from(executions)
+              .where(
+                and(
+                  eq(executions.cafeId, input.cafeId),
+                  eq(executions.automationId, input.automationId),
+                  eq(executions.targetAuthorId, input.authorId),
+                ),
+              )
+              .get()
+            // Already greeted this member on another post of theirs.
+            if (existing !== undefined) return null
+          }
+          tx.insert(executions)
+            .values({
+              id,
+              automationId: input.automationId,
+              cafeId: input.cafeId,
+              boardId: input.boardId,
+              targetPostId: input.postId,
+              targetTitle: input.title,
+              targetAuthor: input.authorNickname,
+              targetAuthorId: input.authorId,
+              targetPostedAt: input.postedAt,
+              actorAccount: null,
+              // Parked until the policy engine decides; the orchestrator moves it
+              // to QUEUED or SKIPPED in the same session.
+              status: 'AWAITING_APPROVAL',
+              strategy: null,
+              riskFlags: '[]',
+              reason: null,
+              templateId: null,
+              renderedText: null,
+              attempts: 0,
+              detectedAt: input.detectedAt,
+              executedAt: null,
+              resolvedAt: null,
+              deletedAt: null,
+            })
+            .run()
+          return id
+        })
+        return claimed
       } catch (error) {
         if (isUniqueViolation(error)) return null
         throw error

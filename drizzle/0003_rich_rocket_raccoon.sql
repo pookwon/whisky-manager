@@ -1,0 +1,1 @@
+CREATE INDEX `executions_cafe_automation_author` ON `executions` (`cafe_id`,`automation_id`,`target_author_id`);
