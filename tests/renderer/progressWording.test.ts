@@ -1,7 +1,7 @@
 import i18next from 'i18next'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ko } from '../../src/renderer/locales/ko.js'
-import { progressSummary } from '../../src/renderer/format.js'
+import { estimatedMinutes, progressSummary } from '../../src/renderer/format.js'
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 
 /**
@@ -44,5 +44,55 @@ describe('progress wording', () => {
     const text = i18next.t(summary.key, summary.values)
     expect(text).toContain('2')
     expect(text).toContain('87')
+  })
+})
+
+describe('run confirmation wording', () => {
+  /** Every line the confirmation panel can show, with the values it passes. */
+  const LINES: readonly (readonly [string, Record<string, string | number>])[] = [
+    ['run.confirmHeading', {}],
+    ['run.outsideHours', {}],
+    ['run.chosenDay', { date: '2026-08-20' }],
+    ['run.bypasses', {}],
+    ['run.counting', {}],
+    ['run.countFailed', {}],
+    ['run.target', { count: 154 }],
+    ['run.estimate', { minutes: 42 }],
+    ['run.confirm', {}],
+    ['run.cancel', {}],
+    ['run.dayLabel', {}],
+    ['run.dayRun', {}],
+    ['outcome.refused.FUTURE_DAY', {}],
+  ]
+
+  it('names keys that exist', () => {
+    for (const [key] of LINES) {
+      expect(i18next.exists(key), `missing key ${key}`).toBe(true)
+    }
+  })
+
+  it('leaves no template syntax on screen', () => {
+    for (const [key, values] of LINES) {
+      const text = i18next.t(key, values)
+      expect(text, `${key} rendered as ${text}`).not.toMatch(/[{}]/)
+    }
+  })
+
+  it('puts the numbers the operator is deciding on into the text', () => {
+    expect(i18next.t('run.target', { count: 154 })).toContain('154')
+    expect(i18next.t('run.estimate', { minutes: 42 })).toContain('42')
+    expect(i18next.t('run.chosenDay', { date: '2026-08-20' })).toContain('2026-08-20')
+  })
+})
+
+describe('estimatedMinutes', () => {
+  it('turns a count into the order of magnitude an operator is deciding on', () => {
+    // 154 posts at the production average of 16.5s is a little over 42 minutes.
+    expect(estimatedMinutes(154, 16_500)).toBe(42)
+  })
+
+  it('never promises less than a minute for work that exists', () => {
+    expect(estimatedMinutes(1, 16_500)).toBe(1)
+    expect(estimatedMinutes(0, 16_500)).toBe(1)
   })
 })

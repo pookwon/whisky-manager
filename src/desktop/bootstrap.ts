@@ -10,11 +10,12 @@ import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
+import type { SessionRequest } from './session.js'
 import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
-import { previewToday, type StartupPreview } from './preview.js'
+import { previewDay, type StartupPreview } from './preview.js'
 
 // Re-exported so the many main-process callers keep their existing import.
 export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
@@ -43,7 +44,7 @@ export interface AutomationControl {
   /** Stops now and refuses every session until started again. */
   kill(): void
   isRunning(): boolean
-  runOnce(): Promise<void>
+  runOnce(request?: SessionRequest): Promise<void>
   /** Returns the epoch timestamp of the next scheduled session, or null if not running. */
   nextRunAt(): number | null
 }
@@ -65,6 +66,8 @@ export interface AppContext {
    * Null while not yet counted; a READY or UNAVAILABLE result once obtained.
    */
   getStartupPreview(): StartupPreview | null
+  /** Counts what a run on that day would answer, without answering any. */
+  previewDay(dayStartMs: number): Promise<StartupPreview>
   /** Epoch timestamp when the bridge last connected, or null if never. */
   lastBridgeConnectedAt(): number | null
   shutdown(): Promise<void>
@@ -143,9 +146,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * session that died would otherwise leave the dashboard claiming it is still
    * working on someone.
    */
-  const runSessionReportingProgress = async (isManualRun?: boolean): Promise<SessionOutcome> => {
+  const runSessionReportingProgress = async (request?: SessionRequest): Promise<SessionOutcome> => {
     try {
-      return await runSession(isManualRun)
+      return await runSession(request)
     } finally {
       sessionProgress = null
     }
@@ -183,7 +186,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     },
     isRunning: () => loop.isRunning(),
     nextRunAt: () => loop.nextRunAt(),
-    runOnce: () => loop.runOnce(),
+    runOnce: (request) => loop.runOnce(request),
   }
 
   /**
@@ -208,7 +211,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         const boardId = automationSetting?.boardId ?? DEFAULT_BOARD_ID
 
         // Run the preview asynchronously; don't block the monitor loop
-        void previewToday({
+        void previewDay({
           transport: bridge,
           cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
           boardId,
@@ -252,6 +255,17 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     lastOutcomeAt: () => lastOutcomeAt,
     sessionProgress: () => sessionProgress,
     getStartupPreview: () => startupPreview,
+    previewDay: (dayStartMs) =>
+      previewDay({
+        transport: bridge,
+        cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
+        boardId: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? DEFAULT_BOARD_ID,
+        automationId: WELCOME_AUTOMATION_ID,
+        nowMs: systemClock.now(),
+        newRequestId: () => randomUUID(),
+        operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
+        dayStartMs,
+      }),
     lastBridgeConnectedAt: () => lastBridgeConnectedAt,
     async shutdown() {
       if (previewMonitorHandle !== null) {

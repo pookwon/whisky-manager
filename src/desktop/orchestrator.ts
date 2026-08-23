@@ -1,13 +1,13 @@
 import { containsOperator, evaluateGuards, type Guard } from '../shared/guards.js'
-import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
+import { checkGates, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { comparePostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
 import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
-import { kstDayStartMs } from '../shared/kst.js'
+import { kstDayRange } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
-import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
+import type { ApprovalPolicy, Candidate, CommentAuthor, Limits, RunMode } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
@@ -39,10 +39,17 @@ export interface SessionDeps {
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
   /**
-   * True when the session was started directly by the operator. False for
-   * automated scheduled runs. Manual runs bypass the per-session cap.
+   * Who asked for this session. A forced run is an operator who was shown what
+   * they were overriding and chose to go ahead, so it passes the operating
+   * window, the caps and the backlog brake — but never the kill switch.
    */
-  readonly isManualRun: boolean
+  readonly runMode: RunMode
+  /**
+   * Midnight KST of the day to work. Defaults to the day the session opens.
+   * Filling in an earlier day is the same rule applied to a different day, not
+   * a different rule.
+   */
+  readonly dayStartMs?: number
   /** Reports what the session is doing. Nothing about a run depends on anyone listening. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
@@ -52,6 +59,7 @@ export type RenderOutcome =
   | { ok: false; missing: string[] }
 
 export type SessionRefusal =
+  | 'FUTURE_DAY'
   | 'KILLED'
   | 'DISABLED'
   | 'NO_TEMPLATE'
@@ -225,7 +233,7 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters):
   const gate = checkGates(
     { killed: deps.isKilled(), dailyCount: counters.dailyCount, sessionCount: counters.sessionCount },
     deps.limits,
-    deps.isManualRun,
+    deps.runMode,
   )
   if (!gate.allowed) {
     const now = deps.clock.now()
@@ -333,7 +341,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   }
 
   const openedAt = deps.clock.now()
-  if (!isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
+  const forced = deps.runMode === 'FORCED'
+  if (!forced && !isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
     return { opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' }
   }
 
@@ -347,8 +356,11 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   sweepApprovals(deps.repo, deps.automationId, deps.limits, openedAt)
   promoteRetries(deps.repo, deps.automationId, deps.limits, openedAt)
 
+  // The brake reads a days-old backlog as a sign something is broken and stops.
+  // A forced run is an operator saying they have looked and want it to go
+  // anyway; the schedule can never make that call for itself.
   const unresolved = deps.repo.listUnresolved(deps.automationId)
-  if (hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
+  if (!forced && hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
     return { opened: false, reason: 'STALE_BACKLOG' }
   }
 
@@ -360,8 +372,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   /** Requests actually sent this session. Caps count attempts, not successes. */
   let attempted = 0
 
-  const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
-  let dailyCount = deps.repo.countExecutedSince(deps.automationId, dailyStart)
+  const today = kstDayRange(openedAt)
+  let dailyCount = deps.repo.countExecutedForDay(deps.automationId, today.startMs, today.endMs)
 
   const tally = (result: JobResult): void => {
     // EXECUTED, FAILED and RETRY all mean a request reached naver.
@@ -421,10 +433,16 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
 
   // The whole day, every session. A post passed over earlier has to come back
   // into view, because what disqualified it can change on the cafe's side.
-  const sincePostedAt = kstDayStartMs(openedAt)
+  const day = kstDayRange(deps.dayStartMs ?? openedAt)
   deps.onProgress?.({ phase: 'COLLECTING' })
-  const raws = await collect(deps, sincePostedAt)
-  if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
+  const collected = await collect(deps, day.startMs)
+  if (collected === null) return { opened: false, reason: 'COLLECT_FAILED' }
+
+  // Collection takes a floor and no ceiling, so an earlier day arrives with
+  // everything since attached. Trimming has to happen before the next line:
+  // the author's earliest post is decided within this set, and a later day's
+  // post left in it would take that place and push the real one out.
+  const raws = collected.filter((raw) => raw.postedAt < day.endMs)
 
   const firstPosts = firstPostIdByAuthor(raws)
 

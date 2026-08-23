@@ -1,7 +1,8 @@
 import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
-import { dailyWindowStart } from '../shared/limits.js'
+import { kstDayRange } from '../shared/kst.js'
+import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
@@ -43,6 +44,8 @@ export interface RendererApiDeps {
   readonly nextSessionAt: () => number | null
   /** What the session in flight is doing, or null when none is running. */
   readonly sessionProgress: () => import('./orchestrator.js').SessionProgress | null
+  /** Counts what a run on that day would answer. Reaches the cafe. */
+  readonly previewDay: (dayStartMs: number) => Promise<import('./preview.js').StartupPreview>
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -107,13 +110,15 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   return {
     getDashboard(): Promise<DashboardSnapshot> {
       const now = deps.clock.now()
-      const since = dailyWindowStart(now, deps.limits, deps.clock)
+      // Today means the day the greetings were posted on, so a run filling in
+      // an earlier day does not swell these numbers.
+      const { startMs: dayStart, endMs: dayEnd } = kstDayRange(now)
 
       const automations: AutomationStatus[] = AUTOMATIONS.map((automation) => ({
         id: automation.id,
         enabled: setting(automation.id)?.enabled ?? false,
         awaitingApproval: repos.executions.countByStatus(automation.id, 'AWAITING_APPROVAL'),
-        executedToday: repos.executions.countExecutedSince(automation.id, since),
+        executedToday: repos.executions.countExecutedForDay(automation.id, dayStart, dayEnd),
         lastOutcome: deps.lastOutcome(automation.id),
       }))
 
@@ -123,7 +128,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const sumByStatus = (status: 'SUCCESS' | 'FAILED'): number =>
         AUTOMATIONS.reduce(
           (total, automation) =>
-            total + repos.executions.countByStatusSince(automation.id, status, since),
+            total + repos.executions.countByStatusForDay(automation.id, status, dayStart, dayEnd),
           0,
         )
 
@@ -145,6 +150,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         nextSessionAt: deps.nextSessionAt(),
         sessionProgress: deps.sessionProgress(),
         bridgeStatus: calculateBridgeStatus(),
+        withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
+        averageActionGapMs: Math.round(
+          (deps.limits.actionIntervalMinMs + deps.limits.actionIntervalMaxMs) / 2,
+        ),
       })
     },
 
@@ -266,14 +275,21 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve()
     },
 
-    runOnce() {
+    previewDay(dayStartMs) {
+      return deps.previewDay(dayStartMs)
+    },
+
+    runOnce(request = {}) {
       // Resolves once the session has started rather than when it ends. A full
       // day's greetings take the better part of an hour, and a renderer waiting
       // that out would hold its controls — the stop switches included — shut
       // for the whole run. Failures inside the session are the loop's to report.
-      void deps.automation.runOnce().catch((error: unknown) => {
-        console.error('[session] run-once failed to start:', error)
-      })
+      const mode = request.force === true ? 'FORCED' : 'MANUAL'
+      void deps.automation
+        .runOnce({ mode, ...(request.dayStartMs === undefined ? {} : { dayStartMs: request.dayStartMs }) })
+        .catch((error: unknown) => {
+          console.error('[session] run-once failed to start:', error)
+        })
       return Promise.resolve()
     },
   }

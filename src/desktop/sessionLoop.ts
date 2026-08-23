@@ -1,6 +1,7 @@
 import type { Clock, Random } from '../shared/ports.js'
 import { nextSessionStart } from '../shared/schedule.js'
 import type { Limits } from '../shared/types.js'
+import type { SessionRequest } from './session.js'
 import type { SessionOutcome } from './orchestrator.js'
 
 export type TimerHandle = number
@@ -9,7 +10,7 @@ export interface SessionLoopDeps {
   readonly limits: Limits
   readonly clock: Clock
   readonly random: Random
-  readonly runSession: (isManualRun?: boolean) => Promise<SessionOutcome>
+  readonly runSession: (request?: SessionRequest) => Promise<SessionOutcome>
   readonly onOutcome: (outcome: SessionOutcome) => void
   readonly onError?: (error: unknown) => void
   /** Called when the loop stops itself. The operator has to intervene. */
@@ -22,7 +23,7 @@ export interface SessionLoop {
   start(): void
   stop(): void
   isRunning(): boolean
-  runOnce(isManualRun?: boolean): Promise<void>
+  runOnce(request?: SessionRequest): Promise<void>
   /**
    * Returns the epoch timestamp of the next scheduled session, or null if the
    * loop is not running. This lets the renderer show when the next session is
@@ -87,11 +88,11 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
    */
   let inFlight: Promise<void> | null = null
 
-  function runOnceInternal(isManualRun: boolean): Promise<void> {
+  function runOnceInternal(request: SessionRequest): Promise<void> {
     if (inFlight !== null) return inFlight
     inFlight = (async () => {
       try {
-        const outcome = await deps.runSession(isManualRun)
+        const outcome = await deps.runSession(request)
         reactTo(outcome)
         deps.onOutcome(outcome)
       } catch (error) {
@@ -108,7 +109,7 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
     const at = nextSessionStart(now, deps.limits, deps.clock, deps.random)
     nextScheduledAt = at
     timer = deps.setTimer(() => {
-      void runOnceInternal(false).finally(() => {
+      void runOnceInternal({ mode: 'SCHEDULED' }).finally(() => {
         if (running) schedule()
       })
     }, Math.max(0, at - now))
@@ -133,8 +134,8 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
       return nextScheduledAt
     },
 
-    runOnce(isManualRun = true) {
-      return runOnceInternal(isManualRun)
+    runOnce(request = {}) {
+      return runOnceInternal(request)
     },
   }
 }

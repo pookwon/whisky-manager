@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
-import { kstDayStartMs } from '../dist/shared/kst.js'
+import { kstDayRange, kstDayStartMs } from '../dist/shared/kst.js'
 import { openDatabase } from '../dist/desktop/db/client.js'
 import { createSettingsRepo } from '../dist/desktop/db/settingsRepo.js'
 import { parseOperatorAccounts } from '../dist/desktop/session.js'
@@ -41,8 +41,9 @@ if (!Number.isInteger(daysBack) || daysBack < 0) {
   console.error(`며칠 전인지는 0 이상의 정수여야 합니다: ${process.argv[2]}`)
   process.exit(1)
 }
-const dayStart = kstDayStartMs(Date.now()) - daysBack * DAY_MS
-const dayEnd = dayStart + DAY_MS
+// The same range the session works, taken from the same place, so the
+// rehearsal cannot disagree with the run it is rehearsing.
+const { startMs: dayStart, endMs: dayEnd } = kstDayRange(kstDayStartMs(Date.now()) - daysBack * DAY_MS)
 
 /**
  * Resolve the database path where the Electron app stores settings.

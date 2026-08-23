@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray } from 'drizzle-orm'
+import { and, count, eq, gte, inArray, isNotNull, lt } from 'drizzle-orm'
 import {
   UNRESOLVED_STATUSES,
   type ExecutionStatus,
@@ -68,8 +68,20 @@ export interface QueuedRow {
 
 export interface ExecutionsRepo {
   applyPatch(id: string, patch: ExecutionPatch): void
-  countByStatusSince(automationId: string, status: ExecutionStatus, sinceMs: number): number
-  countExecutedSince(automationId: string, sinceMs: number): number
+  /**
+   * Both counts are taken over the day a post belongs to, not the clock time
+   * the work happened. Filling in an earlier day happens today, but it is not
+   * today's work and must not spend today's allowance or show in today's
+   * figures. In normal operation the two readings agree, because only the
+   * current day's posts are ever targets.
+   */
+  countByStatusForDay(
+    automationId: string,
+    status: ExecutionStatus,
+    dayStartMs: number,
+    dayEndMs: number,
+  ): number
+  countExecutedForDay(automationId: string, dayStartMs: number, dayEndMs: number): number
   listUnresolved(automationId: string): UnresolvedRow[]
   listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
   listQueued(automationId: string): QueuedRow[]
@@ -124,7 +136,7 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
       db.update(executions).set(values).where(eq(executions.id, id)).run()
     },
 
-    countByStatusSince(automationId, status, sinceMs) {
+    countByStatusForDay(automationId, status, dayStartMs, dayEndMs) {
       return (
         db
           .select({ value: count() })
@@ -133,21 +145,29 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
             and(
               eq(executions.automationId, automationId),
               eq(executions.status, status),
-              gte(executions.resolvedAt, sinceMs),
+              gte(executions.targetPostedAt, dayStartMs),
+              lt(executions.targetPostedAt, dayEndMs),
             ),
           )
           .get()?.value ?? 0
       )
     },
 
-    countExecutedSince(automationId, sinceMs) {
+    countExecutedForDay(automationId, dayStartMs, dayEndMs) {
       // Every row we actually sent to naver, whatever the outcome. Volume caps
       // guard request count, so a failed attempt still consumed the budget.
       return (
         db
           .select({ value: count() })
           .from(executions)
-          .where(and(eq(executions.automationId, automationId), gte(executions.executedAt, sinceMs)))
+          .where(
+            and(
+              eq(executions.automationId, automationId),
+              isNotNull(executions.executedAt),
+              gte(executions.targetPostedAt, dayStartMs),
+              lt(executions.targetPostedAt, dayEndMs),
+            ),
+          )
           .get()?.value ?? 0
       )
     },

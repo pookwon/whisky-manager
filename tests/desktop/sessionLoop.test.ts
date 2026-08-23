@@ -274,3 +274,123 @@ describe('createSessionLoop', () => {
     loop.stop()
   })
 })
+
+describe('createSessionLoop — a manual run holds the schedule', () => {
+  /** A session that stays open until the test lets it finish. */
+  function heldSession() {
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const requests: unknown[] = []
+    return {
+      requests,
+      release,
+      runSession: async (request?: unknown): Promise<SessionOutcome> => {
+        requests.push(request)
+        await held
+        return idleOutcome
+      },
+    }
+  }
+
+  it('does not start a session when a manual run is under way', async () => {
+    const { requests, release, runSession } = heldSession()
+    let fire: () => void = () => {}
+    const loop = createSessionLoop(
+      loopDeps({
+        runSession,
+        setTimer: (fn) => {
+          fire = fn
+          return 1
+        },
+      }),
+    )
+
+    loop.start()
+    const manual = loop.runOnce({ mode: 'FORCED' })
+    fire()
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toEqual({ mode: 'FORCED' })
+
+    release()
+    await manual
+  })
+
+  it('does not report the manual run as the schedule\'s own result', async () => {
+    // Joining would hand the manual outcome to onOutcome a second time and
+    // leave the dashboard calling it the last scheduled session.
+    const outcomes: SessionOutcome[] = []
+    const { release, runSession } = heldSession()
+    let fire: () => void = () => {}
+    const loop = createSessionLoop(
+      loopDeps({
+        runSession,
+        onOutcome: (outcome) => outcomes.push(outcome),
+        setTimer: (fn) => {
+          fire = fn
+          return 1
+        },
+      }),
+    )
+
+    loop.start()
+    const manual = loop.runOnce({ mode: 'FORCED' })
+    fire()
+    release()
+    await manual
+
+    expect(outcomes).toHaveLength(1)
+  })
+
+  it('takes its next turn once the manual run is done', async () => {
+    const { release, runSession, requests } = heldSession()
+    let fire: () => void = () => {}
+    const loop = createSessionLoop(
+      loopDeps({
+        runSession,
+        setTimer: (fn) => {
+          fire = fn
+          return 1
+        },
+      }),
+    )
+
+    loop.start()
+    const manual = loop.runOnce({ mode: 'MANUAL' })
+    fire()
+    release()
+    await manual
+    await Promise.resolve()
+
+    // The skipped turn re-armed rather than ending the schedule.
+    expect(loop.isRunning()).toBe(true)
+    fire()
+    expect(requests).toHaveLength(2)
+    expect(requests[1]).toEqual({ mode: 'SCHEDULED' })
+  })
+
+  it('runs its turn normally when nothing else is going on', async () => {
+    const requests: unknown[] = []
+    let fire: () => void = () => {}
+    const loop = createSessionLoop(
+      loopDeps({
+        runSession: (request?: unknown) => {
+          requests.push(request)
+          return Promise.resolve(idleOutcome)
+        },
+        setTimer: (fn) => {
+          fire = fn
+          return 1
+        },
+      }),
+    )
+
+    loop.start()
+    fire()
+    await Promise.resolve()
+
+    expect(requests).toEqual([{ mode: 'SCHEDULED' }])
+  })
+})

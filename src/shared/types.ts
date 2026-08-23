@@ -28,6 +28,16 @@ export type RiskFlag =
 
 export type SkipReason = 'ALREADY_COMMENTED' | 'RISK_FLAGGED' | 'REJECTED_BY_OPERATOR' | 'NOT_FIRST_POST'
 
+/**
+ * Who asked for this session, which decides how much it may set aside.
+ *
+ * `SCHEDULED` obeys everything. `MANUAL` is an operator pressing run, and may
+ * pass the per-session cap because that cap exists to spread automated work
+ * out, not to limit a person. `FORCED` is an operator who has been told what
+ * they are overriding and said yes anyway.
+ */
+export type RunMode = 'SCHEDULED' | 'MANUAL' | 'FORCED'
+
 export type GateBlockReason = 'KILLED' | 'DAILY_CAP_EXCEEDED' | 'SESSION_CAP_REACHED'
 
 export type ExecutionStrategy = 'FETCH' | 'DOM'

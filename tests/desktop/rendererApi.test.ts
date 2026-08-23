@@ -25,7 +25,7 @@ let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
 let progress: SessionProgress | null
 
-function build() {
+function build(nowMs = MON_10_00) {
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -65,14 +65,19 @@ function build() {
     lastBridgeConnectedAt: () => null,
     nextSessionAt: () => null,
     sessionProgress: () => progress,
-    clock: new FakeClock(MON_10_00),
+    previewDay: () => Promise.resolve({ kind: 'READY' as const, count: 0, checkedAt: 0 }),
+    clock: new FakeClock(nowMs),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
   return { api, repos, settings }
 }
 
-async function seedAwaiting(repos: AppRepos, postId: string): Promise<string> {
+async function seedAwaiting(
+  repos: AppRepos,
+  postId: string,
+  postedAt = MON_10_00 - 60_000,
+): Promise<string> {
   const id = await repos.dedupe.claim({
     automationId: WELCOME_AUTOMATION_ID,
     cafeId: '10000000',
@@ -81,7 +86,7 @@ async function seedAwaiting(repos: AppRepos, postId: string): Promise<string> {
     title: '가입인사',
     authorNickname: '신입회원',
     authorId: 'm1',
-    postedAt: MON_10_00 - 60_000,
+    postedAt,
     detectedAt: MON_10_00 - 30_000,
   })
   if (id === null) throw new Error('seed failed')
@@ -129,7 +134,18 @@ describe('getDashboard', () => {
       nextSessionAt: null,
       sessionProgress: null,
       bridgeStatus: 'CONNECTED',
+      withinActiveHours: true,
+      averageActionGapMs: 16_500,
     })
+  })
+
+  it('reports whether the operating window is open, so the screen need not work it out', async () => {
+    expect((await build(MON_10_00).api.getDashboard()).withinActiveHours).toBe(true)
+
+    // 03:00 is before the window opens; this is the state that makes the
+    // screen ask before running instead of running.
+    const night = Date.UTC(2026, 7, 24, 3, 0, 0)
+    expect((await build(night).api.getDashboard()).withinActiveHours).toBe(false)
   })
 
   it('reports what a session in flight is doing, and nothing when none is', async () => {
@@ -145,18 +161,32 @@ describe('getDashboard', () => {
     })
   })
 
-  it('counts today from the operating window start, not midnight', async () => {
+  it('leaves an earlier day being filled in out of today\'s figures', async () => {
     const { api, repos } = build()
-    const id = await seedAwaiting(repos, '1001')
+    // The post is two days old; the comment goes out now. It is work done
+    // today, but it is not today's work, and today's numbers say so.
+    const id = await seedAwaiting(repos, '1001', MON_10_00 - 2 * 86_400_000)
 
-    // 07:00 is before the 08:00 window, so it belongs to the previous day.
     repos.executions.applyPatch(id, {
       status: 'SUCCESS',
-      executedAt: Date.UTC(2026, 7, 24, 7, 0, 0),
-      resolvedAt: Date.UTC(2026, 7, 24, 7, 0, 0),
+      executedAt: MON_10_00 - 1_000,
+      resolvedAt: MON_10_00 - 1_000,
     })
 
     expect(await api.getDashboard()).toMatchObject({ executedToday: 0, succeededToday: 0 })
+  })
+
+  it('counts a post from today whenever the comment went out', async () => {
+    const { api, repos } = build()
+    const id = await seedAwaiting(repos, '1005')
+
+    repos.executions.applyPatch(id, {
+      status: 'SUCCESS',
+      executedAt: MON_10_00 - 1_000,
+      resolvedAt: MON_10_00 - 1_000,
+    })
+
+    expect(await api.getDashboard()).toMatchObject({ executedToday: 1, succeededToday: 1 })
   })
 
   it('counts an attempt today even when it failed', async () => {

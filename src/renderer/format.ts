@@ -32,6 +32,7 @@ export interface OutcomeSummary {
  * is the system working; being logged out needs someone right now.
  */
 const REFUSAL_TONE: Record<SessionRefusal, Tone> = {
+  FUTURE_DAY: 'warn',
   KILLED: 'warn',
   DISABLED: 'idle',
   NO_TEMPLATE: 'warn',
@@ -53,6 +54,15 @@ export function outcomeSummary(outcome: SessionOutcome | null): OutcomeSummary {
     return { tone: 'alarm', key: 'outcome.ranWithFailures', count: outcome.failed }
   }
   return { tone: 'ok', key: 'outcome.ran', count: outcome.executed }
+}
+
+/**
+ * Roughly how long a run of `count` comments takes, in whole minutes. The
+ * operator is deciding whether to start something that may hold the tool for
+ * the rest of the hour, so the useful answer is the order of magnitude.
+ */
+export function estimatedMinutes(count: number, averageActionGapMs: number): number {
+  return Math.max(1, Math.round((count * averageActionGapMs) / 60_000))
 }
 
 export interface ProgressSummary {

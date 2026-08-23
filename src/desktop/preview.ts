@@ -1,7 +1,7 @@
 import { evaluateGuards, operatorAlreadyCommentedGuard, type GuardContext } from '../shared/guards.js'
 import { firstPostOnlyGuard } from '../shared/automations/welcome-comment/firstPost.js'
 import { TIMEOUTS, type RawCandidate } from '../shared/protocol.js'
-import { kstDayStartMs } from '../shared/kst.js'
+import { kstDayRange } from '../shared/kst.js'
 import type { Candidate } from '../shared/types.js'
 import { firstPostIdByAuthor } from './orchestrator.js'
 import type { ExtensionTransport } from './ws/server.js'
@@ -18,6 +18,8 @@ export interface PreviewDeps {
   readonly nowMs: number
   readonly newRequestId: () => string
   readonly operatorAccounts: readonly string[]
+  /** Midnight KST of the day to count. Omitted means the day `nowMs` falls in. */
+  readonly dayStartMs?: number
 }
 
 async function collect(
@@ -45,16 +47,24 @@ async function collect(
   }
 }
 
-export async function previewToday(deps: PreviewDeps): Promise<StartupPreview> {
+/**
+ * How many greetings a session would answer, without answering any of them.
+ * It has to reach the same number the session will, so it collects the same
+ * range and applies the same guards — including the trim to the day's end,
+ * which for an earlier day decides who counts as an author's first post.
+ */
+export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
   if (!deps.transport.isConnected()) {
     return { kind: 'UNAVAILABLE', reason: 'BRIDGE_OFFLINE' }
   }
 
-  const sincePostedAt = kstDayStartMs(deps.nowMs)
-  const raws = await collect(deps.transport, deps.automationId, deps.cafeId, deps.boardId, deps.newRequestId, sincePostedAt)
-  if (raws === null) {
+  const day = kstDayRange(deps.dayStartMs ?? deps.nowMs)
+  const collected = await collect(deps.transport, deps.automationId, deps.cafeId, deps.boardId, deps.newRequestId, day.startMs)
+  if (collected === null) {
     return { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
   }
+
+  const raws = collected.filter((raw) => raw.postedAt < day.endMs)
 
   const firstPosts = firstPostIdByAuthor(raws)
   const guards = [operatorAlreadyCommentedGuard, firstPostOnlyGuard]
