@@ -14,6 +14,7 @@ import { SETTING_KEYS, createSessionRunner } from '../../src/desktop/session.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
+import { kstDayStartMs } from '../../src/shared/kst.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
 const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
@@ -121,6 +122,42 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe('createSessionRunner — the day to work', () => {
+  const DAY = 86_400_000
+
+  it('refuses a day that has not arrived', async () => {
+    const { run, boards } = build([])
+
+    const outcome = await run({ dayStartMs: kstDayStartMs(MON_10_00) + DAY })
+
+    expect(outcome).toEqual({ opened: false, reason: 'FUTURE_DAY' })
+    // Refused before anything reached the cafe.
+    expect(boards).toEqual([])
+  })
+
+  it('accepts today, which is where the boundary sits', async () => {
+    const { run, repos, settings } = build([])
+    repos.automationSettings.upsert({
+      automationId: WELCOME_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+      boardId: null,
+    })
+    repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '{닉네임}님 환영합니다',
+      createdAt: MON_10_00 - 1000,
+    })
+    settings.set(SETTING_KEYS.cafeId, CAFE)
+
+    const outcome = await run({ dayStartMs: kstDayStartMs(MON_10_00) })
+
+    expect(outcome).toMatchObject({ opened: true })
+  })
 })
 
 describe('createSessionRunner', () => {

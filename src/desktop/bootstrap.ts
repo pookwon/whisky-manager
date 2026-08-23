@@ -10,7 +10,7 @@ import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
-import type { RunMode } from '../shared/types.js'
+import type { SessionRequest } from './session.js'
 import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
@@ -44,7 +44,7 @@ export interface AutomationControl {
   /** Stops now and refuses every session until started again. */
   kill(): void
   isRunning(): boolean
-  runOnce(): Promise<void>
+  runOnce(request?: SessionRequest): Promise<void>
   /** Returns the epoch timestamp of the next scheduled session, or null if not running. */
   nextRunAt(): number | null
 }
@@ -144,9 +144,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * session that died would otherwise leave the dashboard claiming it is still
    * working on someone.
    */
-  const runSessionReportingProgress = async (runMode?: RunMode): Promise<SessionOutcome> => {
+  const runSessionReportingProgress = async (request?: SessionRequest): Promise<SessionOutcome> => {
     try {
-      return await runSession(runMode)
+      return await runSession(request)
     } finally {
       sessionProgress = null
     }
@@ -184,7 +184,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     },
     isRunning: () => loop.isRunning(),
     nextRunAt: () => loop.nextRunAt(),
-    runOnce: () => loop.runOnce(),
+    runOnce: (request) => loop.runOnce(request),
   }
 
   /**

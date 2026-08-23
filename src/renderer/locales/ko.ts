@@ -49,6 +49,7 @@ export const ko = {
       ran: '{{count}}건 처리했습니다',
       ranWithFailures: '{{count}}건 실패했습니다',
       refused: {
+        FUTURE_DAY: '아직 오지 않은 날짜입니다',
         KILLED: '전면 정지 상태입니다. 시작을 눌러야 재개합니다',
         DISABLED: '자동화가 꺼져 있습니다',
         NO_TEMPLATE: '등록된 문구가 없습니다',

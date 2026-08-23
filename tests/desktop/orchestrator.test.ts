@@ -14,6 +14,7 @@ import { firstPostOnlyGuard } from '../../src/shared/automations/welcome-comment
 import { PROFILES } from '../../src/shared/profiles.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
+import { kstDayStartMs } from '../../src/shared/kst.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
 const HOUR = 3_600_000
@@ -833,5 +834,74 @@ describe('runSession — forced runs', () => {
     )
 
     expect(outcome).toMatchObject({ opened: true, executed: 0 })
+  })
+})
+
+describe('runSession — a chosen day', () => {
+  /** 2026-08-20 00:00 KST, four days before the fixture's "now". */
+  const CHOSEN = Date.UTC(2026, 7, 19, 15, 0)
+  const DAY = 86_400_000
+
+  function on(dayStartMs: number, hours: number, postId: string, authorId: string) {
+    return { ...candidate(postId, dayStartMs + hours * HOUR), authorId }
+  }
+
+  it('asks the board for that day, not for today', async () => {
+    const sent: AppMessage[] = []
+    const transport = {
+      isConnected: () => true,
+      request(message: AppMessage): Promise<ExtensionMessage> {
+        sent.push(message)
+        return fakeTransport().request(message)
+      },
+    }
+
+    await runSession(deps({ transport, dayStartMs: CHOSEN }))
+
+    const collect = sent.find((m) => m.type === 'COLLECT')
+    expect(collect).toMatchObject({ sincePostedAt: CHOSEN })
+  })
+
+  it('drops what the board returned from after that day', async () => {
+    const transport = fakeTransport({
+      candidates: [on(CHOSEN, 10, '7001', 'a1'), on(CHOSEN + DAY, 10, '7002', 'a2')],
+    })
+
+    const outcome = await runSession(deps({ transport, dayStartMs: CHOSEN }))
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+    expect(db.select().from(executions).all().map((r) => r.targetPostId)).toEqual(['7001'])
+  })
+
+  it('decides the author\'s earliest post after the trim, not before', async () => {
+    // One author, two posts: the chosen day's and the next day's. Judging
+    // before the trim would make the chosen day's post a later one and skip it,
+    // which is the whole reason the order matters.
+    const transport = fakeTransport({
+      candidates: [on(CHOSEN, 10, '7101', 'same'), on(CHOSEN + DAY, 10, '7102', 'same')],
+    })
+
+    const outcome = await runSession(deps({ transport, dayStartMs: CHOSEN }))
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1, skipped: 0 })
+    const rows = db.select().from(executions).all()
+    expect(rows.map((r) => r.targetPostId)).toEqual(['7101'])
+    expect(rows[0]?.status).toBe('SUCCESS')
+  })
+
+  it('works today when no day is given', async () => {
+    const sent: AppMessage[] = []
+    const transport = {
+      isConnected: () => true,
+      request(message: AppMessage): Promise<ExtensionMessage> {
+        sent.push(message)
+        return fakeTransport().request(message)
+      },
+    }
+
+    await runSession(deps({ transport }))
+
+    const collect = sent.find((m) => m.type === 'COLLECT')
+    expect(collect).toMatchObject({ sincePostedAt: kstDayStartMs(MON_10_00) })
   })
 })

@@ -32,6 +32,7 @@ export interface OutcomeSummary {
  * is the system working; being logged out needs someone right now.
  */
 const REFUSAL_TONE: Record<SessionRefusal, Tone> = {
+  FUTURE_DAY: 'warn',
   KILLED: 'warn',
   DISABLED: 'idle',
   NO_TEMPLATE: 'warn',

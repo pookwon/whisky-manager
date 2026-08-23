@@ -44,6 +44,12 @@ export interface SessionDeps {
    * window, the caps and the backlog brake — but never the kill switch.
    */
   readonly runMode: RunMode
+  /**
+   * Midnight KST of the day to work. Defaults to the day the session opens.
+   * Filling in an earlier day is the same rule applied to a different day, not
+   * a different rule.
+   */
+  readonly dayStartMs?: number
   /** Reports what the session is doing. Nothing about a run depends on anyone listening. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
@@ -53,6 +59,7 @@ export type RenderOutcome =
   | { ok: false; missing: string[] }
 
 export type SessionRefusal =
+  | 'FUTURE_DAY'
   | 'KILLED'
   | 'DISABLED'
   | 'NO_TEMPLATE'
@@ -426,10 +433,16 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
 
   // The whole day, every session. A post passed over earlier has to come back
   // into view, because what disqualified it can change on the cafe's side.
-  const sincePostedAt = kstDayStartMs(openedAt)
+  const day = kstDayRange(deps.dayStartMs ?? openedAt)
   deps.onProgress?.({ phase: 'COLLECTING' })
-  const raws = await collect(deps, sincePostedAt)
-  if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
+  const collected = await collect(deps, day.startMs)
+  if (collected === null) return { opened: false, reason: 'COLLECT_FAILED' }
+
+  // Collection takes a floor and no ceiling, so an earlier day arrives with
+  // everything since attached. Trimming has to happen before the next line:
+  // the author's earliest post is decided within this set, and a later day's
+  // post left in it would take that place and push the real one out.
+  const raws = collected.filter((raw) => raw.postedAt < day.endMs)
 
   const firstPosts = firstPostIdByAuthor(raws)
 
