@@ -3,7 +3,16 @@ import { api } from '../api.js'
 import { relativeTime } from '../format.js'
 import { useApp } from '../store.js'
 
-export function Approvals(): React.JSX.Element {
+interface ApprovalsProps {
+  /**
+   * Which automation's queue this is. approve/reject key off a globally unique
+   * execution id, so nothing in the body needs it — it is the route saying what
+   * the store already fetched.
+   */
+  readonly automationId: string
+}
+
+export function Approvals(_props: ApprovalsProps): React.JSX.Element {
   const { t } = useTranslation()
   const awaiting = useApp((s) => s.awaiting)
   const busy = useApp((s) => s.busy)

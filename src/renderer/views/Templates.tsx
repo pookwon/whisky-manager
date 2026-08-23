@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { WELCOME_AUTOMATION_ID } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
 
-export function Templates(): React.JSX.Element {
+interface TemplatesProps {
+  readonly automationId: string
+}
+
+export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
   const { t } = useTranslation()
   const templates = useApp((s) => s.templates)
   const busy = useApp((s) => s.busy)
@@ -14,7 +17,7 @@ export function Templates(): React.JSX.Element {
   const submit = (): void => {
     const body = draft.trim()
     if (body === '') return
-    void act(() => api.addTemplate(WELCOME_AUTOMATION_ID, body)).then((ok) => {
+    void act(() => api.addTemplate(automationId, body)).then((ok) => {
       // A failed add keeps the draft so the operator does not retype it.
       if (ok) setDraft('')
     })

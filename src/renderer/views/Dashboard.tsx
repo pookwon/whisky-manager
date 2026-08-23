@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { findAutomation } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
 import { outcomeSummary } from '../format.js'
 import { useApp } from '../store.js'
@@ -25,6 +26,7 @@ function Stat({
 export function Dashboard(): React.JSX.Element {
   const { t } = useTranslation()
   const dashboard = useApp((s) => s.dashboard)
+  const setRoute = useApp((s) => s.setRoute)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
 
@@ -100,6 +102,49 @@ export function Dashboard(): React.JSX.Element {
           value={dashboard.awaitingApproval}
           tone={dashboard.awaitingApproval > 0 ? 'tone-warn' : undefined}
         />
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2
+          className="text-[0.6875rem] font-medium uppercase tracking-wider"
+          style={{ color: 'var(--ink-muted)' }}
+        >
+          {t('dashboard.automations')}
+        </h2>
+        {dashboard.automations.map((automation) => {
+          const descriptor = findAutomation(automation.id)
+          const rowSummary = outcomeSummary(automation.lastOutcome)
+          return (
+            <button
+              key={automation.id}
+              type="button"
+              className="panel flex items-center justify-between gap-4 px-4 py-3 text-left"
+              onClick={() => setRoute({ kind: 'automation', id: automation.id, panel: 'settings' })}
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${rowSummary.tone}`} />
+                  <span className="text-sm font-semibold">
+                    {descriptor === undefined ? automation.id : t(descriptor.labelKey)}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  {t(rowSummary.key, { count: rowSummary.count ?? 0 })}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3 text-xs">
+                {automation.awaitingApproval > 0 && (
+                  <span className="chip tone-warn">
+                    {t('dashboard.awaitingShort', { count: automation.awaitingApproval })}
+                  </span>
+                )}
+                <span className={automation.enabled ? 'tone-ok' : 'tone-idle'}>
+                  {t(automation.enabled ? 'status.running' : 'status.stopped')}
+                </span>
+              </div>
+            </button>
+          )
+        })}
       </section>
     </div>
   )

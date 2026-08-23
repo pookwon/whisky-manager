@@ -16,9 +16,9 @@ const wm = {
   getCommonSettings: vi.fn(),
   getAutomationSettings: vi.fn(),
   getCafeImage: vi.fn(),
-  setBoardId: vi.fn(),
   setPolicy: vi.fn(),
   setEnabled: vi.fn(),
+  setBoardId: vi.fn(),
   setOperatorAccounts: vi.fn(),
   setCafe: vi.fn(),
   getPairingToken: vi.fn(),
@@ -31,6 +31,7 @@ const wm = {
 // The store reads window.wm at module load, so the stub must exist first.
 vi.stubGlobal('window', { wm })
 const { useApp } = await import('../../src/renderer/store.js')
+const { DEFAULT_ROUTE } = await import('../../src/renderer/routes.js')
 
 const snapshot: DashboardSnapshot = {
   bridgeConnected: false,
@@ -55,16 +56,17 @@ const automationSettings: AutomationSettingsView = {
   boardId: '5',
 }
 
-describe('useApp.act', () => {
-  beforeEach(() => {
-    wm.getDashboard.mockResolvedValue(snapshot)
-    wm.listAwaiting.mockResolvedValue([])
-    wm.listTemplates.mockResolvedValue([])
-    wm.getCommonSettings.mockResolvedValue(commonSettings)
-    wm.getAutomationSettings.mockResolvedValue(automationSettings)
-    useApp.setState({ dashboard: null, error: null, busy: false })
-  })
+beforeEach(() => {
+  vi.clearAllMocks()
+  wm.getDashboard.mockResolvedValue(snapshot)
+  wm.listAwaiting.mockResolvedValue([])
+  wm.listTemplates.mockResolvedValue([])
+  wm.getCommonSettings.mockResolvedValue(commonSettings)
+  wm.getAutomationSettings.mockResolvedValue(automationSettings)
+  useApp.setState({ route: DEFAULT_ROUTE, dashboard: null, error: null, busy: false })
+})
 
+describe('useApp.act', () => {
   it('refreshes and reports success', async () => {
     const ok = await useApp.getState().act(() => Promise.resolve())
 
@@ -88,5 +90,58 @@ describe('useApp.act', () => {
     await useApp.getState().act(() => Promise.resolve())
 
     expect(useApp.getState().error).toBeNull()
+  })
+})
+
+describe('useApp.refresh', () => {
+  it("fetches only the route's own automation", async () => {
+    useApp.setState({ route: { kind: 'automation', id: 'welcome-comment', panel: 'approvals' } })
+
+    await useApp.getState().refresh()
+
+    expect(wm.listAwaiting.mock.calls).toEqual([['welcome-comment']])
+    expect(wm.listTemplates.mock.calls).toEqual([['welcome-comment']])
+    expect(wm.getAutomationSettings.mock.calls).toEqual([['welcome-comment']])
+  })
+
+  it('leaves automation data alone on the dashboard route', async () => {
+    useApp.setState({ route: { kind: 'dashboard' } })
+
+    await useApp.getState().refresh()
+
+    expect(wm.listAwaiting).not.toHaveBeenCalled()
+    expect(wm.listTemplates).not.toHaveBeenCalled()
+    expect(wm.getAutomationSettings).not.toHaveBeenCalled()
+  })
+
+  it('fetches common settings on the common settings route', async () => {
+    useApp.setState({ route: { kind: 'commonSettings' } })
+
+    await useApp.getState().refresh()
+
+    expect(wm.getCommonSettings).toHaveBeenCalledTimes(1)
+    expect(useApp.getState().commonSettings).toEqual(commonSettings)
+  })
+
+  it('polls the dashboard on every route, so the approval badge stays live', async () => {
+    useApp.setState({ route: { kind: 'automation', id: 'welcome-comment', panel: 'templates' } })
+
+    await useApp.getState().refresh()
+
+    expect(wm.getDashboard).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useApp.setRoute', () => {
+  it('fetches the new route immediately rather than waiting for the poll', async () => {
+    useApp.getState().setRoute({ kind: 'automation', id: 'welcome-comment', panel: 'approvals' })
+
+    // setRoute starts the refresh without awaiting it; give it a turn to land.
+    await vi.waitFor(() => expect(wm.listAwaiting).toHaveBeenCalledTimes(1))
+    expect(useApp.getState().route).toEqual({
+      kind: 'automation',
+      id: 'welcome-comment',
+      panel: 'approvals',
+    })
   })
 })

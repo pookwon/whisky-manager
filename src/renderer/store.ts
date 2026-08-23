@@ -6,29 +6,22 @@ import type {
   DashboardSnapshot,
 } from '../desktop/ipc.js'
 import type { Template } from '../shared/types.js'
-import { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import { api } from './api.js'
-
-export type ViewName = 'dashboard' | 'approvals' | 'templates' | 'settings'
-
-/**
- * The settings screen still reads one flat object. Recomposing the two halves
- * here keeps that screen untouched while the API underneath is already split;
- * the navigation rework replaces this with the two halves held separately.
- */
-type SettingsView = CommonSettingsView & AutomationSettingsView
+import { DEFAULT_ROUTE, automationOf, type Route } from './routes.js'
 
 interface AppState {
-  view: ViewName
+  route: Route
   dashboard: DashboardSnapshot | null
+  /** Data for the automation the current route points at, not every automation. */
   awaiting: AwaitingItem[]
   templates: Template[]
-  settings: SettingsView | null
+  automationSettings: AutomationSettingsView | null
+  commonSettings: CommonSettingsView | null
   cafeImage: string | null
   busy: boolean
   /** Message of the last failed action, until the next action starts. */
   error: string | null
-  setView: (view: ViewName) => void
+  setRoute: (route: Route) => void
   refresh: () => Promise<void>
   /** Fetched once, not on the poll loop: the backend caches it for a day, but there is no reason to ask more than once per session. */
   loadCafeImage: () => Promise<void>
@@ -36,26 +29,48 @@ interface AppState {
 }
 
 export const useApp = create<AppState>((set, get) => ({
-  view: 'dashboard',
+  route: DEFAULT_ROUTE,
   dashboard: null,
   awaiting: [],
   templates: [],
-  settings: null,
+  automationSettings: null,
+  commonSettings: null,
   cafeImage: null,
   busy: false,
   error: null,
 
-  setView: (view) => set({ view }),
+  setRoute: (route) => {
+    set({ route })
+    // Fetch straight away rather than waiting out the poll interval, so the
+    // screen is never blank for five seconds after a click.
+    void get().refresh()
+  },
 
+  /**
+   * Only the route's own automation is fetched. Polling every automation would
+   * multiply cafe traffic by the number of features for screens nobody is
+   * looking at.
+   */
   refresh: async () => {
-    const [dashboard, awaiting, templates, common, automation] = await Promise.all([
+    const { route } = get()
+    const automationId = automationOf(route)
+
+    if (automationId === null) {
+      const [dashboard, commonSettings] = await Promise.all([
+        api.getDashboard(),
+        api.getCommonSettings(),
+      ])
+      set({ dashboard, commonSettings })
+      return
+    }
+
+    const [dashboard, awaiting, templates, automationSettings] = await Promise.all([
       api.getDashboard(),
-      api.listAwaiting(WELCOME_AUTOMATION_ID),
-      api.listTemplates(WELCOME_AUTOMATION_ID),
-      api.getCommonSettings(),
-      api.getAutomationSettings(WELCOME_AUTOMATION_ID),
+      api.listAwaiting(automationId),
+      api.listTemplates(automationId),
+      api.getAutomationSettings(automationId),
     ])
-    set({ dashboard, awaiting, templates, settings: { ...common, ...automation } })
+    set({ dashboard, awaiting, templates, automationSettings })
   },
 
   loadCafeImage: async () => {
