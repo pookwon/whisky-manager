@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { kstDayStartMs } from '../../src/shared/kst.js'
+import { kstDayRange, kstDayStartMs } from '../../src/shared/kst.js'
 
 describe('kstDayStartMs', () => {
   it('is midnight in KST, not in UTC', () => {
@@ -34,5 +34,21 @@ describe('kstDayStartMs', () => {
     const day1End = Date.UTC(2026, 7, 22, 14, 59) // Still 2026-08-22 KST
     const day2Start = Date.UTC(2026, 7, 22, 15, 0) // 2026-08-23 00:00 KST
     expect(kstDayStartMs(day1End)).not.toBe(kstDayStartMs(day2Start))
+  })
+})
+
+describe('kstDayRange', () => {
+  it('is half open, so the next day begins exactly where this one ends', () => {
+    const day = kstDayRange(Date.UTC(2026, 7, 23, 16, 39))
+    expect(day.startMs).toBe(kstDayStartMs(Date.UTC(2026, 7, 23, 16, 39)))
+    expect(kstDayStartMs(day.endMs)).toBe(day.endMs)
+    expect(kstDayStartMs(day.endMs - 1)).toBe(day.startMs)
+  })
+
+  it('holds the instant it was asked about', () => {
+    const instant = Date.UTC(2026, 7, 23, 16, 39)
+    const day = kstDayRange(instant)
+    expect(instant).toBeGreaterThanOrEqual(day.startMs)
+    expect(instant).toBeLessThan(day.endMs)
   })
 })

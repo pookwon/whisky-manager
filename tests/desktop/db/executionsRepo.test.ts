@@ -69,18 +69,26 @@ describe('applyPatch', () => {
   })
 })
 
-describe('countByStatusSince', () => {
-  it('counts only the requested status inside the window', async () => {
-    const a = await claim('1001', 1_000)
-    const b = await claim('1002', 1_000)
-    const c = await claim('1003', 1_000)
+/** 2026-08-24 00:00 KST, and the day that follows it. */
+const DAY = 86_400_000
+const TODAY = Date.UTC(2026, 7, 23, 15, 0)
+const TOMORROW = TODAY + DAY
+const EARLIER_DAY = TODAY - DAY
 
-    repo.applyPatch(a, { status: 'SUCCESS', resolvedAt: 5_000 })
-    repo.applyPatch(b, { status: 'SUCCESS', resolvedAt: 500 })
-    repo.applyPatch(c, { status: 'FAILED', resolvedAt: 6_000 })
+describe('countByStatusForDay', () => {
+  it('counts by the day the post belongs to, not the day it was resolved', async () => {
+    const today = await claim('1001', TODAY + 3_600_000)
+    const earlier = await claim('1002', EARLIER_DAY + 3_600_000)
+    const failedToday = await claim('1003', TODAY + 7_200_000)
 
-    expect(repo.countByStatusSince(AUTOMATION, 'SUCCESS', 1_000)).toBe(1)
-    expect(repo.countByStatusSince(AUTOMATION, 'FAILED', 1_000)).toBe(1)
+    // All three resolved now: filling in an earlier day happens today too.
+    repo.applyPatch(today, { status: 'SUCCESS', resolvedAt: TODAY + 40_000_000 })
+    repo.applyPatch(earlier, { status: 'SUCCESS', resolvedAt: TODAY + 40_000_000 })
+    repo.applyPatch(failedToday, { status: 'FAILED', resolvedAt: TODAY + 40_000_000 })
+
+    expect(repo.countByStatusForDay(AUTOMATION, 'SUCCESS', TODAY, TOMORROW)).toBe(1)
+    expect(repo.countByStatusForDay(AUTOMATION, 'FAILED', TODAY, TOMORROW)).toBe(1)
+    expect(repo.countByStatusForDay(AUTOMATION, 'SUCCESS', EARLIER_DAY, TODAY)).toBe(1)
   })
 })
 
@@ -155,16 +163,31 @@ describe('countByStatus', () => {
   })
 })
 
-describe('countExecutedSince', () => {
-  it('counts every attempt in the window, not only successes', async () => {
-    const a = await claim('1001', 1_000)
-    const b = await claim('1002', 1_000)
+describe('countExecutedForDay', () => {
+  it('counts every attempt on that day\'s posts, not only the successes', async () => {
+    const a = await claim('1001', TODAY + 3_600_000)
+    const b = await claim('1002', TODAY + 3_600_000)
 
-    repo.applyPatch(a, { status: 'SUCCESS', executedAt: 5_000, resolvedAt: 5_000 })
-    repo.applyPatch(b, { status: 'RETRY_WAIT', executedAt: 6_000 })
+    repo.applyPatch(a, { status: 'SUCCESS', executedAt: TODAY + 40_000_000, resolvedAt: TODAY + 40_000_000 })
+    repo.applyPatch(b, { status: 'RETRY_WAIT', executedAt: TODAY + 40_000_000 })
 
-    expect(repo.countExecutedSince(AUTOMATION, 1_000)).toBe(2)
-    expect(repo.countByStatusSince(AUTOMATION, 'SUCCESS', 1_000)).toBe(1)
+    expect(repo.countExecutedForDay(AUTOMATION, TODAY, TOMORROW)).toBe(2)
+  })
+
+  it('leaves an earlier day being filled in out of today\'s count', async () => {
+    // The comment goes out today either way; what separates them is which
+    // day's greetings the work served. Today's allowance is for today's posts.
+    const earlier = await claim('2001', EARLIER_DAY + 3_600_000)
+    repo.applyPatch(earlier, { status: 'SUCCESS', executedAt: TODAY + 40_000_000, resolvedAt: TODAY + 40_000_000 })
+
+    expect(repo.countExecutedForDay(AUTOMATION, TODAY, TOMORROW)).toBe(0)
+    expect(repo.countExecutedForDay(AUTOMATION, EARLIER_DAY, TODAY)).toBe(1)
+  })
+
+  it('ignores a post nothing was sent for', async () => {
+    await claim('3001', TODAY + 3_600_000)
+
+    expect(repo.countExecutedForDay(AUTOMATION, TODAY, TOMORROW)).toBe(0)
   })
 })
 

@@ -22,3 +22,19 @@ function kstDayOf(epochMs: number): number {
 export function kstDayStartMs(epochMs: number): number {
   return kstDayOf(epochMs) * MS_PER_DAY - KST_OFFSET_MS
 }
+
+export interface KstDay {
+  readonly startMs: number
+  /** Exclusive: the instant the next KST day begins. */
+  readonly endMs: number
+}
+
+/**
+ * The KST day containing `epochMs`, as a half-open range. Callers that ask
+ * "does this belong to that day" need both ends, and taking them from one place
+ * keeps a day's length from being spelled out at each of them.
+ */
+export function kstDayRange(epochMs: number): KstDay {
+  const startMs = kstDayStartMs(epochMs)
+  return { startMs, endMs: startMs + MS_PER_DAY }
+}

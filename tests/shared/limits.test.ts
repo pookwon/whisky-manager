@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { checkGates, dailyWindowStart, hasStaleBacklog } from '../../src/shared/limits.js'
+import { checkGates, hasStaleBacklog } from '../../src/shared/limits.js'
 import { PROFILES } from '../../src/shared/profiles.js'
-import { FakeClock } from '../fakes.js'
 
 const limits = PROFILES.production
 const HOUR = 3_600_000
@@ -72,14 +71,3 @@ describe('hasStaleBacklog', () => {
   })
 })
 
-describe('dailyWindowStart', () => {
-  it('anchors the day to the operating window start', () => {
-    const at = Date.UTC(2026, 7, 24, 10, 0, 0)
-    expect(dailyWindowStart(at, limits, new FakeClock(at))).toBe(Date.UTC(2026, 7, 24, 8, 0, 0))
-  })
-
-  it('rolls back to the previous day before the window opens', () => {
-    const at = Date.UTC(2026, 7, 24, 3, 0, 0)
-    expect(dailyWindowStart(at, limits, new FakeClock(at))).toBe(Date.UTC(2026, 7, 23, 8, 0, 0))
-  })
-})

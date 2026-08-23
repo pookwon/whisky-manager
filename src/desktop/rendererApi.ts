@@ -1,7 +1,7 @@
 import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
-import { dailyWindowStart } from '../shared/limits.js'
+import { kstDayRange } from '../shared/kst.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
@@ -107,13 +107,15 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   return {
     getDashboard(): Promise<DashboardSnapshot> {
       const now = deps.clock.now()
-      const since = dailyWindowStart(now, deps.limits, deps.clock)
+      // Today means the day the greetings were posted on, so a run filling in
+      // an earlier day does not swell these numbers.
+      const { startMs: dayStart, endMs: dayEnd } = kstDayRange(now)
 
       const automations: AutomationStatus[] = AUTOMATIONS.map((automation) => ({
         id: automation.id,
         enabled: setting(automation.id)?.enabled ?? false,
         awaitingApproval: repos.executions.countByStatus(automation.id, 'AWAITING_APPROVAL'),
-        executedToday: repos.executions.countExecutedSince(automation.id, since),
+        executedToday: repos.executions.countExecutedForDay(automation.id, dayStart, dayEnd),
         lastOutcome: deps.lastOutcome(automation.id),
       }))
 
@@ -123,7 +125,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const sumByStatus = (status: 'SUCCESS' | 'FAILED'): number =>
         AUTOMATIONS.reduce(
           (total, automation) =>
-            total + repos.executions.countByStatusSince(automation.id, status, since),
+            total + repos.executions.countByStatusForDay(automation.id, status, dayStart, dayEnd),
           0,
         )
 

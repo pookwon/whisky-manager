@@ -1,10 +1,10 @@
 import { containsOperator, evaluateGuards, type Guard } from '../shared/guards.js'
-import { checkGates, dailyWindowStart, hasStaleBacklog } from '../shared/limits.js'
+import { checkGates, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { comparePostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
 import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
-import { kstDayStartMs } from '../shared/kst.js'
+import { kstDayRange, kstDayStartMs } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
@@ -360,8 +360,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   /** Requests actually sent this session. Caps count attempts, not successes. */
   let attempted = 0
 
-  const dailyStart = dailyWindowStart(openedAt, deps.limits, deps.clock)
-  let dailyCount = deps.repo.countExecutedSince(deps.automationId, dailyStart)
+  const today = kstDayRange(openedAt)
+  let dailyCount = deps.repo.countExecutedForDay(deps.automationId, today.startMs, today.endMs)
 
   const tally = (result: JobResult): void => {
     // EXECUTED, FAILED and RETRY all mean a request reached naver.

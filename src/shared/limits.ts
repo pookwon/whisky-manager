@@ -1,4 +1,3 @@
-import type { Clock } from './ports.js'
 import type { GateBlockReason, Limits } from './types.js'
 
 export interface GateContext {
@@ -39,17 +38,4 @@ export function hasStaleBacklog(
   limits: Limits,
 ): boolean {
   return unresolved.some((item) => nowMs - item.postedAt > limits.backlogMaxAgeMs)
-}
-
-/**
- * Daily counting is anchored to the operating window start, not midnight, so a
- * 23:00 execution and an 08:00 execution the next morning land on different
- * days the way an operator would expect.
- */
-export function dailyWindowStart(epochMs: number, limits: Limits, clock: Clock): number {
-  const { hour } = clock.parts(epochMs)
-  if (hour >= limits.activeHourStart) {
-    return clock.atHour(epochMs, limits.activeHourStart)
-  }
-  return clock.atHour(clock.addDays(epochMs, -1), limits.activeHourStart)
 }
