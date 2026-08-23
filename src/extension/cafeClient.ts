@@ -8,7 +8,6 @@ import {
   type LoginState,
 } from '../shared/automations/welcome-comment/cafe.js'
 import { parseMemoList } from '../shared/automations/welcome-comment/parse.js'
-import { memberListUrl, parseMemberList, type RawMember } from '../shared/members.js'
 import { comparePostId } from '../shared/postId.js'
 import type { RawCandidate, SourceRef } from '../shared/protocol.js'
 import type { CommentAuthor } from '../shared/types.js'
@@ -53,7 +52,6 @@ export interface CafeClient {
   collect(source: SourceRef, sincePostId: string | null, sincePostedAt: number | null): Promise<RawCandidate[]>
   checkComments(source: SourceRef, postId: string): Promise<CommentAuthor[] | null>
   execute(source: SourceRef, postId: string, content: string): Promise<ExecuteResult>
-  fetchMembers(cafeId: string, page: number, perPage: number): Promise<RawMember[] | null>
 }
 
 /**
@@ -212,14 +210,6 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
         error: landed ? null : 'COMMENT_NOT_VISIBLE',
         diagnostic: landed ? null : diagnose(posted.text),
       }
-    },
-
-    async fetchMembers(cafeId, page, perPage) {
-      // Staff-only. Losing staff rights looks like a redirect to a page that is
-      // not the list, which the parser reports as a failed read rather than as
-      // an empty cafe.
-      const response = await deps.http({ url: memberListUrl(cafeId, page, perPage) })
-      return response.status === 200 ? parseMemberList(response.text) : null
     },
   }
 }

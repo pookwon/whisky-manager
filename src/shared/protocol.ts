@@ -1,7 +1,6 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
-import type { RawMember } from './members.js'
 
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 /** No call may wait forever. Every value stays under the MV3 30s fetch ceiling. */
 export const TIMEOUTS = {
@@ -9,7 +8,6 @@ export const TIMEOUTS = {
   collectMs: 15_000,
   executeMs: 15_000,
   commentCheckMs: 10_000,
-  fetchMembersMs: 15_000,
   probeMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
@@ -51,8 +49,6 @@ export type AppMessage =
   | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null; sincePostedAt: number | null }
   | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
-  /** Cafe-wide, not board-scoped: a member belongs to the cafe, not a board. */
-  | { type: 'FETCH_MEMBERS'; requestId: string; cafeId: string; page: number; perPage: number }
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -76,8 +72,6 @@ export type ExtensionMessage =
        */
       diagnostic: string | null
     }
-  | /** `null` means the list could not be read, as with `COMMENTS`. */
-    { type: 'MEMBERS'; requestId: string; members: RawMember[] | null }
   | {
       type: 'PROBE_RESULT'
       requestId: string
@@ -95,7 +89,6 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'COLLECT',
   'CHECK_COMMENTS',
   'EXECUTE',
-  'FETCH_MEMBERS',
   'PROBE',
   'ABORT',
 ])
@@ -105,7 +98,6 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'COLLECTED',
   'COMMENTS',
   'EXECUTED',
-  'MEMBERS',
   'PROBE_RESULT',
   'ERROR',
 ])

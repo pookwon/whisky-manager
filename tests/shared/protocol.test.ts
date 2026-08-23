@@ -102,14 +102,3 @@ describe('probe messages', () => {
   })
 })
 
-describe('member fetch messages', () => {
-  it('recognises the app request and the extension answer', () => {
-    expect(isAppMessage({ type: 'FETCH_MEMBERS', requestId: 'r1', cafeId: '1', page: 1, perPage: 100 })).toBe(true)
-    expect(isExtensionMessage({ type: 'MEMBERS', requestId: 'r1', members: [] })).toBe(true)
-  })
-
-  it('does not accept the pair in the wrong direction', () => {
-    expect(isExtensionMessage({ type: 'FETCH_MEMBERS', requestId: 'r1' })).toBe(false)
-    expect(isAppMessage({ type: 'MEMBERS', requestId: 'r1' })).toBe(false)
-  })
-})
