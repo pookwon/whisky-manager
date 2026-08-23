@@ -12,8 +12,8 @@
  *
  *   node scripts/dry-run.mjs
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
@@ -25,7 +25,6 @@ import { evaluateGuards, operatorAlreadyCommentedGuard } from '../dist/shared/gu
 import { firstPostOnlyGuard } from '../dist/shared/automations/welcome-comment/firstPost.js'
 import { firstPostIdByAuthor } from '../dist/desktop/orchestrator.js'
 
-const TOKEN_FILE = '.wm-probe-token'
 const PORT = 39217
 const PAIR_TIMEOUT_MS = 900_000
 const REPLY_TIMEOUT_MS = 60_000
@@ -51,16 +50,10 @@ function getUserDataPath() {
   }
 }
 
-const token = existsSync(TOKEN_FILE)
-  ? readFileSync(TOKEN_FILE, 'utf8').trim()
-  : (() => {
-      const fresh = randomBytes(24).toString('base64url')
-      writeFileSync(TOKEN_FILE, `${fresh}\n`)
-      return fresh
-    })()
-
-// Load operator accounts from the app's settings database BEFORE bridge
+// Read from the app's settings before the bridge opens, so a misconfiguration
+// stops the run instead of surfacing fifteen minutes into a pairing wait.
 let operatorAccounts = []
+let token = null
 try {
   const userDataPath = getUserDataPath()
   const dbPath = join(userDataPath, 'whisky-manager.db')
@@ -80,12 +73,21 @@ try {
   // The app's own reader, so the rehearsal cannot disagree with it about who
   // counts as an operator.
   operatorAccounts = parseOperatorAccounts(settingsRepo.get('operatorAccounts'))
+  // The app's own pairing token, not a separate one. A rehearsal with its own
+  // token forces the operator to re-pair the extension to run it and again to
+  // go back to the app, and a half-finished swap looks exactly like a bug.
+  token = settingsRepo.get('pairingToken') ?? null
 
   if (operatorAccounts.length === 0) {
     console.error(
       '운영진 계정이 설정되지 않았습니다.\n' +
       '앱의 설정에서 운영진 계정을 먼저 설정하세요.',
     )
+    process.exit(1)
+  }
+
+  if (token === null) {
+    console.error('앱의 페어링 토큰이 없습니다. 앱을 한 번 실행해서 토큰을 만드세요.')
     process.exit(1)
   }
 
