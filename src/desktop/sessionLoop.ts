@@ -9,7 +9,7 @@ export interface SessionLoopDeps {
   readonly limits: Limits
   readonly clock: Clock
   readonly random: Random
-  readonly runSession: () => Promise<SessionOutcome>
+  readonly runSession: (isManualRun?: boolean) => Promise<SessionOutcome>
   readonly onOutcome: (outcome: SessionOutcome) => void
   readonly onError?: (error: unknown) => void
   /** Called when the loop stops itself. The operator has to intervene. */
@@ -22,7 +22,7 @@ export interface SessionLoop {
   start(): void
   stop(): void
   isRunning(): boolean
-  runOnce(): Promise<void>
+  runOnce(isManualRun?: boolean): Promise<void>
   /**
    * Returns the epoch timestamp of the next scheduled session, or null if the
    * loop is not running. This lets the renderer show when the next session is
@@ -87,11 +87,11 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
    */
   let inFlight: Promise<void> | null = null
 
-  function runOnce(): Promise<void> {
+  function runOnceInternal(isManualRun: boolean): Promise<void> {
     if (inFlight !== null) return inFlight
     inFlight = (async () => {
       try {
-        const outcome = await deps.runSession()
+        const outcome = await deps.runSession(isManualRun)
         reactTo(outcome)
         deps.onOutcome(outcome)
       } catch (error) {
@@ -108,7 +108,7 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
     const at = nextSessionStart(now, deps.limits, deps.clock, deps.random)
     nextScheduledAt = at
     timer = deps.setTimer(() => {
-      void runOnce().finally(() => {
+      void runOnceInternal(false).finally(() => {
         if (running) schedule()
       })
     }, Math.max(0, at - now))
@@ -133,6 +133,8 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
       return nextScheduledAt
     },
 
-    runOnce,
+    runOnce(isManualRun = true) {
+      return runOnceInternal(isManualRun)
+    },
   }
 }

@@ -63,12 +63,12 @@ export function parseWindowDays(raw: string | undefined): number {
  * Everything is read per run, so a policy or template change takes effect on
  * the next session without restarting the app.
  */
-export function createSessionRunner(options: SessionRunnerOptions): () => Promise<SessionOutcome> {
+export function createSessionRunner(options: SessionRunnerOptions): (isManualRun?: boolean) => Promise<SessionOutcome> {
   const { automationId, repos, settings } = options
 
   const cafeId = () => settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID
 
-  return async function run(): Promise<SessionOutcome> {
+  return async function run(isManualRun = true): Promise<SessionOutcome> {
     const setting = repos.automationSettings.get(automationId)
     const limits = { ...PROFILES[options.profile], ...(setting?.limits ?? {}) }
     const cafe = cafeId()
@@ -119,6 +119,7 @@ export function createSessionRunner(options: SessionRunnerOptions): () => Promis
       watermark: repos.watermarks.get(automationId, cafe, board),
       resolveMembership,
       newMemberWindowDays: windowDays,
+      isManualRun,
     })
 
     if (outcome.opened && outcome.lastProcessedPostId !== null) {

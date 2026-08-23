@@ -50,7 +50,7 @@ export interface ExecuteResult {
 
 export interface CafeClient {
   checkLogin(source: SourceRef): Promise<LoginState>
-  collect(source: SourceRef, sincePostId: string | null): Promise<RawCandidate[]>
+  collect(source: SourceRef, sincePostId: string | null, sincePostedAt: number | null): Promise<RawCandidate[]>
   checkComments(source: SourceRef, postId: string): Promise<CommentAuthor[] | null>
   execute(source: SourceRef, postId: string, content: string): Promise<ExecuteResult>
   fetchMembers(cafeId: string, page: number, perPage: number): Promise<RawMember[] | null>
@@ -62,6 +62,14 @@ export interface CafeClient {
  * board's whole history.
  */
 const MAX_PAGES = 10
+
+/**
+ * First harvest page limit. A fresh install has no watermark to page back to,
+ * and the board holds hundreds of thousands of memos. With a time floor, read
+ * back up to this many pages to cover a full day of new members without walking
+ * the board's entire history.
+ */
+const FIRST_HARVEST_PAGES = 40
 
 /**
  * What a browser sends for a form post — no charset parameter. The page is
@@ -105,11 +113,16 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
     checkLogin,
     checkComments,
 
-    async collect(source, sincePostId) {
+    async collect(source, sincePostId, sincePostedAt) {
       const collected = new Map<string, RawCandidate>()
-      // A fresh install has no floor to page back to, and the board holds
-      // hundreds of thousands of memos. One page is the whole first harvest.
-      const pageLimit = sincePostId === null ? 1 : MAX_PAGES
+
+      // When a watermark exists, use it: read up to MAX_PAGES until reaching it.
+      // When no watermark but a time floor exists, read up to FIRST_HARVEST_PAGES
+      // until finding a post older than the floor.
+      // When neither exists, read only the first page to avoid walking the board's
+      // entire history.
+      const pageLimit = sincePostId !== null ? MAX_PAGES : (sincePostedAt !== null ? FIRST_HARVEST_PAGES : 1)
+      const useTimeFloor = sincePostId === null && sincePostedAt !== null
 
       for (let page = 1; page <= pageLimit; page += 1) {
         const response = await deps.http({ url: memoListUrl(source, page) })
@@ -120,12 +133,25 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
         // treat that as "nothing new", which would advance past real greetings.
         if (memos.length === 0) break
 
-        let reachedWatermark = false
+        let reachedFloor = false
         let added = 0
         for (const memo of memos) {
-          if (!isNewerThan(sincePostId, memo.postId)) {
-            reachedWatermark = true
-            continue
+          // When using watermark: skip until newer than watermark
+          if (sincePostId !== null) {
+            if (!isNewerThan(sincePostId, memo.postId)) {
+              reachedFloor = true
+              continue
+            }
+          }
+          // When using time floor: collect posts from today onwards, stop when older
+          if (useTimeFloor) {
+            // Stop if we reach a post older than the floor
+            if (memo.postedAt < sincePostedAt) {
+              reachedFloor = true
+              // Do not collect this post, it's too old
+              continue
+            }
+            // Post is from today onwards, collect it
           }
           if (collected.has(memo.postId)) continue
           collected.set(memo.postId, memo)
@@ -133,7 +159,7 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
         }
         // Nothing new on a whole page means paging is not moving; stop rather
         // than walk to the ceiling.
-        if (reachedWatermark || added === 0) break
+        if (reachedFloor || added === 0) break
       }
 
       // Oldest first: a session that stops at its cap must leave the newest

@@ -1,7 +1,7 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
 import type { RawMember } from './members.js'
 
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 /** No call may wait forever. Every value stays under the MV3 30s fetch ceiling. */
 export const TIMEOUTS = {
@@ -48,7 +48,7 @@ export type AppMessage =
   | { type: 'HELLO_ACK'; accepted: boolean; reason: string | null }
   /** Carries the board so the check proves access to it, not just to naver. */
   | { type: 'CHECK_LOGIN'; requestId: string; source: SourceRef }
-  | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null }
+  | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostId: string | null; sincePostedAt: number | null }
   | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
   /** Cafe-wide, not board-scoped: a member belongs to the cafe, not a board. */
