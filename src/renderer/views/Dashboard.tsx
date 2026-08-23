@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { findAutomation } from '../../shared/automations/catalog.js'
 import { api } from '../api.js'
@@ -58,6 +58,14 @@ export function Dashboard(): React.JSX.Element {
   const act = useApp((s) => s.act)
   const [day, setDay] = useState(() => kstDateValue(Date.now()))
   const [pending, setPending] = useState<PendingRun | null>(null)
+  /**
+   * Which confirmation the counts coming back belong to. Counting reaches the
+   * cafe and takes seconds, so a panel opened, dismissed and opened again on a
+   * different day can have two answers in the air; without this the first to
+   * arrive fills in whichever panel is showing, and the operator approves a
+   * run against a number that was never about it.
+   */
+  const openedRuns = useRef(0)
 
   if (dashboard === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
@@ -70,10 +78,12 @@ export function Dashboard(): React.JSX.Element {
    * wondering whether their click registered.
    */
   const openConfirmation = async (run: Omit<PendingRun, 'preview'>): Promise<void> => {
+    const opened = (openedRuns.current += 1)
     setPending({ ...run, preview: null })
     const preview = await api
       .previewDay(run.dayStartMs ?? kstMidnightOf(kstDateValue(Date.now())))
       .catch(() => ({ kind: 'UNAVAILABLE', reason: 'READ_FAILED' }) as StartupPreview)
+    if (openedRuns.current !== opened) return
     setPending((current) => (current === null ? null : { ...current, preview }))
   }
 
@@ -267,10 +277,10 @@ export function Dashboard(): React.JSX.Element {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  // Held until the count arrives, so nobody approves a run
-                  // without the number it was supposed to show them. A count
-                  // that failed says so and lets them through anyway; a count
-                  // still running has an answer coming.
+                  // Held until this panel's own count arrives, so nobody
+                  // approves a run without the number it was supposed to show
+                  // them. A count that failed says so and lets them through
+                  // anyway; a count still running has an answer coming.
                   disabled={busy || pending.preview === null}
                   onClick={() => {
                     const request = pending.dayStartMs === null
