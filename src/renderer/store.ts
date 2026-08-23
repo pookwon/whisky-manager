@@ -50,6 +50,11 @@ export const useApp = create<AppState>((set, get) => ({
    * Only the route's own automation is fetched. Polling every automation would
    * multiply cafe traffic by the number of features for screens nobody is
    * looking at.
+   *
+   * By the same rule `commonSettings` is refetched only on the routes that
+   * display it, so it can sit stale in the store while an automation screen is
+   * open. That is invisible to the operator — every route into CommonSettings
+   * goes through setRoute, which refreshes first.
    */
   refresh: async () => {
     const { route } = get()

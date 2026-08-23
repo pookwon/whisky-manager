@@ -1,4 +1,4 @@
-import { AUTOMATIONS } from '../shared/automations/catalog.js'
+import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { dailyWindowStart } from '../shared/limits.js'
@@ -90,7 +90,11 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         executedToday: sum((automation) => automation.executedToday),
         succeededToday: sumByStatus('SUCCESS'),
         failedToday: sumByStatus('FAILED'),
-        lastOutcome: automations[0]?.lastOutcome ?? null,
+        // Named rather than positional: the banner answers "why is it quiet?",
+        // and reordering the catalogue must not silently turn that into null.
+        lastOutcome:
+          automations.find((automation) => automation.id === WELCOME_AUTOMATION_ID)?.lastOutcome ??
+          null,
         automations,
       })
     },
