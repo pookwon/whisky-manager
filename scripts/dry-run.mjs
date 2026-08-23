@@ -1,15 +1,20 @@
 /**
  * Read-only rehearsal against the live cafe.
  *
- * Runs the three calls a session makes before it writes anything — login,
- * collect, comment check — and prints what came back. It never sends EXECUTE,
- * so no comment is ever posted. Run `pnpm build` first.
+ * Runs the calls a session makes before it writes anything — login, collect,
+ * member list, comment check — then prints the verdict each candidate would
+ * get. It never sends EXECUTE, so no comment is ever posted. The members table
+ * is held in memory, so the app's database is not touched either.
+ *
+ * Run `pnpm build` first.
  *
  *   node scripts/dry-run.mjs [sincePostId]
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
+import { createMembershipResolver } from '../dist/desktop/membership.js'
+import { newMemberGuard } from '../dist/shared/automations/welcome-comment/newMember.js'
 
 const TOKEN_FILE = '.wm-probe-token'
 const PORT = 39217
@@ -18,6 +23,26 @@ const REPLY_TIMEOUT_MS = 60_000
 const SOURCE = { cafeId: '10000000', boardId: '5' }
 
 const sincePostId = process.argv[2] ?? null
+const WINDOW_DAYS = 7
+
+/**
+ * Stands in for the sqlite members table. A rehearsal must not write to the
+ * app's database, and starting empty also mirrors what a fresh install sees.
+ */
+function memoryMembersRepo() {
+  const rows = new Map()
+  return {
+    joinDateOf: (_cafeId, memberKey) => rows.get(memberKey) ?? null,
+    upsertMany: (_cafeId, batch) => {
+      for (const member of batch) rows.set(member.memberKey, member.joinDate)
+    },
+    isEmpty: () => rows.size === 0,
+    prune: (_cafeId, oldest) => {
+      for (const [key, joinDate] of rows) if (joinDate < oldest) rows.delete(key)
+    },
+    size: () => rows.size,
+  }
+}
 
 const token = existsSync(TOKEN_FILE)
   ? readFileSync(TOKEN_FILE, 'utf8').trim()
@@ -67,6 +92,39 @@ try {
   for (const c of candidates) {
     const when = new Date(c.postedAt).toLocaleString('ko-KR')
     console.log(`  ${c.postId}  ${when}  ${c.authorNickname}  ${JSON.stringify(c.bodyText).slice(0, 44)}`)
+  }
+
+  const repo = memoryMembersRepo()
+  const resolve = await createMembershipResolver({
+    transport: bridge,
+    repo,
+    cafeId: SOURCE.cafeId,
+    windowDays: WINDOW_DAYS,
+    nowMs: Date.now(),
+    newRequestId: () => randomUUID(),
+  })
+  console.log(`\n가입자 표: ${repo.size()}명 적재 (첫 실행이라 1페이지)`)
+
+  console.log(`\n판정 (창 ${WINDOW_DAYS}일):`)
+  for (const c of candidates) {
+    const membership = resolve(c)
+    if (membership === 'DEFER') {
+      console.log(`  ${c.postId}  보류 — 멤버 목록을 읽지 못해 이번 세션에서는 판정 불가`)
+      continue
+    }
+    const outcome = newMemberGuard(
+      { automationId: 'welcome-comment', ...SOURCE, ...c },
+      {
+        nowMs: Date.now(),
+        operatorAccounts: [],
+        existingCommentAuthors: [],
+        authorMembership: membership,
+        newMemberWindowDays: WINDOW_DAYS,
+      },
+    )
+    const verdict = outcome === null ? '환영 대상' : `${outcome.kind} ${outcome.reason ?? outcome.flag}`
+    const known = membership.kind === 'JOINED' ? `가입 ${membership.joinDate}` : '표에 없음'
+    console.log(`  ${c.postId}  ${c.authorNickname}  ${known}  →  ${verdict}`)
   }
 
   const sample = candidates.at(-1)

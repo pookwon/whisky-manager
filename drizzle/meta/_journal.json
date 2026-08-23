@@ -15,6 +15,20 @@
       "when": 1787455757661,
       "tag": "0001_polite_menace",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787476955579,
+      "tag": "0002_simple_scorpion",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787477973319,
+      "tag": "0003_rich_rocket_raccoon",
+      "breakpoints": true
     }
   ]
 }

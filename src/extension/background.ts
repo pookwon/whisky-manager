@@ -183,6 +183,12 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
       return
     }
 
+    case 'FETCH_MEMBERS': {
+      const members = await cafe.fetchMembers(message.cafeId, message.page, message.perPage)
+      reply({ type: 'MEMBERS', requestId: message.requestId, members })
+      return
+    }
+
     case 'PROBE':
       await probe(message.requestId, message.url, reply)
       return

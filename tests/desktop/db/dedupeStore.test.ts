@@ -68,4 +68,32 @@ describe('createSqliteDedupeStore', () => {
     await expect(s.claim({ ...input, cafeId: '99999999' })).resolves.not.toBeNull()
     expect(db.select().from(executions).all()).toHaveLength(2)
   })
+
+  it('claims only the first post from an author, whichever post it is', async () => {
+    const s = store()
+    const first = await s.claim({ ...input, postId: '1001', authorId: 'member-1' })
+    const second = await s.claim({ ...input, postId: '1002', authorId: 'member-1' })
+    expect(first).not.toBeNull()
+    expect(second).toBeNull()
+  })
+
+  it('still claims a different author on the same board', async () => {
+    const s = store()
+    await s.claim({ ...input, postId: '1001', authorId: 'member-1' })
+    await expect(s.claim({ ...input, postId: '1002', authorId: 'member-2' })).resolves.not.toBeNull()
+  })
+
+  it('claims posts with no author id independently', async () => {
+    const s = store()
+    await s.claim({ ...input, postId: '1001', authorId: null })
+    await expect(s.claim({ ...input, postId: '1002', authorId: null })).resolves.not.toBeNull()
+  })
+
+  it('keeps authors of different cafes apart', async () => {
+    const s = store()
+    await s.claim({ ...input, postId: '1001', authorId: 'member-1' })
+    await expect(
+      s.claim({ ...input, cafeId: '99999', postId: '1001', authorId: 'member-1' }),
+    ).resolves.not.toBeNull()
+  })
 })

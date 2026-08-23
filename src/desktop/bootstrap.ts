@@ -6,6 +6,7 @@ import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/
 import { openDatabase, type AppDatabase } from './db/client.js'
 import { createSqliteDedupeStore, type DedupeStore } from './db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from './db/executionsRepo.js'
+import { createMembersRepo, type MembersRepo } from './db/membersRepo.js'
 import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { createWatermarksRepo, type WatermarksRepo } from './db/watermarksRepo.js'
@@ -34,6 +35,7 @@ export interface AppRepos {
   readonly automationSettings: AutomationSettingsRepo
   readonly watermarks: WatermarksRepo
   readonly dedupe: DedupeStore
+  readonly members: MembersRepo
 }
 
 export interface AutomationControl {
@@ -94,6 +96,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     automationSettings,
     watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => randomUUID()),
+    members: createMembersRepo(db),
   }
 
   let killed = false

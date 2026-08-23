@@ -29,7 +29,7 @@ async function seedAwaiting(postId: string, detectedAt: number): Promise<string>
     postId,
     title: null,
     authorNickname: 'nick',
-    authorId: 'm1',
+    authorId: `m${postId}`,
     postedAt: detectedAt,
     detectedAt,
   })

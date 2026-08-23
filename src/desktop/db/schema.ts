@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { ExecutionStatus, ExecutionStrategy } from '../../shared/types.js'
 
 /**
@@ -37,6 +37,14 @@ export const executions = sqliteTable(
       table.cafeId,
       table.automationId,
       table.targetPostId,
+    ),
+    // Not unique on purpose. `claim` enforces one greeting per author; making
+    // the database enforce it would mean deleting rows that already carry a
+    // posted comment before the index could be created.
+    index('executions_cafe_automation_author').on(
+      table.cafeId,
+      table.automationId,
+      table.targetAuthorId,
     ),
   ],
 )
@@ -81,3 +89,20 @@ export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
 })
+
+/**
+ * Members this tool has watched join. Only what the new-member check needs is
+ * kept: the key that joins to a post's author, and the day they joined. The
+ * table starts empty and is only ever filled forward, so a member missing from
+ * it means they joined before the tool started looking.
+ */
+export const members = sqliteTable(
+  'members',
+  {
+    cafeId: text('cafe_id').notNull(),
+    memberKey: text('member_key').notNull(),
+    /** `2026.08.23.` — zero padded, so string order is date order. */
+    joinDate: text('join_date').notNull(),
+  },
+  (table) => [uniqueIndex('members_cafe_member_unique').on(table.cafeId, table.memberKey)],
+)
