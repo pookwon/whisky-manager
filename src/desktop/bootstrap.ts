@@ -8,7 +8,6 @@ import { createSqliteDedupeStore, type DedupeStore } from './db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from './db/executionsRepo.js'
 import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
-import { createWatermarksRepo, type WatermarksRepo } from './db/watermarksRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
@@ -33,7 +32,6 @@ export interface AppRepos {
   readonly executions: ExecutionsRepo
   readonly templates: TemplatesRepo
   readonly automationSettings: AutomationSettingsRepo
-  readonly watermarks: WatermarksRepo
   readonly dedupe: DedupeStore
 }
 
@@ -106,7 +104,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
     automationSettings,
-    watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => randomUUID()),
   }
 

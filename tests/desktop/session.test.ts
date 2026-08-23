@@ -10,7 +10,6 @@ import { createExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSettingsRepo.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
-import { createWatermarksRepo } from '../../src/desktop/db/watermarksRepo.js'
 import { SETTING_KEYS, createSessionRunner } from '../../src/desktop/session.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
@@ -86,7 +85,6 @@ function build(candidates: RawCandidate[]) {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
     automationSettings: createAutomationSettingsRepo(db),
-    watermarks: createWatermarksRepo(db),
     dedupe: createSqliteDedupeStore(db, () => `exec-${++counter}`),
   }
   const settings = createSettingsRepo(db)
@@ -211,16 +209,6 @@ describe('createSessionRunner', () => {
 
     expect(await run()).toMatchObject({ opened: true, executed: 0, skipped: 1 })
     expect(executed).toEqual([])
-  })
-
-  it('persists the watermark so the next session collects from there', async () => {
-    const { run, repos } = build([candidate('2001'), candidate('2002')])
-    enable(repos)
-    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
-
-    await run()
-
-    expect(repos.watermarks.get(WELCOME_AUTOMATION_ID, CAFE, BOARD)).toBe('2002')
   })
 
   it('picks up a policy change without a restart', async () => {

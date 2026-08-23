@@ -7,7 +7,6 @@ import { createAutomationSettingsRepo } from '../../../src/desktop/db/automation
 import { openDatabase, type AppDatabase } from '../../../src/desktop/db/client.js'
 import { createSettingsRepo } from '../../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../../src/desktop/db/templatesRepo.js'
-import { createWatermarksRepo } from '../../../src/desktop/db/watermarksRepo.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url))
 
@@ -105,24 +104,3 @@ describe('automationSettingsRepo', () => {
   })
 })
 
-describe('watermarksRepo', () => {
-  it('returns null before anything is recorded', () => {
-    expect(createWatermarksRepo(db).get('welcome-comment', '10000000', '5')).toBeNull()
-  })
-
-  it('round-trips a watermark per cafe and board', () => {
-    const repo = createWatermarksRepo(db)
-    repo.set('welcome-comment', '10000000', '5', '1005', 100)
-    repo.set('welcome-comment', '99999999', '5', '2005', 100)
-
-    expect(repo.get('welcome-comment', '10000000', '5')).toBe('1005')
-    expect(repo.get('welcome-comment', '99999999', '5')).toBe('2005')
-  })
-
-  it('advances an existing watermark', () => {
-    const repo = createWatermarksRepo(db)
-    repo.set('welcome-comment', '10000000', '5', '1005', 100)
-    repo.set('welcome-comment', '10000000', '5', '1010', 200)
-    expect(repo.get('welcome-comment', '10000000', '5')).toBe('1010')
-  })
-})

@@ -35,7 +35,6 @@ async function collect(
         requestId: newRequestId(),
         automationId,
         source: { cafeId, boardId },
-        sincePostId: null,
         sincePostedAt,
       },
       TIMEOUTS.collectMs,

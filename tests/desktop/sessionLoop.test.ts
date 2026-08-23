@@ -13,7 +13,6 @@ const idleOutcome: SessionOutcome = {
   awaitingApproval: 0,
   failed: 0,
   expired: 0,
-  lastProcessedPostId: null,
 }
 
 function loopDeps(overrides: Partial<SessionLoopDeps> = {}): SessionLoopDeps {

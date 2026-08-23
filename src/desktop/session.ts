@@ -102,21 +102,10 @@ export function createSessionRunner(options: SessionRunnerOptions): (isManualRun
       isKilled: options.isKilled,
       sleep: options.sleep,
       newRequestId: options.newId,
-      watermark: repos.watermarks.get(automationId, cafe, board),
       isManualRun,
       // An absent reporter has to be absent rather than undefined here.
       ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
     })
-
-    if (outcome.opened && outcome.lastProcessedPostId !== null) {
-      repos.watermarks.set(
-        automationId,
-        cafe,
-        board,
-        outcome.lastProcessedPostId,
-        options.clock.now(),
-      )
-    }
 
     return outcome
   }

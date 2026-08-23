@@ -38,7 +38,6 @@ export interface SessionDeps {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
-  readonly watermark: string | null
   /**
    * True when the session was started directly by the operator. False for
    * automated scheduled runs. Manual runs bypass the per-session cap.
@@ -71,8 +70,6 @@ export type SessionOutcome =
       awaitingApproval: number
       failed: number
       expired: number
-      /** Furthest post this session finished handling, for the watermark. */
-      lastProcessedPostId: string | null
     }
 
 interface PostWalk {
@@ -155,7 +152,7 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
   }
 }
 
-async function collect(deps: SessionDeps, sincePostedAt: number | null) {
+async function collect(deps: SessionDeps, sincePostedAt: number) {
   try {
     const reply = await deps.transport.request(
       {
@@ -163,7 +160,6 @@ async function collect(deps: SessionDeps, sincePostedAt: number | null) {
         requestId: deps.newRequestId(),
         automationId: deps.automationId,
         source: { cafeId: deps.cafeId, boardId: deps.boardId },
-        sincePostId: deps.watermark,
         sincePostedAt,
       },
       TIMEOUTS.collectMs,
@@ -351,7 +347,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   let awaitingApproval = 0
   let failed = 0
   let expired = 0
-  let lastProcessedPostId: string | null = null
   /** Requests actually sent this session. Caps count attempts, not successes. */
   let attempted = 0
 
@@ -382,7 +377,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     awaitingApproval,
     failed,
     expired,
-    lastProcessedPostId,
   })
 
   // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
@@ -415,7 +409,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     tally(result)
   }
 
-  // Collect from the start of today in KST. The watermark is not used anymore.
+  // The whole day, every session. A post passed over earlier has to come back
+  // into view, because what disqualified it can change on the cafe's side.
   const sincePostedAt = kstDayStartMs(openedAt)
   deps.onProgress?.({ phase: 'COLLECTING' })
   const raws = await collect(deps, sincePostedAt)
@@ -432,12 +427,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     })
 
     const now = deps.clock.now()
-
-    // Advance per post handled, not once after collection: if the app dies
-    // mid-session, a collection-time advance would skip everything in between.
-    if (comparePostId(raw.postId, lastProcessedPostId ?? '') > 0) {
-      lastProcessedPostId = raw.postId
-    }
 
     const executionId = await deps.dedupe.claim({
       automationId: deps.automationId,

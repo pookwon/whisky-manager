@@ -115,7 +115,6 @@ describe('previewToday', () => {
     expect(collectMessage).toBeDefined()
     if (collectMessage && collectMessage.type === 'COLLECT') {
       expect(collectMessage.sincePostedAt).toEqual(kstDayStartMs(NOW))
-      expect(collectMessage.sincePostId).toBeNull()
     }
   })
 })

@@ -131,7 +131,6 @@ try {
     type: 'COLLECT',
     automationId: 'welcome-comment',
     source: SOURCE,
-    sincePostId: null,
     // Reach back to the start of today
     sincePostedAt: kstDayStartMs(Date.now()),
   })

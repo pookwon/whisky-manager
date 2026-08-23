@@ -154,7 +154,7 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
     }
 
     case 'COLLECT': {
-      const candidates = await cafe.collect(message.source, message.sincePostId, message.sincePostedAt)
+      const candidates = await cafe.collect(message.source, message.sincePostedAt)
       reply({ type: 'COLLECTED', requestId: message.requestId, candidates })
       return
     }

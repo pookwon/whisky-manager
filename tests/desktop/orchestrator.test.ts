@@ -110,7 +110,6 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     isKilled: () => false,
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
-    watermark: null,
     isManualRun: false,
     ...overrides,
   }
@@ -216,7 +215,6 @@ describe('runSession — AUTO policy', () => {
       awaitingApproval: 0,
       failed: 0,
       expired: 0,
-      lastProcessedPostId: '1002',
     })
     expect(db.select().from(executions).all().map((r) => r.status)).toEqual(['SUCCESS', 'SUCCESS'])
   })
@@ -377,28 +375,7 @@ describe('runSession — pre-execution re-check', () => {
   })
 })
 
-describe('runSession — watermark', () => {
-  it('reports the furthest post it finished handling', async () => {
-    const transport = fakeTransport({ candidates: [candidate('8001'), candidate('8003'), candidate('8002')] })
-    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, lastProcessedPostId: '8003' })
-  })
-
-  it('reports null when nothing was collected', async () => {
-    expect(await runSession(deps({ transport: fakeTransport({ candidates: [] }) }))).toMatchObject({
-      opened: true,
-      lastProcessedPostId: null,
-    })
-  })
-
-  it('does not advance past the candidate that hit the session cap', async () => {
-    const many = [candidate('9001'), candidate('9002'), candidate('9003')]
-    const limits = { ...PROFILES.production, perSessionCap: 1 }
-    const transport = fakeTransport({ candidates: many })
-
-    // 9001 executes, 9002 is claimed then parked by the cap, 9003 is untouched.
-    expect(await runSession(deps({ transport, limits }))).toMatchObject({ lastProcessedPostId: '9002' })
-  })
-
+describe('runSession — caps', () => {
   it('a scheduled run stops at the per-session cap (15 executions)', async () => {
     const many = Array.from({ length: 20 }, (_, i) => candidate(`${6000 + i}`))
     const transport = fakeTransport({ candidates: many })

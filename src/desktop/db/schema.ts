@@ -59,24 +59,6 @@ export const automationSettings = sqliteTable('automation_settings', {
   boardId: text('board_id'),
 })
 
-export const watermarks = sqliteTable(
-  'watermarks',
-  {
-    automationId: text('automation_id').notNull(),
-    cafeId: text('cafe_id').notNull(),
-    boardId: text('board_id').notNull(),
-    lastSeenPostId: text('last_seen_post_id').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-  },
-  (table) => [
-    uniqueIndex('watermarks_cafe_automation_board_unique').on(
-      table.cafeId,
-      table.automationId,
-      table.boardId,
-    ),
-  ],
-)
-
 export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
