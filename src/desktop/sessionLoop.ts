@@ -23,6 +23,12 @@ export interface SessionLoop {
   stop(): void
   isRunning(): boolean
   runOnce(): Promise<void>
+  /**
+   * Returns the epoch timestamp of the next scheduled session, or null if the
+   * loop is not running. This lets the renderer show when the next session is
+   * due without needing to duplicate the scheduling logic.
+   */
+  nextRunAt(): number | null
 }
 
 /** Consecutive login-check failures tolerated before halting. */
@@ -36,6 +42,7 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
   let timer: TimerHandle | null = null
   let running = false
   let loginFailureStreak = 0
+  let nextScheduledAt: number | null = null
 
   function stopAll(): void {
     running = false
@@ -43,6 +50,7 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
       deps.clearTimer(timer)
       timer = null
     }
+    nextScheduledAt = null
   }
 
   /**
@@ -98,6 +106,7 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
   function schedule(): void {
     const now = deps.clock.now()
     const at = nextSessionStart(now, deps.limits, deps.clock, deps.random)
+    nextScheduledAt = at
     timer = deps.setTimer(() => {
       void runOnce().finally(() => {
         if (running) schedule()
@@ -118,6 +127,10 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
 
     isRunning() {
       return running
+    },
+
+    nextRunAt() {
+      return nextScheduledAt
     },
 
     runOnce,

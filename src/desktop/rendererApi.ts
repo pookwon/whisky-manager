@@ -18,6 +18,7 @@ import type { ExtensionTransport } from './ws/server.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
+  BridgeStatus,
   CommonSettingsView,
   DashboardSnapshot,
   RendererApi,
@@ -32,8 +33,14 @@ export interface RendererApiDeps {
   readonly automation: AutomationControl
   /** The most recent session result for one automation, or null if it never ran. */
   readonly lastOutcome: (automationId: string) => SessionOutcome | null
+  /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
+  readonly lastOutcomeAt: () => number | null
   /** Greeting target count available at startup, or null if not yet counted. */
   readonly getStartupPreview: () => import('./preview.js').StartupPreview | null
+  /** Epoch timestamp when the bridge last connected, or null if never. */
+  readonly lastBridgeConnectedAt: () => number | null
+  /** When the next session is scheduled to run, or null if the loop is not running. */
+  readonly nextSessionAt: () => number | null
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -47,6 +54,39 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   const { repos, settings } = deps
 
   const setting = (automationId: string) => repos.automationSettings.get(automationId)
+
+  /**
+   * Calculates bridge status based on connection state and time since last connection.
+   * CONNECTED: socket is currently connected.
+   * RECONNECTING: socket is disconnected but was connected recently (within 90 seconds).
+   * OFFLINE: socket is disconnected and was never connected, or was last connected
+   * more than 90 seconds ago.
+   *
+   * The 90-second grace period is longer than the extension's 60-second reconnection
+   * cycle, so normal service worker teardown and wake-up cycles are reported as
+   * RECONNECTING rather than OFFLINE.
+   */
+  function calculateBridgeStatus(): BridgeStatus {
+    if (deps.bridge.isConnected()) {
+      return 'CONNECTED'
+    }
+
+    const lastConnected = deps.lastBridgeConnectedAt()
+    if (lastConnected === null) {
+      // Never connected
+      return 'OFFLINE'
+    }
+
+    const now = deps.clock.now()
+    const disconnectedFor = now - lastConnected
+    const GRACE_PERIOD_MS = 90 * 1000
+
+    if (disconnectedFor < GRACE_PERIOD_MS) {
+      return 'RECONNECTING'
+    }
+
+    return 'OFFLINE'
+  }
 
   const upsert = (
     automationId: string,
@@ -99,6 +139,9 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           null,
         automations,
         startupPreview: deps.getStartupPreview(),
+        lastOutcomeAt: deps.lastOutcomeAt(),
+        nextSessionAt: deps.nextSessionAt(),
+        bridgeStatus: calculateBridgeStatus(),
       })
     },
 

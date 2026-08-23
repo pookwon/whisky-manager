@@ -43,6 +43,9 @@ const snapshot: DashboardSnapshot = {
   lastOutcome: null,
   automations: [],
   startupPreview: null,
+  lastOutcomeAt: null,
+  nextSessionAt: null,
+  bridgeStatus: 'OFFLINE',
 }
 
 const commonSettings: CommonSettingsView = {

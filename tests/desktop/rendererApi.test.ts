@@ -49,6 +49,7 @@ function build() {
       control.killed = true
     },
     isRunning: () => control.running,
+    nextRunAt: () => null,
     runOnce: () => {
       control.ranOnce += 1
       return Promise.resolve()
@@ -60,7 +61,10 @@ function build() {
     bridge: { isConnected: () => true, request: () => Promise.reject(new Error('not used in this test')) },
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
+    lastOutcomeAt: () => null,
     getStartupPreview: () => null,
+    lastBridgeConnectedAt: () => null,
+    nextSessionAt: () => null,
     clock: new FakeClock(MON_10_00),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
@@ -121,6 +125,9 @@ describe('getDashboard', () => {
         },
       ],
       startupPreview: null,
+      lastOutcomeAt: null,
+      nextSessionAt: null,
+      bridgeStatus: 'CONNECTED',
     })
   })
 
