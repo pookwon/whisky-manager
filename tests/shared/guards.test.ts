@@ -23,6 +23,8 @@ function ctx(overrides: Partial<GuardContext> = {}): GuardContext {
     nowMs: 1_700_000_100_000,
     operatorAccounts: ['cafe-ops'],
     existingCommentAuthors: [],
+    authorMembership: { kind: 'JOINED', joinDate: '2026.08.23.' },
+    newMemberWindowDays: 7,
     ...overrides,
   }
 }

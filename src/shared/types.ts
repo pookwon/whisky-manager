@@ -25,7 +25,7 @@ export type RiskFlag =
   | 'ENDPOINT_MISMATCH'
   | 'COMMENT_CHECK_FAILED'
 
-export type SkipReason = 'ALREADY_COMMENTED' | 'RISK_FLAGGED' | 'REJECTED_BY_OPERATOR'
+export type SkipReason = 'ALREADY_COMMENTED' | 'RISK_FLAGGED' | 'REJECTED_BY_OPERATOR' | 'NOT_NEW_MEMBER'
 
 export type GateBlockReason = 'KILLED' | 'DAILY_CAP_EXCEEDED' | 'SESSION_CAP_REACHED'
 
@@ -81,3 +81,11 @@ export interface CommentAuthor {
   readonly nickname: string
   readonly memberKey: string
 }
+
+/**
+ * What the members table knows about a post's author. `NOT_TRACKED` is an
+ * answer, not a gap: the table is only ever filled forward, so a member missing
+ * from it joined before the tool started looking. A lookup that could not be
+ * performed never reaches a guard — the orchestrator holds that post instead.
+ */
+export type AuthorMembership = { kind: 'JOINED'; joinDate: string } | { kind: 'NOT_TRACKED' }

@@ -391,6 +391,10 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors: raw.existingCommentAuthors,
+      // Task 7 will resolve and provide the author's actual membership status.
+      // For now, conservatively treat all posts as not tracked (old members).
+      authorMembership: { kind: 'NOT_TRACKED' },
+      newMemberWindowDays: 7,
     })
     const evaluation = rendered.ok
       ? guardEvaluation
