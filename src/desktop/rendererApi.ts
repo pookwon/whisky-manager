@@ -32,6 +32,8 @@ export interface RendererApiDeps {
   readonly automation: AutomationControl
   /** The most recent session result for one automation, or null if it never ran. */
   readonly lastOutcome: (automationId: string) => SessionOutcome | null
+  /** Greeting target count available at startup, or null if not yet counted. */
+  readonly getStartupPreview: () => import('./preview.js').StartupPreview | null
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -96,6 +98,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           automations.find((automation) => automation.id === WELCOME_AUTOMATION_ID)?.lastOutcome ??
           null,
         automations,
+        startupPreview: deps.getStartupPreview(),
       })
     },
 

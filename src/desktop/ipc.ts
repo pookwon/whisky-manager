@@ -1,5 +1,6 @@
 import type { SessionOutcome } from './orchestrator.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
+import type { StartupPreview } from './preview.js'
 
 export const IPC_CHANNELS = {
   getDashboard: 'wm:getDashboard',
@@ -38,6 +39,13 @@ export interface DashboardSnapshot {
   readonly lastOutcome: SessionOutcome | null
   /** One row per catalogued automation, so "why is it quiet?" is answerable per feature. */
   readonly automations: readonly AutomationStatus[]
+  /**
+   * Count of greeting targets available at startup, once the bridge connects.
+   * Null means not yet counted; a READY state with count is advisory before the
+   * operator triggers the automation; UNAVAILABLE explains why the count could
+   * not be taken. Never re-counts during the app session to avoid repeated hits.
+   */
+  readonly startupPreview: StartupPreview | null
 }
 
 export interface AwaitingItem {

@@ -55,6 +55,14 @@ export const ko = {
         COLLECT_FAILED: '글 목록을 가져오지 못했습니다',
       },
     },
+    startup: {
+      heading: '오늘 환영할 대상',
+      count: '{{count}}명',
+      unavailable: {
+        BRIDGE_OFFLINE: '확인하지 못했습니다 (확장 미연결)',
+        READ_FAILED: '확인하지 못했습니다 (읽기 실패)',
+      },
+    },
     time: {
       justNow: '방금',
       minutesAgo: '{{count}}분 전',
