@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
+import { kstDayStartMs } from '../dist/shared/kst.js'
 import { createMembershipResolver } from '../dist/desktop/membership.js'
 import { newMemberGuard } from '../dist/shared/automations/welcome-comment/newMember.js'
 
@@ -86,6 +87,8 @@ try {
     automationId: 'welcome-comment',
     source: SOURCE,
     sincePostId,
+    // Mirrors a session with no watermark: reach back to the start of today.
+    sincePostedAt: sincePostId === null ? kstDayStartMs(Date.now()) : null,
   })
   const candidates = collected.candidates ?? []
   console.log(`\n수집 ${candidates.length}건 (오래된 순, sincePostId=${sincePostId ?? '없음'})`)
