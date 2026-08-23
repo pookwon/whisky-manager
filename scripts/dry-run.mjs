@@ -142,19 +142,24 @@ try {
   console.log('로그인:', login.loggedIn ? `${login.account} 로 로그인됨` : '미로그인')
   if (!login.loggedIn) throw new Error('로그인되지 않아 중단합니다')
 
+  const collectStartedAt = Date.now()
   const collected = await ask({
     type: 'COLLECT',
     automationId: 'welcome-comment',
     source: SOURCE,
     sincePostedAt: dayStart,
   })
+  const collectMs = Date.now() - collectStartedAt
 
   // Collection takes a floor and no ceiling, so rehearsing an earlier day drags
   // in everything since. Trimming to the day reproduces what a session running
   // that day actually had in hand — which matters for the earliest-post-per-
   // author rule, decided over exactly this set.
   const candidates = (collected.candidates ?? []).filter((c) => c.postedAt < dayEnd)
-  console.log(`\n수집 ${candidates.length}건 (오래된 순)`)
+  console.log(
+    `\n수집 ${candidates.length}건 (오래된 순) — 조회에 ${(collectMs / 1000).toFixed(1)}초, ` +
+      `전체 ${collected.candidates?.length ?? 0}건`,
+  )
   for (const c of candidates) {
     const when = new Date(c.postedAt).toLocaleString('ko-KR')
     console.log(`  ${c.postId}  ${when}  ${c.authorNickname}  ${JSON.stringify(c.bodyText).slice(0, 44)}`)

@@ -1,40 +1,24 @@
 /**
- * Naver renders cafe timestamps in the cafe's own timezone, and the member list
- * gives join dates with no time at all. Both live here so the offset is written
- * once, and so a date-only value is never compared as though it carried a clock.
+ * Naver renders cafe timestamps in the cafe's own timezone. The offset is
+ * written once, here, so no caller has to remember it.
  */
 export const KST_OFFSET_MS = 9 * 60 * 60 * 1000
 
 const MS_PER_DAY = 86_400_000
-const JOIN_DATE = /^(\d{4})\.(\d{2})\.(\d{2})\.$/
 
 /** Days since the epoch, counted on the KST calendar. */
-export function kstDayOf(epochMs: number): number {
+function kstDayOf(epochMs: number): number {
   return Math.floor((epochMs + KST_OFFSET_MS) / MS_PER_DAY)
 }
 
-/** `null` when the string is not the `2026.08.23.` shape the cafe sends. */
-export function joinDateToKstDay(joinDate: string): number | null {
-  const match = JOIN_DATE.exec(joinDate)
-  if (match === null) return null
-  const [, year, month, day] = match
-  return Math.floor(Date.UTC(Number(year), Number(month) - 1, Number(day)) / MS_PER_DAY)
-}
-
 /**
- * Inverse of `joinDateToKstDay`. Pruning compares join dates as strings, which
- * only works because the format is zero-padded and therefore sorts by date.
- */
-export function kstDayToJoinDate(day: number): string {
-  const date = new Date(day * MS_PER_DAY)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}.`
-}
-
-/**
- * Returns the epoch ms of midnight KST (00:00:00) for the KST day that contains
- * the given epoch ms. This is the start of the KST calendar day.
+ * The instant midnight KST began, for the KST day containing `epochMs`.
+ *
+ * The day number counts days that were shifted forward by the offset, so
+ * shifting back is what turns it into an instant again. Without that the result
+ * lands on UTC midnight — nine hours into the KST day — and a floor built from
+ * it sits in the future all morning, matching nothing.
  */
 export function kstDayStartMs(epochMs: number): number {
-  return kstDayOf(epochMs) * MS_PER_DAY
+  return kstDayOf(epochMs) * MS_PER_DAY - KST_OFFSET_MS
 }
