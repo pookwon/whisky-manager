@@ -1,4 +1,5 @@
 import { parse, type HTMLElement } from 'node-html-parser'
+import { KST_OFFSET_MS } from '../../kst.js'
 import type { RawCandidate } from '../../protocol.js'
 import type { CommentAuthor } from '../../types.js'
 
@@ -14,8 +15,6 @@ import type { CommentAuthor } from '../../types.js'
  */
 const SECTION = '.memo_lst_section'
 const POST_ID = /^post_(\d+)$/
-/** Naver renders the cafe's own timezone; this cafe is Korean. */
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000
 const TIMESTAMP = /(\d{4})\.(\d{2})\.(\d{2})\.\s*(\d{2}):(\d{2})/
 const COMMENT_COUNT = /(\d+)/
 
