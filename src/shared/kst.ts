@@ -30,3 +30,11 @@ export function kstDayToJoinDate(day: number): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}.`
 }
+
+/**
+ * Returns the epoch ms of midnight KST (00:00:00) for the KST day that contains
+ * the given epoch ms. This is the start of the KST calendar day.
+ */
+export function kstDayStartMs(epochMs: number): number {
+  return kstDayOf(epochMs) * MS_PER_DAY
+}

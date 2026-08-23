@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { joinDateToKstDay, kstDayOf, kstDayToJoinDate } from '../../src/shared/kst.js'
+import { joinDateToKstDay, kstDayOf, kstDayToJoinDate, kstDayStartMs } from '../../src/shared/kst.js'
 
 describe('kstDayOf', () => {
   it('counts the KST calendar day, not the UTC one', () => {
@@ -41,5 +41,22 @@ describe('kstDayToJoinDate', () => {
   it('pads single digit months and days', () => {
     const day = joinDateToKstDay('2026.01.05.')
     expect(kstDayToJoinDate(day as number)).toBe('2026.01.05.')
+  })
+})
+
+describe('kstDayStartMs', () => {
+  it('returns the epoch ms of midnight KST for the given epoch ms', () => {
+    // 2026-08-23 00:30 KST falls on 2026-08-23 KST, so its day start is 2026-08-22 15:00 UTC
+    const justAfterKstMidnight = Date.UTC(2026, 7, 22, 15, 30)
+    // 2026-08-23 23:00 KST also falls on 2026-08-23 KST, so its day start is the same
+    const lateSameKstDay = Date.UTC(2026, 7, 23, 14, 0)
+    // Day start should be consistent within same KST day
+    expect(kstDayStartMs(justAfterKstMidnight)).toBe(kstDayStartMs(lateSameKstDay))
+  })
+
+  it('distinguishes between different KST days', () => {
+    const day1End = Date.UTC(2026, 7, 22, 14, 59) // Still 2026-08-22 KST
+    const day2Start = Date.UTC(2026, 7, 22, 15, 0) // 2026-08-23 00:00 KST
+    expect(kstDayStartMs(day1End)).not.toBe(kstDayStartMs(day2Start))
   })
 })

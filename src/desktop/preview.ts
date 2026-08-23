@@ -37,6 +37,7 @@ async function collect(
         automationId,
         source: { cafeId, boardId },
         sincePostId: null,
+        sincePostedAt: null,
       },
       TIMEOUTS.collectMs,
     )

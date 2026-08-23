@@ -4,6 +4,7 @@ import type { Clock, Random } from '../shared/ports.js'
 import { laterPostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
 import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
+import { kstDayStartMs } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
@@ -105,7 +106,7 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
   }
 }
 
-async function collect(deps: SessionDeps) {
+async function collect(deps: SessionDeps, sincePostedAt: number | null) {
   try {
     const reply = await deps.transport.request(
       {
@@ -114,6 +115,7 @@ async function collect(deps: SessionDeps) {
         automationId: deps.automationId,
         source: { cafeId: deps.cafeId, boardId: deps.boardId },
         sincePostId: deps.watermark,
+        sincePostedAt,
       },
       TIMEOUTS.collectMs,
     )
@@ -359,7 +361,10 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     tally(result)
   }
 
-  const raws = await collect(deps)
+  // When there is no watermark, use the start of today in KST as the floor.
+  // When a watermark exists, sincePostedAt is ignored by the extension.
+  const sincePostedAt = deps.watermark === null ? kstDayStartMs(openedAt) : null
+  const raws = await collect(deps, sincePostedAt)
   if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
 
   for (const raw of raws) {
