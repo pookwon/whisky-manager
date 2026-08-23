@@ -10,6 +10,7 @@ import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
+import type { RunMode } from '../shared/types.js'
 import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
@@ -143,9 +144,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * session that died would otherwise leave the dashboard claiming it is still
    * working on someone.
    */
-  const runSessionReportingProgress = async (isManualRun?: boolean): Promise<SessionOutcome> => {
+  const runSessionReportingProgress = async (runMode?: RunMode): Promise<SessionOutcome> => {
     try {
-      return await runSession(isManualRun)
+      return await runSession(runMode)
     } finally {
       sessionProgress = null
     }

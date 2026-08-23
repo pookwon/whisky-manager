@@ -3,7 +3,7 @@ import { firstPostOnlyGuard } from '../shared/automations/welcome-comment/firstP
 import type { Clock, Random } from '../shared/ports.js'
 import { PROFILES } from '../shared/profiles.js'
 import { pickTemplate, renderTemplate } from '../shared/templates.js'
-import type { Candidate, Profile } from '../shared/types.js'
+import type { Candidate, Profile, RunMode } from '../shared/types.js'
 import type { AppRepos } from './bootstrap.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import {
@@ -59,12 +59,14 @@ export function parseOperatorAccounts(raw: string | undefined): string[] {
  * Everything is read per run, so a policy or template change takes effect on
  * the next session without restarting the app.
  */
-export function createSessionRunner(options: SessionRunnerOptions): (isManualRun?: boolean) => Promise<SessionOutcome> {
+export function createSessionRunner(
+  options: SessionRunnerOptions,
+): (runMode?: RunMode) => Promise<SessionOutcome> {
   const { automationId, repos, settings } = options
 
   const cafeId = () => settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID
 
-  return async function run(isManualRun = true): Promise<SessionOutcome> {
+  return async function run(runMode: RunMode = 'MANUAL'): Promise<SessionOutcome> {
     const setting = repos.automationSettings.get(automationId)
     const limits = { ...PROFILES[options.profile], ...(setting?.limits ?? {}) }
     const cafe = cafeId()
@@ -102,7 +104,7 @@ export function createSessionRunner(options: SessionRunnerOptions): (isManualRun
       isKilled: options.isKilled,
       sleep: options.sleep,
       newRequestId: options.newId,
-      isManualRun,
+      runMode,
       // An absent reporter has to be absent rather than undefined here.
       ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
     })

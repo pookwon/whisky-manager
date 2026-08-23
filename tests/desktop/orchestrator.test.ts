@@ -110,7 +110,7 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     isKilled: () => false,
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
-    isManualRun: false,
+    runMode: 'SCHEDULED',
     ...overrides,
   }
 }
@@ -380,7 +380,7 @@ describe('runSession — caps', () => {
     const many = Array.from({ length: 20 }, (_, i) => candidate(`${6000 + i}`))
     const transport = fakeTransport({ candidates: many })
 
-    const outcome = await runSession(deps({ transport, isManualRun: false }))
+    const outcome = await runSession(deps({ transport, runMode: 'SCHEDULED' }))
     expect(outcome).toMatchObject({ opened: true, executed: 15 })
   })
 
@@ -388,7 +388,7 @@ describe('runSession — caps', () => {
     const many = Array.from({ length: 20 }, (_, i) => candidate(`${7000 + i}`))
     const transport = fakeTransport({ candidates: many })
 
-    const outcome = await runSession(deps({ transport, isManualRun: true }))
+    const outcome = await runSession(deps({ transport, runMode: 'MANUAL' }))
     expect(outcome).toMatchObject({ opened: true, executed: 20 })
   })
 
@@ -397,7 +397,7 @@ describe('runSession — caps', () => {
     const transport = fakeTransport({ candidates: many })
     const limits = { ...PROFILES.production, dailyCap: 20 }
 
-    const outcome = await runSession(deps({ transport, limits, isManualRun: true }))
+    const outcome = await runSession(deps({ transport, limits, runMode: 'MANUAL' }))
     expect(outcome).toMatchObject({ opened: true, executed: 20, expired: 10 })
   })
 })
@@ -761,5 +761,77 @@ describe('runSession — first post detection', () => {
     // author1Post executed, unknownAuthorPost skipped (for RISK)
     expect(outcome.executed).toBeGreaterThanOrEqual(1)
     expect(outcome.skipped).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('runSession — forced runs', () => {
+  const NIGHT = Date.UTC(2026, 7, 24, 3, 0, 0)
+
+  it('opens outside the operating window, where a manual run would not', async () => {
+    const clock = new FakeClock(NIGHT)
+
+    expect(await runSession(deps({ clock, runMode: 'MANUAL' }))).toEqual({
+      opened: false,
+      reason: 'OUTSIDE_ACTIVE_HOURS',
+    })
+    expect(await runSession(deps({ clock, runMode: 'FORCED' }))).toMatchObject({ opened: true })
+  })
+
+  it('opens despite a backlog old enough to stop the schedule', async () => {
+    // Same shape the brake was built for: an approval a human left sitting,
+    // older than the backlog limit but younger than its own expiry.
+    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), existingCommentAuthors: null }
+    await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
+    expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
+
+    expect(await runSession(deps({ runMode: 'SCHEDULED' }))).toEqual({
+      opened: false,
+      reason: 'STALE_BACKLOG',
+    })
+    expect(await runSession(deps({ runMode: 'FORCED' }))).toMatchObject({ opened: true })
+  })
+
+  it('carries on past the daily cap', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => candidate(`${9100 + i}`))
+    const limits = { ...PROFILES.production, dailyCap: 20 }
+
+    const outcome = await runSession(
+      deps({ transport: fakeTransport({ candidates: many }), limits, runMode: 'FORCED' }),
+    )
+    expect(outcome).toMatchObject({ opened: true, executed: 30, expired: 0 })
+  })
+
+  it('still refuses when the kill switch is engaged', async () => {
+    expect(await runSession(deps({ runMode: 'FORCED', isKilled: () => true }))).toEqual({
+      opened: false,
+      reason: 'KILLED',
+    })
+  })
+
+  it('still refuses when the automation is switched off', async () => {
+    expect(await runSession(deps({ runMode: 'FORCED', isEnabled: () => false }))).toEqual({
+      opened: false,
+      reason: 'DISABLED',
+    })
+  })
+
+  it('stops within one post of the kill switch being thrown', async () => {
+    // The only way back out of a long forced run.
+    let killed = false
+    const many = Array.from({ length: 10 }, (_, i) => candidate(`${9200 + i}`))
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: many }),
+        runMode: 'FORCED',
+        isKilled: () => killed,
+        sleep: () => {
+          killed = true
+          return Promise.resolve()
+        },
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0 })
   })
 })

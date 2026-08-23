@@ -5,6 +5,53 @@ import { PROFILES } from '../../src/shared/profiles.js'
 const limits = PROFILES.production
 const HOUR = 3_600_000
 
+describe('checkGates by run mode', () => {
+  const atBothCaps = { killed: false, dailyCount: 200, sessionCount: 15 }
+  const atSessionCap = { killed: false, dailyCount: 0, sessionCount: 15 }
+
+  it('holds a scheduled session to both caps', () => {
+    expect(checkGates(atSessionCap, limits, 'SCHEDULED')).toEqual({
+      allowed: false,
+      reason: 'SESSION_CAP_REACHED',
+    })
+    expect(checkGates({ killed: false, dailyCount: 200, sessionCount: 0 }, limits, 'SCHEDULED')).toEqual({
+      allowed: false,
+      reason: 'DAILY_CAP_EXCEEDED',
+    })
+  })
+
+  it('lets a manual run past the session cap but not the daily one', () => {
+    expect(checkGates(atSessionCap, limits, 'MANUAL')).toEqual({ allowed: true })
+    expect(checkGates({ killed: false, dailyCount: 200, sessionCount: 0 }, limits, 'MANUAL')).toEqual({
+      allowed: false,
+      reason: 'DAILY_CAP_EXCEEDED',
+    })
+  })
+
+  it('lets a forced run past both caps', () => {
+    expect(checkGates(atBothCaps, limits, 'FORCED')).toEqual({ allowed: true })
+  })
+
+  it('stops every mode at the kill switch', () => {
+    // The one thing an operator can always reach. A mode that outranked it
+    // would leave a long run with no way out.
+    for (const mode of ['SCHEDULED', 'MANUAL', 'FORCED'] as const) {
+      expect(checkGates({ killed: true, dailyCount: 0, sessionCount: 0 }, limits, mode)).toEqual({
+        allowed: false,
+        reason: 'KILLED',
+      })
+    }
+  })
+
+  it('treats an unstated mode as the strictest one', () => {
+    // Forgetting the argument must not quietly widen what a session may do.
+    expect(checkGates(atSessionCap, limits)).toEqual({
+      allowed: false,
+      reason: 'SESSION_CAP_REACHED',
+    })
+  })
+})
+
 describe('checkGates', () => {
   it('allows a normal candidate', () => {
     expect(checkGates({ killed: false, dailyCount: 10, sessionCount: 2 }, limits)).toEqual({ allowed: true })

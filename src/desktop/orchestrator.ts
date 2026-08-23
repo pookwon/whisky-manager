@@ -7,7 +7,7 @@ import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from
 import { kstDayRange, kstDayStartMs } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
-import type { ApprovalPolicy, Candidate, CommentAuthor, Limits } from '../shared/types.js'
+import type { ApprovalPolicy, Candidate, CommentAuthor, Limits, RunMode } from '../shared/types.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
@@ -39,10 +39,11 @@ export interface SessionDeps {
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
   /**
-   * True when the session was started directly by the operator. False for
-   * automated scheduled runs. Manual runs bypass the per-session cap.
+   * Who asked for this session. A forced run is an operator who was shown what
+   * they were overriding and chose to go ahead, so it passes the operating
+   * window, the caps and the backlog brake — but never the kill switch.
    */
-  readonly isManualRun: boolean
+  readonly runMode: RunMode
   /** Reports what the session is doing. Nothing about a run depends on anyone listening. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
@@ -225,7 +226,7 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters):
   const gate = checkGates(
     { killed: deps.isKilled(), dailyCount: counters.dailyCount, sessionCount: counters.sessionCount },
     deps.limits,
-    deps.isManualRun,
+    deps.runMode,
   )
   if (!gate.allowed) {
     const now = deps.clock.now()
@@ -333,7 +334,8 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   }
 
   const openedAt = deps.clock.now()
-  if (!isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
+  const forced = deps.runMode === 'FORCED'
+  if (!forced && !isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
     return { opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' }
   }
 
@@ -347,8 +349,11 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   sweepApprovals(deps.repo, deps.automationId, deps.limits, openedAt)
   promoteRetries(deps.repo, deps.automationId, deps.limits, openedAt)
 
+  // The brake reads a days-old backlog as a sign something is broken and stops.
+  // A forced run is an operator saying they have looked and want it to go
+  // anyway; the schedule can never make that call for itself.
   const unresolved = deps.repo.listUnresolved(deps.automationId)
-  if (hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
+  if (!forced && hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
     return { opened: false, reason: 'STALE_BACKLOG' }
   }
 

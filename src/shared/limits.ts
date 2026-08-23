@@ -1,4 +1,4 @@
-import type { GateBlockReason, Limits } from './types.js'
+import type { GateBlockReason, Limits, RunMode } from './types.js'
 
 export interface GateContext {
   readonly killed: boolean
@@ -10,18 +10,24 @@ export interface GateContext {
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: GateBlockReason }
 
+/**
+ * The mode defaults to the strictest one: a caller that forgets to say who
+ * asked must not end up with a session that may do more, only less.
+ */
 export function checkGates(
   ctx: GateContext,
   limits: Limits,
-  isManualRun?: boolean,
+  mode: RunMode = 'SCHEDULED',
 ): GateVerdict {
+  // Ahead of every cap, and answered the same way for every mode. It is the
+  // only control that can stop a run already under way.
   if (ctx.killed) {
     return { allowed: false, reason: 'KILLED' }
   }
-  if (ctx.dailyCount >= limits.dailyCap) {
+  if (mode !== 'FORCED' && ctx.dailyCount >= limits.dailyCap) {
     return { allowed: false, reason: 'DAILY_CAP_EXCEEDED' }
   }
-  if (!isManualRun && ctx.sessionCount >= limits.perSessionCap) {
+  if (mode === 'SCHEDULED' && ctx.sessionCount >= limits.perSessionCap) {
     return { allowed: false, reason: 'SESSION_CAP_REACHED' }
   }
   return { allowed: true }
