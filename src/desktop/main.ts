@@ -1,6 +1,7 @@
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage } from 'electron'
+import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage } from 'electron'
 import { PROFILES } from '../shared/profiles.js'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
@@ -72,6 +73,27 @@ function registerIpc(api: RendererApi): void {
   }
 }
 
+/**
+ * A throw while the app is coming up otherwise reaches nobody. There is no
+ * window to show it in yet, so the process aborts and leaves a crash report
+ * naming Electron rather than the failure — which is unreadable to the
+ * operator and near-useless to whoever is asked to fix it. Writing it down and
+ * saying so out loud is the difference between a fault that can be read and
+ * one that can only be guessed at.
+ */
+function reportFatalStartupError(error: unknown): void {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  console.error('[startup] failed:', detail)
+  try {
+    writeFileSync(join(app.getPath('userData'), 'startup-error.log'), `${detail}\n`)
+  } catch {
+    // The log is a convenience. Failing to write it must not replace the
+    // original fault with a second one.
+  }
+  dialog.showErrorBox('시작하지 못했습니다', detail)
+  app.quit()
+}
+
 void app.whenReady().then(async () => {
   // Only the installed build registers itself to start with the machine. A dev
   // run must not leave a login item pointing at a temporary electron binary.
@@ -120,7 +142,7 @@ void app.whenReady().then(async () => {
   tray.setToolTip('카페 관리')
   refreshTray(context)
   showWindow()
-})
+}).catch(reportFatalStartupError)
 
 // Tray-resident: closing the window must not quit the app.
 app.on('window-all-closed', () => {})
