@@ -174,13 +174,17 @@ try {
   for (const c of candidates) {
     const isFirstPost = firstPosts.get(c.authorId) === c.postId
 
+    // The list gives a count, never the names. Until the lookup lands, a count
+    // above zero is handed on as "unknown", which is what the guards already do
+    // with it — behaviour is unchanged and only the source of the value moved.
+    const existingCommentAuthors = c.commentCount === 0 ? [] : null
     const evaluation = evaluateGuards(
       [operatorAlreadyCommentedGuard, firstPostOnlyGuard],
       c,
       {
         nowMs: Date.now(),
         operatorAccounts,
-        existingCommentAuthors: c.existingCommentAuthors,
+        existingCommentAuthors,
         isFirstPostByAuthor: isFirstPost,
       },
     )

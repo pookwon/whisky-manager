@@ -484,10 +484,14 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     // Render before deciding so a failed substitution can raise a risk flag
     // and let the policy handle it, instead of being discovered too late.
     const rendered = deps.renderBody(candidate)
+    // The list gives a count, never the names. Until the lookup lands, a count
+    // above zero is handed on as "unknown", which is what the guards already do
+    // with it — behaviour is unchanged and only the source of the value moved.
+    const existingCommentAuthors = raw.commentCount === 0 ? [] : null
     const guardEvaluation = evaluateGuards(deps.guards, candidate, {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
-      existingCommentAuthors: raw.existingCommentAuthors,
+      existingCommentAuthors,
       isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     })
     const evaluation = rendered.ok

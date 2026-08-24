@@ -98,10 +98,14 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
       postedAt: raw.postedAt,
     }
 
+    // The list gives a count, never the names. Until the lookup lands, a count
+    // above zero is handed on as "unknown", which is what the guards already do
+    // with it — behaviour is unchanged and only the source of the value moved.
+    const existingCommentAuthors = raw.commentCount === 0 ? [] : null
     const guardContext: GuardContext = {
       nowMs: deps.nowMs,
       operatorAccounts: deps.operatorAccounts,
-      existingCommentAuthors: raw.existingCommentAuthors,
+      existingCommentAuthors,
       isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     }
 
@@ -109,7 +113,7 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
     // whether the greeting has been answered, and an empty list is the board
     // saying nobody has. `null` is a comment count above zero the list will
     // not name, which on this board means somebody got there first.
-    if (raw.existingCommentAuthors === null || raw.existingCommentAuthors.length > 0) {
+    if (raw.commentCount === null || raw.commentCount > 0) {
       alreadyHandled += 1
     }
 

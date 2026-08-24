@@ -29,7 +29,7 @@ function candidate(postId: string, nickname: string | null = '신입회원'): Ra
     authorNickname: nickname,
     authorId: 'm1',
     postedAt: MON_10_00 - 60_000,
-    existingCommentAuthors: [],
+    commentCount: 0,
   }
 }
 
@@ -278,17 +278,24 @@ describe('createSessionRunner', () => {
     expect(await run()).toMatchObject({ opened: true, executed: 1 })
   })
 
-  it('skips a post any configured operator account already greeted', async () => {
+  it('skips a post somebody has commented on, without knowing who', async () => {
+    // The list gives a count and never the names, so a post with any comment
+    // is unknown rather than answered. AUTO refuses what it cannot establish.
+    // The case where an operator is known to have answered comes from the
+    // re-check right before writing, and is covered in the orchestrator tests.
     const greeted = {
       ...candidate('5001'),
-      existingCommentAuthors: [{ nickname: 'staff-personal', memberKey: 'key-staff' }],
+      commentCount: 1,
     }
     const { run, repos, settings } = build([greeted])
     enable(repos)
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
     settings.set(SETTING_KEYS.operatorAccounts, JSON.stringify(['cafe-ops', 'staff-personal']))
 
+    // With commentCount > 0, existingCommentAuthors becomes null, triggering COMMENT_CHECK_FAILED.
+    // In AUTO mode, risk flags cause a skip with reason 'RISK_FLAGGED'.
     expect(await run()).toMatchObject({ opened: true, executed: 0, skipped: 1 })
-    expect(db.select().from(executions).all()[0]?.reason).toBe('ALREADY_COMMENTED')
+    expect(db.select().from(executions).all()[0]?.reason).toBe('RISK_FLAGGED')
+    expect(db.select().from(executions).all()[0]?.riskFlags).toContain('COMMENT_CHECK_FAILED')
   })
 })

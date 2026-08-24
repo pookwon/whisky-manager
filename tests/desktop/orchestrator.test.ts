@@ -79,7 +79,7 @@ function candidate(postId: string, postedAt = MON_10_00 - 60_000): RawCandidate 
     authorNickname: 'nick',
     authorId: `m${postId}`,
     postedAt,
-    existingCommentAuthors: [],
+    commentCount: 0,
   }
 }
 
@@ -137,7 +137,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const post2: RawCandidate = {
       postId: '1002',
@@ -146,7 +146,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const result = firstPostIdByAuthor([post1, post2])
     expect(result.get(sameAuthorId)).toBe('1001')
@@ -162,7 +162,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: sameTimestamp,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const post2: RawCandidate = {
       postId: '1001',
@@ -171,7 +171,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: sameTimestamp,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const result = firstPostIdByAuthor([post1, post2])
     // When times are identical, lower post ID wins (comparePostId('1001', '2001') < 0)
@@ -237,7 +237,7 @@ describe('runSession — AUTO policy', () => {
   })
 
   it('stores the risk flags that drove the decision', async () => {
-    const unchecked = { ...candidate('1030'), existingCommentAuthors: null }
+    const unchecked = { ...candidate('1030'), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [unchecked] }), policy: 'SEMI' }))
 
     expect(db.select().from(executions).all()[0]?.riskFlags).toBe('["COMMENT_CHECK_FAILED"]')
@@ -254,7 +254,7 @@ describe('runSession — AUTO policy', () => {
   it('skips a post an operator already greeted', async () => {
     const already = {
       ...candidate('1003'),
-      existingCommentAuthors: [{ nickname: 'cafe-ops', memberKey: 'key-ops' }],
+      commentCount: 1,
     }
     expect(await runSession(deps({ transport: fakeTransport({ candidates: [already] }) }))).toMatchObject({
       opened: true,
@@ -264,7 +264,7 @@ describe('runSession — AUTO policy', () => {
   })
 
   it('skips rather than queues when the comment check failed', async () => {
-    const unchecked = { ...candidate('1004'), existingCommentAuthors: null }
+    const unchecked = { ...candidate('1004'), commentCount: null }
     expect(await runSession(deps({ transport: fakeTransport({ candidates: [unchecked] }) }))).toMatchObject({
       opened: true,
       executed: 0,
@@ -276,7 +276,7 @@ describe('runSession — AUTO policy', () => {
 
 describe('runSession — SEMI and MANUAL policies', () => {
   it('queues a flagged candidate for approval under SEMI', async () => {
-    const unchecked = { ...candidate('1005'), existingCommentAuthors: null }
+    const unchecked = { ...candidate('1005'), commentCount: null }
     const transport = fakeTransport({ candidates: [unchecked] })
 
     expect(await runSession(deps({ transport, policy: 'SEMI' }))).toMatchObject({
@@ -331,7 +331,7 @@ describe('runSession — caps and failures', () => {
     // A retry that ages out is retired by the sweep, so the brake never sees it.
     // What the brake is actually for is work a human has left sitting: an
     // approval request older than the backlog limit but younger than its TTL.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), existingCommentAuthors: null }
+    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -486,7 +486,7 @@ describe('runSession — maintenance runs before the brake', () => {
   })
 
   it('expires an approval request that outlived its ttl', async () => {
-    const flagged = { ...candidate('5300'), existingCommentAuthors: null }
+    const flagged = { ...candidate('5300'), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [flagged] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -664,7 +664,7 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       authorNickname: 'shared-nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const laterPost: RawCandidate = {
       postId: '2002',
@@ -673,7 +673,7 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       authorNickname: 'shared-nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
 
     const transport = fakeTransport({ candidates: [earlierPost, laterPost] })
@@ -704,7 +704,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const post2: RawCandidate = {
       postId: '1002',
@@ -713,7 +713,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
 
     // Test with oldest-first order
@@ -735,7 +735,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick',
       authorId: null,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     await runSession(deps({ transport: fakeTransport({ candidates: [unknownAuthorPost] }), policy: 'AUTO' }))
 
@@ -755,7 +755,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick1',
       authorId: 'author-1',
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const unknownAuthorPost: RawCandidate = {
       postId: '1002',
@@ -764,7 +764,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick2',
       authorId: null,
       postedAt: MON_10_00 - 45_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const transport = fakeTransport({ candidates: [author1Post, unknownAuthorPost] })
     const outcome = await runSession(deps({ transport, policy: 'AUTO' }))
@@ -793,7 +793,7 @@ describe('runSession — forced runs', () => {
   it('opens despite a backlog old enough to stop the schedule', async () => {
     // Same shape the brake was built for: an approval a human left sitting,
     // older than the backlog limit but younger than its own expiry.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), existingCommentAuthors: null }
+    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 

@@ -1,6 +1,6 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
 
-export const PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -29,8 +29,12 @@ export interface RawCandidate {
   readonly authorNickname: string | null
   readonly authorId: string | null
   readonly postedAt: number
-  /** Authors of comments already on the post. `null` means the check failed. */
-  readonly existingCommentAuthors: CommentAuthor[] | null
+  /**
+   * How many comments the board list reports. `null` means the list could not
+   * be read. The list never names the commenters, so anything above zero has
+   * to be resolved against the post before it can be judged.
+   */
+  readonly commentCount: number | null
 }
 
 /** Semantic action. Endpoints, tokens and selectors stay inside the extension. */

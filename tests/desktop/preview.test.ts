@@ -15,7 +15,7 @@ function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
     authorNickname: '가입자하나',
     authorId: 'member-1',
     postedAt: NOW,
-    existingCommentAuthors: [],
+    commentCount: 0,
     ...overrides,
   }
 }
@@ -161,8 +161,8 @@ describe('previewDay — the number the operator approves against', () => {
     // the list, so the guard flags it and AUTO skips it. Counting it promises
     // a comment that will never be sent.
     const candidates = [
-      raw({ postId: '9001', authorId: 'a1', existingCommentAuthors: null }),
-      raw({ postId: '9002', authorId: 'a2', existingCommentAuthors: [] }),
+      raw({ postId: '9001', authorId: 'a1', commentCount: null }),
+      raw({ postId: '9002', authorId: 'a2', commentCount: 0 }),
     ]
 
     const result = await previewDay(
@@ -173,7 +173,7 @@ describe('previewDay — the number the operator approves against', () => {
   })
 
   it('counts nothing under MANUAL, where every post waits for a person', async () => {
-    const candidates = [raw({ postId: '9003', authorId: 'a3', existingCommentAuthors: [] })]
+    const candidates = [raw({ postId: '9003', authorId: 'a3', commentCount: 0 })]
 
     const result = await previewDay(
       deps({ transport: transportReturning(candidates), policy: 'MANUAL' }),
@@ -184,8 +184,8 @@ describe('previewDay — the number the operator approves against', () => {
 
   it('counts the clean post but not the flagged one under SEMI', async () => {
     const candidates = [
-      raw({ postId: '9004', authorId: 'a4', existingCommentAuthors: null }),
-      raw({ postId: '9005', authorId: 'a5', existingCommentAuthors: [] }),
+      raw({ postId: '9004', authorId: 'a4', commentCount: null }),
+      raw({ postId: '9005', authorId: 'a5', commentCount: 0 }),
     ]
 
     const result = await previewDay(
@@ -200,10 +200,10 @@ describe('previewDay — telling the buckets apart', () => {
   it('separates what will be commented from what already has one', async () => {
     const candidates = [
       // Already answered: the list gives a comment count but never the names.
-      raw({ postId: '9101', authorId: 'a1', existingCommentAuthors: null }),
-      raw({ postId: '9102', authorId: 'a2', existingCommentAuthors: null }),
+      raw({ postId: '9101', authorId: 'a1', commentCount: null }),
+      raw({ postId: '9102', authorId: 'a2', commentCount: null }),
       // Proven empty, so it is a target.
-      raw({ postId: '9103', authorId: 'a3', existingCommentAuthors: [] }),
+      raw({ postId: '9103', authorId: 'a3', commentCount: 0 }),
     ]
 
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
@@ -215,8 +215,8 @@ describe('previewDay — telling the buckets apart', () => {
     // It is not a target, and nobody has answered it. Folding it into either
     // number would make the two stop describing what they are named after.
     const candidates = [
-      raw({ postId: '9201', authorId: 'same', postedAt: NOW - 7_200_000, existingCommentAuthors: [] }),
-      raw({ postId: '9202', authorId: 'same', postedAt: NOW - 3_600_000, existingCommentAuthors: [] }),
+      raw({ postId: '9201', authorId: 'same', postedAt: NOW - 7_200_000, commentCount: 0 }),
+      raw({ postId: '9202', authorId: 'same', postedAt: NOW - 3_600_000, commentCount: 0 }),
     ]
 
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))

@@ -31,7 +31,7 @@ describe('parseMemoList', () => {
       authorNickname: '가입자하나',
       authorId: 'FIXTUREMEMBER01xxxxxxxxxxxxxxxxxxxxxxxxxxxx',
       postedAt: NEWEST_POSTED_AT,
-      existingCommentAuthors: [],
+      commentCount: 0,
     })
   })
 
@@ -43,13 +43,68 @@ describe('parseMemoList', () => {
     expect(manual?.authorNickname).toBe('가입자넷')
   })
 
-  it('reports no comments as an empty list and existing ones as unknown', () => {
+  it('reads the comment count from the list', () => {
     const byId = new Map(parseMemoList(html).map((c) => [c.postId, c]))
 
-    // "댓글 0" is proof no operator has replied; "댓글 1" says someone has, but
-    // the list never names them, so the authors stay unknown until re-checked.
-    expect(byId.get('334381')?.existingCommentAuthors).toEqual([])
-    expect(byId.get('334377')?.existingCommentAuthors).toBeNull()
+    // "댓글 0" is proof no comments exist; "댓글 1" says there is one, but
+    // the list never names the authors, so a count above zero has to be
+    // re-checked against the post to know who wrote them.
+    expect(byId.get('334381')?.commentCount).toBe(0)
+    expect(byId.get('334377')?.commentCount).toBe(1)
+  })
+
+  it('reads a non-zero comment count from built markup', () => {
+    // The fixture has only posts with zero comments; test higher counts via markup.
+    const html = `
+      <div class="memo_lst_section">
+        <div class="tit-box">
+          <table class="user_info"><tbody><tr>
+            <td><table><tr><td class="p-nick"><a href="#">test</a></td></tr></table></td>
+            <td><a href="javascript:deleteMemo(1)" class="link_del">삭제</a></td>
+          </tr></tbody></table>
+          <div class="user_time"><span class="blind">작성일시</span>2026.08.22. 12:00</div>
+        </div>
+        <p id="post_1" class="memo-box">Test post</p>
+        <div class="reply-box">
+          <div class="fl">
+            <table><tbody><tr><td class="reply">
+              <span class="reply b">
+                <a href="#" class="m-tcol-p _totalCnt">댓글 3</a>
+              </span>
+            </td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+    `
+    const [result] = parseMemoList(html)
+    expect(result?.commentCount).toBe(3)
+  })
+
+  it('handles missing comment count as null', () => {
+    // The list shape might change; ensure unreadable counts are marked null.
+    const html = `
+      <div class="memo_lst_section">
+        <div class="tit-box">
+          <table class="user_info"><tbody><tr>
+            <td><table><tr><td class="p-nick"><a href="#">test</a></td></tr></table></td>
+            <td><a href="javascript:deleteMemo(1)" class="link_del">삭제</a></td>
+          </tr></tbody></table>
+          <div class="user_time"><span class="blind">작성일시</span>2026.08.22. 12:00</div>
+        </div>
+        <p id="post_1" class="memo-box">Test post</p>
+        <div class="reply-box">
+          <div class="fl">
+            <table><tbody><tr><td class="reply">
+              <span class="reply b">
+                <a href="#" class="m-tcol-p">No count here</a>
+              </span>
+            </td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+    `
+    const [result] = parseMemoList(html)
+    expect(result?.commentCount).toBeNull()
   })
 
   it('returns nothing when the memo section is missing', () => {
