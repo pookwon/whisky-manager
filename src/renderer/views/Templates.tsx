@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
 import { isSubmitKey } from './templateInput.js'
@@ -9,7 +9,6 @@ interface TemplatesProps {
 }
 
 export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
-  const { t } = useTranslation()
   const templates = useApp((s) => s.templates)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
@@ -27,12 +26,12 @@ export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h1 className="text-lg font-bold tracking-tight">{t('templates.heading')}</h1>
+        <h1 className="text-lg font-bold tracking-tight">{TEXT.templates.heading}</h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
-          {t('templates.hint')}
+          {TEXT.templates.hint}
         </p>
         <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          {t('templates.submitHint')}
+          {TEXT.templates.submitHint}
         </p>
       </header>
 
@@ -41,7 +40,7 @@ export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
           className="field field-multiline"
           value={draft}
           rows={3}
-          placeholder={t('templates.placeholder')}
+          placeholder={TEXT.templates.placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (isSubmitKey(e)) {
@@ -51,12 +50,12 @@ export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
           }}
         />
         <button type="button" className="btn btn-primary shrink-0" disabled={busy} onClick={submit}>
-          {t('templates.add')}
+          {TEXT.templates.add}
         </button>
       </div>
 
       {templates.length === 0 ? (
-        <div className="panel px-5 py-8 text-center text-sm tone-warn">{t('templates.empty')}</div>
+        <div className="panel px-5 py-8 text-center text-sm tone-warn">{TEXT.templates.empty}</div>
       ) : (
         <ul className="flex flex-col gap-2">
           {templates.map((template) => (
@@ -68,7 +67,7 @@ export function Templates({ automationId }: TemplatesProps): React.JSX.Element {
                 disabled={busy}
                 onClick={() => void act(() => api.removeTemplate(template.id))}
               >
-                {t('templates.remove')}
+                {TEXT.templates.remove}
               </button>
             </li>
           ))}

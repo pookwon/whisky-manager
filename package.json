@@ -48,11 +48,9 @@
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
-    "i18next": "^26.4.0",
     "node-html-parser": "^9.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-i18next": "^17.0.12",
     "ws": "^8.21.3",
     "zustand": "^5.0.15"
   },

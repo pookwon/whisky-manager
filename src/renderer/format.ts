@@ -1,31 +1,26 @@
 import { KST_OFFSET_MS } from '../shared/kst.js'
 import type { SessionOutcome, SessionProgress, SessionRefusal } from '../desktop/orchestrator.js'
 import type { BridgeStatus } from '../desktop/ipc.js'
+import { TEXT } from '../shared/text.js'
 
 const MINUTE = 60_000
 const HOUR = 3_600_000
 const DAY = 86_400_000
 
-export interface RelativeTime {
-  readonly key: 'time.justNow' | 'time.minutesAgo' | 'time.hoursAgo' | 'time.daysAgo'
-  readonly count: number
-}
-
-/** Returns an i18n key and count so the component owns the wording. */
-export function relativeTime(fromMs: number, nowMs: number): RelativeTime {
+/** How long ago something happened, in the words the operator reads. */
+export function relativeTime(fromMs: number, nowMs: number): string {
   const age = Math.max(0, nowMs - fromMs)
-  if (age < MINUTE) return { key: 'time.justNow', count: 0 }
-  if (age < HOUR) return { key: 'time.minutesAgo', count: Math.floor(age / MINUTE) }
-  if (age < DAY) return { key: 'time.hoursAgo', count: Math.floor(age / HOUR) }
-  return { key: 'time.daysAgo', count: Math.floor(age / DAY) }
+  if (age < MINUTE) return TEXT.time.justNow
+  if (age < HOUR) return TEXT.time.minutesAgo(Math.floor(age / MINUTE))
+  if (age < DAY) return TEXT.time.hoursAgo(Math.floor(age / HOUR))
+  return TEXT.time.daysAgo(Math.floor(age / DAY))
 }
 
 export type Tone = 'ok' | 'idle' | 'warn' | 'alarm'
 
 export interface OutcomeSummary {
   readonly tone: Tone
-  readonly key: string
-  readonly count?: number
+  readonly text: string
 }
 
 /**
@@ -45,16 +40,18 @@ const REFUSAL_TONE: Record<SessionRefusal, Tone> = {
 }
 
 export function outcomeSummary(outcome: SessionOutcome | null): OutcomeSummary {
-  if (outcome === null) return { tone: 'idle', key: 'outcome.never' }
+  if (outcome === null) return { tone: 'idle', text: TEXT.outcome.never }
 
   if (!outcome.opened) {
-    return { tone: REFUSAL_TONE[outcome.reason], key: `outcome.refused.${outcome.reason}` }
+    // Indexing by the reason is what keeps the two maps honest: a refusal added
+    // to the union with no tone or no wording fails to compile here.
+    return { tone: REFUSAL_TONE[outcome.reason], text: TEXT.outcome.refused[outcome.reason] }
   }
 
   if (outcome.failed > 0) {
-    return { tone: 'alarm', key: 'outcome.ranWithFailures', count: outcome.failed }
+    return { tone: 'alarm', text: TEXT.outcome.ranWithFailures(outcome.failed) }
   }
-  return { tone: 'ok', key: 'outcome.ran', count: outcome.executed }
+  return { tone: 'ok', text: TEXT.outcome.ran(outcome.executed) }
 }
 
 /**
@@ -66,34 +63,32 @@ export function estimatedMinutes(count: number, averageActionGapMs: number): num
   return Math.max(1, Math.round((count * averageActionGapMs) / 60_000))
 }
 
-export interface ProgressSummary {
-  readonly key: string
-  readonly values: Record<string, string | number>
-}
-
 /**
- * Returns an i18n key and its values, as `outcomeSummary` does, so the wording
- * stays in the locale file. The post in hand counts as the current position
- * rather than waiting to be finished: an operator reads "1/3" as the first of
- * three being worked on, not as one already done.
+ * What the session in flight is doing, in words. The post in hand counts as the
+ * current position rather than waiting to be finished: an operator reads "1/3"
+ * as the first of three being worked on, not as one already done.
  */
-export function progressSummary(progress: SessionProgress): ProgressSummary {
+export function progressSummary(progress: SessionProgress): string {
   if (progress.phase === 'COLLECTING') {
-    // A separate key rather than one string with optional parts: i18next
-    // interpolates variables and nothing else, so anything conditional has to
-    // be a choice between keys, the way the walks below do it.
     const { pagesRead, collected } = progress
     return pagesRead === undefined || collected === undefined
-      ? { key: 'progress.collecting', values: {} }
-      : { key: 'progress.collectingCounted', values: { pages: pagesRead, count: collected } }
+      ? TEXT.progress.collecting
+      : TEXT.progress.collectingCounted(pagesRead, collected)
   }
-  // Named separately so the operator can tell a backlog being cleared from
-  // today's own posts; the two carry different totals.
-  const walk = progress.phase === 'BACKLOG' ? 'backlog' : 'working'
-  const values = { position: progress.done + 1, total: progress.total }
-  return progress.nickname === null
-    ? { key: `progress.${walk}`, values }
-    : { key: `progress.${walk}On`, values: { ...values, nickname: progress.nickname } }
+
+  const position = progress.done + 1
+  const { total, nickname } = progress
+
+  // Backlog and today's own posts are named apart because they carry different
+  // totals, and an operator who cannot tell them apart reads the count as wrong.
+  if (progress.phase === 'BACKLOG') {
+    return nickname === null
+      ? TEXT.progress.backlog(position, total)
+      : TEXT.progress.backlogOn(position, total, nickname)
+  }
+  return nickname === null
+    ? TEXT.progress.working(position, total)
+    : TEXT.progress.workingOn(position, total, nickname)
 }
 
 /**
@@ -144,16 +139,14 @@ export function getBridgeStatusTone(status: BridgeStatus): 'ok' | 'warn' | 'idle
   }
 }
 
-/**
- * Returns the i18n key for the bridge status.
- */
-export function getBridgeStatusKey(status: BridgeStatus): string {
+/** What the bridge status is called on screen. */
+export function getBridgeStatusText(status: BridgeStatus): string {
   switch (status) {
     case 'CONNECTED':
-      return 'status.bridgeConnected'
+      return TEXT.status.bridgeConnected
     case 'RECONNECTING':
-      return 'status.bridgeReconnecting'
+      return TEXT.status.bridgeReconnecting
     case 'OFFLINE':
-      return 'status.bridgeOffline'
+      return TEXT.status.bridgeOffline
   }
 }

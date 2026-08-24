@@ -1,16 +1,17 @@
-import i18next from 'i18next'
-import { beforeAll, describe, expect, it } from 'vitest'
-import { ko } from '../../src/renderer/locales/ko.js'
+import { describe, expect, it } from 'vitest'
+import { TEXT } from '../../src/shared/text.js'
 import { estimatedMinutes, progressSummary } from '../../src/renderer/format.js'
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 
-const t = (key: string): string => i18next.t(key)
-
 /**
- * Every progress state an operator can land on, rendered through the real i18n
- * stack. Formatting a key correctly and having i18next understand the string
- * are separate things: a template i18next cannot read still passes a test that
- * only checks which key was chosen, and reaches the screen with its braces on.
+ * Every progress state an operator can land on, rendered the way the screen
+ * renders it.
+ *
+ * Two of the three things this file used to guard are now the compiler's: a
+ * name that does not exist in the catalogue will not build, and a line that
+ * takes a count cannot be called without one. What is left is the part no type
+ * can see — that the words themselves carry no stray template syntax, and that
+ * the numbers an operator is deciding on actually reach the string.
  */
 const STATES: SessionProgress[] = [
   { phase: 'COLLECTING' },
@@ -21,78 +22,77 @@ const STATES: SessionProgress[] = [
   { phase: 'WORKING', done: 5, total: 120, nickname: null },
 ]
 
-beforeAll(async () => {
-  await i18next.init({ resources: { ko }, lng: 'ko', fallbackLng: 'ko', interpolation: { escapeValue: false } })
-})
-
 describe('progress wording', () => {
   it('leaves no template syntax on screen', () => {
     for (const state of STATES) {
-      const summary = progressSummary(state)
-      const text = i18next.t(summary.key, summary.values)
-      expect(text, `${summary.key} rendered as ${text}`).not.toMatch(/[{}]/)
+      const text = progressSummary(state)
+      expect(text, `${state.phase} rendered as ${text}`).not.toMatch(/[{}]/)
     }
   })
 
-  it('names a key that exists', () => {
+  it('says something for every state', () => {
     for (const state of STATES) {
-      const summary = progressSummary(state)
-      expect(i18next.exists(summary.key), `missing key ${summary.key}`).toBe(true)
+      expect(progressSummary(state), `${state.phase} rendered blank`).not.toBe('')
     }
   })
 
   it('shows the counts once collection has read a page', () => {
-    const summary = progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })
-    const text = i18next.t(summary.key, summary.values)
+    const text = progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })
     expect(text).toContain('2')
     expect(text).toContain('87')
+  })
+
+  it('puts the walk position and total into the words', () => {
+    const text = progressSummary({ phase: 'WORKING', done: 4, total: 120, nickname: '깡총이' })
+    expect(text).toContain('5')
+    expect(text).toContain('120')
+    expect(text).toContain('깡총이')
   })
 })
 
 describe('run confirmation wording', () => {
   /** Every line the confirmation panel can show, with the values it passes. */
-  const LINES: readonly (readonly [string, Record<string, string | number>])[] = [
-    ['run.confirmHeading', {}],
-    ['run.outsideHours', {}],
-    ['run.chosenDay', { date: '2026-08-20' }],
-    ['run.bypasses', {}],
-    ['run.counting', {}],
-    ['run.countFailed', {}],
-    ['run.target', {}],
-    ['run.alreadyHandled', {}],
-    ['run.estimate', {}],
-    ['run.countUnit', { count: 154 }],
-    ['run.countWithPending', { count: 154, pending: 45 }],
-    ['run.minutesUnit', { minutes: 42 }],
-    ['run.confirm', {}],
-    ['run.cancel', {}],
-    ['run.dayLabel', {}],
-    ['run.dayRun', {}],
-    ['outcome.refused.FUTURE_DAY', {}],
+  const LINES: readonly string[] = [
+    TEXT.run.confirmHeading,
+    TEXT.run.outsideHours,
+    TEXT.run.chosenDay('2026-08-20'),
+    TEXT.run.bypasses,
+    TEXT.run.counting,
+    TEXT.run.countFailed,
+    TEXT.run.target,
+    TEXT.run.alreadyHandled,
+    TEXT.run.estimate,
+    TEXT.run.countUnit(154),
+    TEXT.run.countWithPending(154, 45),
+    TEXT.run.minutesUnit(42),
+    TEXT.run.confirm,
+    TEXT.run.cancel,
+    TEXT.run.dayLabel,
+    TEXT.run.dayRun,
+    TEXT.outcome.refused.FUTURE_DAY,
   ]
 
-  it('names keys that exist', () => {
-    for (const [key] of LINES) {
-      expect(i18next.exists(key), `missing key ${key}`).toBe(true)
+  it('leaves no template syntax on screen', () => {
+    for (const line of LINES) {
+      expect(line, `rendered as ${line}`).not.toMatch(/[{}]/)
     }
   })
 
-  it('leaves no template syntax on screen', () => {
-    for (const [key, values] of LINES) {
-      const text = i18next.t(key, values)
-      expect(text, `${key} rendered as ${text}`).not.toMatch(/[{}]/)
+  it('says something on every line', () => {
+    for (const line of LINES) {
+      expect(line).not.toBe('')
     }
   })
 
   it('puts the numbers the operator is deciding on into the text', () => {
-    expect(i18next.t('run.countUnit', { count: 154 })).toContain('154')
-    expect(i18next.t('run.minutesUnit', { minutes: 42 })).toContain('42')
-    expect(i18next.t('run.chosenDay', { date: '2026-08-20' })).toContain('2026-08-20')
+    expect(TEXT.run.countUnit(154)).toContain('154')
+    expect(TEXT.run.minutesUnit(42)).toContain('42')
+    expect(TEXT.run.chosenDay('2026-08-20')).toContain('2026-08-20')
   })
 
   it('labels the three figures apart from each other', () => {
     // Read together they are one number; the operator is comparing them.
-    const labels = [t('run.target'), t('run.alreadyHandled'), t('run.estimate')]
+    const labels = [TEXT.run.target, TEXT.run.alreadyHandled, TEXT.run.estimate]
     expect(new Set(labels).size).toBe(3)
   })
 })

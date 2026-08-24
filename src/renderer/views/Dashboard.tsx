@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { findAutomation } from '../../shared/automations/catalog.js'
+import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import type { StartupPreview } from '../../desktop/preview.js'
 import {
@@ -10,7 +10,7 @@ import {
   relativeTime,
   isRefusalStale,
   formatNextSessionTime,
-  getBridgeStatusKey,
+  getBridgeStatusText,
   getBridgeStatusTone,
 } from '../format.js'
 import { useApp } from '../store.js'
@@ -52,7 +52,6 @@ function kstMidnightOf(value: string): number {
 }
 
 export function Dashboard(): React.JSX.Element {
-  const { t } = useTranslation()
   const dashboard = useApp((s) => s.dashboard)
   const setRoute = useApp((s) => s.setRoute)
   const busy = useApp((s) => s.busy)
@@ -95,21 +94,19 @@ export function Dashboard(): React.JSX.Element {
    */
   const breakdown = (preview: Extract<StartupPreview, { kind: 'READY' }>): React.JSX.Element => (
     <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-      <dt style={{ color: 'var(--ink-muted)' }}>{t('run.target')}</dt>
+      <dt style={{ color: 'var(--ink-muted)' }}>{TEXT.run.target}</dt>
       <dd className="font-semibold tabular-nums">
         {preview.pending > 0
-          ? t('run.countWithPending', { count: preview.count, pending: preview.pending })
-          : t('run.countUnit', { count: preview.count })}
+          ? TEXT.run.countWithPending(preview.count, preview.pending)
+          : TEXT.run.countUnit(preview.count)}
       </dd>
-      <dt style={{ color: 'var(--ink-muted)' }}>{t('run.alreadyHandled')}</dt>
+      <dt style={{ color: 'var(--ink-muted)' }}>{TEXT.run.alreadyHandled}</dt>
       <dd className="tabular-nums" style={{ color: 'var(--ink-muted)' }}>
-        {t('run.countUnit', { count: preview.alreadyHandled })}
+        {TEXT.run.countUnit(preview.alreadyHandled)}
       </dd>
-      <dt style={{ color: 'var(--ink-muted)' }}>{t('run.estimate')}</dt>
+      <dt style={{ color: 'var(--ink-muted)' }}>{TEXT.run.estimate}</dt>
       <dd className="tabular-nums">
-        {t('run.minutesUnit', {
-          minutes: estimatedMinutes(preview.count, dashboard.averageActionGapMs),
-        })}
+        {TEXT.run.minutesUnit(estimatedMinutes(preview.count, dashboard.averageActionGapMs))}
       </dd>
     </dl>
   )
@@ -121,14 +118,14 @@ export function Dashboard(): React.JSX.Element {
   // Determine the main outcome display
   const summary = outcomeSummary(dashboard.lastOutcome)
   let outcomeTone = summary.tone
-  let outcomeKey = summary.key
+  let outcomeText = summary.text
 
   // Check if a refusal is stale (e.g., DISABLED when now enabled)
   // Get the first automation to check if it's enabled (or could check any automation)
   const firstAutomation = dashboard.automations[0]
   const automationIsEnabled = firstAutomation?.enabled ?? true
   if (isRefusalStale(dashboard.lastOutcome, automationIsEnabled)) {
-    outcomeKey = 'outcome.neverWithCurrentConfig'
+    outcomeText = TEXT.outcome.neverWithCurrentConfig
     outcomeTone = 'idle'
   }
 
@@ -138,7 +135,7 @@ export function Dashboard(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-6">
       <header>
-        <h1 className="text-lg font-bold tracking-tight">{t('dashboard.heading')}</h1>
+        <h1 className="text-lg font-bold tracking-tight">{TEXT.dashboard.heading}</h1>
       </header>
 
       {/* Startup preview banner: shows today's greeting target count when the
@@ -154,10 +151,10 @@ export function Dashboard(): React.JSX.Element {
                   className="text-[0.6875rem] font-medium uppercase tracking-wider"
                   style={{ color: 'var(--ink-muted)' }}
                 >
-                  {t('startup.heading')}
+                  {TEXT.startup.heading}
                 </div>
                 <div className="mt-1 text-lg font-semibold tone-accent">
-                  {t('startup.count', { count: preview.count })}
+                  {TEXT.startup.count(preview.count)}
                 </div>
               </div>
             </div>
@@ -177,10 +174,10 @@ export function Dashboard(): React.JSX.Element {
                   className="text-[0.6875rem] font-medium uppercase tracking-wider"
                   style={{ color: 'var(--ink-muted)' }}
                 >
-                  {t('startup.heading')}
+                  {TEXT.startup.heading}
                 </div>
                 <div className="mt-1 text-lg font-semibold tone-warn">
-                  {t(`startup.unavailable.${preview.reason}`)}
+                  {TEXT.startup.unavailable[preview.reason]}
                 </div>
               </div>
             </div>
@@ -201,35 +198,29 @@ export function Dashboard(): React.JSX.Element {
                 className="text-[0.6875rem] font-medium uppercase tracking-wider"
                 style={{ color: 'var(--ink-muted)' }}
               >
-                {t(progress === null ? 'outcome.heading' : 'progress.heading')}
+                {progress === null ? TEXT.outcome.heading : TEXT.progress.heading}
               </div>
               {progress === null ? (
                 <div className={`mt-1 text-lg font-semibold tone-${outcomeTone}`}>
                   {dashboard.lastOutcomeAt !== null ? (
                     <>
-                      {t('time.lastSession', {
-                        elapsed: t(relativeTime(dashboard.lastOutcomeAt, Date.now()).key, {
-                          count: relativeTime(dashboard.lastOutcomeAt, Date.now()).count,
-                        }),
-                      })}
+                      {TEXT.time.lastSession(relativeTime(dashboard.lastOutcomeAt, Date.now()))}
                       <span style={{ color: 'var(--ink-muted)' }} className="text-sm">
                         {' · '}
-                        {t(outcomeKey, { count: summary.count ?? 0 })}
+                        {outcomeText}
                       </span>
                     </>
                   ) : (
-                    t(outcomeKey, { count: summary.count ?? 0 })
+                    outcomeText
                   )}
                 </div>
               ) : (
-                <div className="mt-1 text-lg font-semibold tone-accent">
-                  {t(progress.key, progress.values)}
-                </div>
+                <div className="mt-1 text-lg font-semibold tone-accent">{progress}</div>
               )}
 
               {running && dashboard.nextSessionAt !== null && (
                 <div className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
-                  {t('time.nextSession', { time: formatNextSessionTime(dashboard.nextSessionAt) || '—' })}
+                  {TEXT.time.nextSession(formatNextSessionTime(dashboard.nextSessionAt) ?? '—')}
                 </div>
               )}
             </div>
@@ -247,7 +238,7 @@ export function Dashboard(): React.JSX.Element {
                   void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
                 }}
               >
-                {t('status.runOnce')}
+                {TEXT.status.runOnce}
               </button>
               <button
                 type="button"
@@ -255,7 +246,7 @@ export function Dashboard(): React.JSX.Element {
                 disabled={busy}
                 onClick={() => void act(() => (running ? api.stopAutomation() : api.startAutomation()))}
               >
-                {t(running ? 'status.stop' : 'status.start')}
+                {running ? TEXT.status.stop : TEXT.status.start}
               </button>
               <button
                 type="button"
@@ -263,7 +254,7 @@ export function Dashboard(): React.JSX.Element {
                 disabled={busy}
                 onClick={() => void act(() => api.killSwitch())}
               >
-                {t('status.kill')}
+                {TEXT.status.kill}
               </button>
             </div>
           </div>
@@ -279,23 +270,23 @@ export function Dashboard(): React.JSX.Element {
                 className="text-[0.6875rem] font-medium uppercase tracking-wider"
                 style={{ color: 'var(--ink-muted)' }}
               >
-                {t('run.confirmHeading')}
+                {TEXT.run.confirmHeading}
               </div>
               <p className="mt-1 text-sm font-semibold tone-warn">
                 {pending.reason === 'OUTSIDE_HOURS'
-                  ? t('run.outsideHours')
-                  : t('run.chosenDay', { date: day })}
+                  ? TEXT.run.outsideHours
+                  : TEXT.run.chosenDay(day)}
               </p>
               <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
-                {t('run.bypasses')}
+                {TEXT.run.bypasses}
               </p>
               {pending.preview === null && (
                 <p className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
-                  {t('run.counting')}
+                  {TEXT.run.counting}
                 </p>
               )}
               {pending.preview?.kind === 'UNAVAILABLE' && (
-                <p className="mt-2 text-sm tone-warn">{t('run.countFailed')}</p>
+                <p className="mt-2 text-sm tone-warn">{TEXT.run.countFailed}</p>
               )}
               {pending.preview?.kind === 'READY' && breakdown(pending.preview)}
 
@@ -316,10 +307,10 @@ export function Dashboard(): React.JSX.Element {
                     void act(() => api.runOnce(request))
                   }}
                 >
-                  {t('run.confirm')}
+                  {TEXT.run.confirm}
                 </button>
                 <button type="button" className="btn" onClick={() => setPending(null)}>
-                  {t('run.cancel')}
+                  {TEXT.run.cancel}
                 </button>
               </div>
             </div>
@@ -334,7 +325,7 @@ export function Dashboard(): React.JSX.Element {
             style={{ color: 'var(--ink-muted)' }}
             htmlFor="run-day"
           >
-            {t('run.dayLabel')}
+            {TEXT.run.dayLabel}
           </label>
           <input
             id="run-day"
@@ -353,20 +344,20 @@ export function Dashboard(): React.JSX.Element {
             void openConfirmation({ dayStartMs: kstMidnightOf(day), reason: 'CHOSEN_DAY' })
           }
         >
-          {t('run.dayRun')}
+          {TEXT.run.dayRun}
         </button>
       </section>
 
       <section className="grid grid-cols-4 gap-3">
-        <Stat label={t('stats.executedToday')} value={dashboard.executedToday} tone={undefined} />
-        <Stat label={t('stats.succeededToday')} value={dashboard.succeededToday} tone="tone-ok" />
+        <Stat label={TEXT.stats.executedToday} value={dashboard.executedToday} tone={undefined} />
+        <Stat label={TEXT.stats.succeededToday} value={dashboard.succeededToday} tone="tone-ok" />
         <Stat
-          label={t('stats.failedToday')}
+          label={TEXT.stats.failedToday}
           value={dashboard.failedToday}
           tone={dashboard.failedToday > 0 ? 'tone-alarm' : undefined}
         />
         <Stat
-          label={t('stats.awaiting')}
+          label={TEXT.stats.awaiting}
           value={dashboard.awaitingApproval}
           tone={dashboard.awaitingApproval > 0 ? 'tone-warn' : undefined}
         />
@@ -378,21 +369,21 @@ export function Dashboard(): React.JSX.Element {
             className="text-[0.6875rem] font-medium uppercase tracking-wider"
             style={{ color: 'var(--ink-muted)' }}
           >
-            {t('dashboard.automations')}
+            {TEXT.dashboard.automations}
           </h2>
           <span className={`text-xs font-medium tone-${getBridgeStatusTone(dashboard.bridgeStatus)}`}>
-            {t(getBridgeStatusKey(dashboard.bridgeStatus))}
+            {getBridgeStatusText(dashboard.bridgeStatus)}
           </span>
         </div>
         {dashboard.automations.map((automation) => {
           const descriptor = findAutomation(automation.id)
           const rowSummary = outcomeSummary(automation.lastOutcome)
           let rowTone = rowSummary.tone
-          let rowKey = rowSummary.key
+          let rowText = rowSummary.text
 
           // Check if this automation's last refusal is stale
           if (isRefusalStale(automation.lastOutcome, automation.enabled)) {
-            rowKey = 'outcome.neverWithCurrentConfig'
+            rowText = TEXT.outcome.neverWithCurrentConfig
             rowTone = 'idle'
           }
 
@@ -407,21 +398,23 @@ export function Dashboard(): React.JSX.Element {
                 <div className="flex items-center gap-2">
                   <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${rowTone}`} />
                   <span className="text-sm font-semibold">
-                    {descriptor === undefined ? automation.id : t(descriptor.labelKey)}
+                    {descriptor === undefined
+                      ? automation.id
+                      : TEXT.automation[descriptor.labelKey]}
                   </span>
                 </div>
                 <div className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  {t(rowKey, { count: rowSummary.count ?? 0 })}
+                  {rowText}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3 text-xs">
                 {automation.awaitingApproval > 0 && (
                   <span className="chip tone-warn">
-                    {t('dashboard.awaitingShort', { count: automation.awaitingApproval })}
+                    {TEXT.dashboard.awaitingShort(automation.awaitingApproval)}
                   </span>
                 )}
                 <span className={automation.enabled ? 'tone-ok' : 'tone-idle'}>
-                  {t(automation.enabled ? 'status.running' : 'status.stopped')}
+                  {automation.enabled ? TEXT.status.running : TEXT.status.stopped}
                 </span>
               </div>
             </button>

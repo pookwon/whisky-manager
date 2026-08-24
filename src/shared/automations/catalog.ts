@@ -5,11 +5,13 @@
  * usually wrong for the second. This list only says what the sidebar renders
  * and which panels each entry owns.
  */
+import type { AutomationLabelKey } from '../text.js'
+
 export type AutomationPanel = 'approvals' | 'templates' | 'settings'
 
 export interface AutomationDescriptor {
   readonly id: string
-  readonly labelKey: string
+  readonly labelKey: AutomationLabelKey
   /**
    * Not every automation has every panel — a periodic notice has nothing to
    * approve, a membership approval has no comment template. Keeping this as
@@ -28,7 +30,7 @@ export const WELCOME_AUTOMATION_ID = 'welcome-comment'
 export const AUTOMATIONS: readonly AutomationDescriptor[] = [
   {
     id: WELCOME_AUTOMATION_ID,
-    labelKey: 'automation.welcomeComment',
+    labelKey: 'welcomeComment',
     panels: ['approvals', 'templates', 'settings'],
   },
 ]

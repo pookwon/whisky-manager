@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { AUTOMATIONS } from '../shared/automations/catalog.js'
-import { getBridgeStatusKey, getBridgeStatusTone } from './format.js'
+import { TEXT } from '../shared/text.js'
+import { getBridgeStatusText, getBridgeStatusTone } from './format.js'
 import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
 import { Approvals } from './views/Approvals.js'
@@ -13,7 +13,6 @@ import { Templates } from './views/Templates.js'
 const REFRESH_MS = 5_000
 
 export function App(): React.JSX.Element {
-  const { t } = useTranslation()
   const route = useApp((s) => s.route)
   const setRoute = useApp((s) => s.setRoute)
   const refresh = useApp((s) => s.refresh)
@@ -67,13 +66,13 @@ export function App(): React.JSX.Element {
             />
           )}
           <div>
-            <div className="text-[0.9375rem] font-bold tracking-tight">{t('app.title')}</div>
+            <div className="text-[0.9375rem] font-bold tracking-tight">{TEXT.app.title}</div>
             <div
               className="mt-1 flex items-center gap-1.5 text-[0.6875rem]"
               style={{ color: 'var(--ink-muted)' }}
             >
               <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${getBridgeStatusTone(bridgeStatus)}`} />
-              {t(getBridgeStatusKey(bridgeStatus))}
+              {getBridgeStatusText(bridgeStatus)}
             </div>
           </div>
         </div>
@@ -84,12 +83,16 @@ export function App(): React.JSX.Element {
           aria-current={route.kind === 'dashboard' ? 'page' : undefined}
           onClick={() => setRoute({ kind: 'dashboard' })}
         >
-          <span>{t('nav.dashboard')}</span>
+          <span>{TEXT.nav.dashboard}</span>
         </button>
 
         {AUTOMATIONS.map((automation) => (
-          <section key={automation.id} className="mt-5" aria-label={t(automation.labelKey)}>
-            <h2 className="nav-section">{t(automation.labelKey)}</h2>
+          <section
+            key={automation.id}
+            className="mt-5"
+            aria-label={TEXT.automation[automation.labelKey]}
+          >
+            <h2 className="nav-section">{TEXT.automation[automation.labelKey]}</h2>
             <div className="nav-children">
               {automation.panels.map((panel) => {
                 const target: Route = { kind: 'automation', id: automation.id, panel }
@@ -102,7 +105,7 @@ export function App(): React.JSX.Element {
                     aria-current={routeKey(route) === routeKey(target) ? 'page' : undefined}
                     onClick={() => setRoute(target)}
                   >
-                    <span>{t(`nav.${panel}`)}</span>
+                    <span>{TEXT.nav[panel]}</span>
                     {panel === 'approvals' && awaiting > 0 && (
                       <span className="chip">{awaiting}</span>
                     )}
@@ -113,15 +116,15 @@ export function App(): React.JSX.Element {
           </section>
         ))}
 
-        <section className="mt-5" aria-label={t('nav.common')}>
-          <h2 className="nav-group-label">{t('nav.common')}</h2>
+        <section className="mt-5" aria-label={TEXT.nav.common}>
+          <h2 className="nav-group-label">{TEXT.nav.common}</h2>
           <button
             type="button"
             className="nav-item"
             aria-current={route.kind === 'commonSettings' ? 'page' : undefined}
             onClick={() => setRoute({ kind: 'commonSettings' })}
           >
-            <span>{t('nav.commonSettings')}</span>
+            <span>{TEXT.nav.commonSettings}</span>
           </button>
         </section>
       </nav>
@@ -129,7 +132,7 @@ export function App(): React.JSX.Element {
       <main className="flex-1 overflow-y-auto p-7">
         {error !== null && (
           <div role="alert" className="panel mb-5 px-4 py-3 text-sm tone-alarm">
-            {t('app.actionFailed', { message: error })}
+            {TEXT.app.actionFailed(error)}
           </div>
         )}
         {route.kind === 'dashboard' && <Dashboard />}

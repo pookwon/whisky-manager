@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { TEXT } from '../../src/shared/text.js'
 import {
   outcomeSummary,
   progressSummary,
   relativeTime,
   isRefusalStale,
   formatNextSessionTime,
-  getBridgeStatusKey,
+  getBridgeStatusText,
   getBridgeStatusTone,
 } from '../../src/renderer/format.js'
 
@@ -14,51 +15,56 @@ const MINUTE = 60_000
 const HOUR = 3_600_000
 const DAY = 86_400_000
 
+/**
+ * Expectations name a catalogue entry rather than repeating its Korean, so a
+ * reworded string does not fail a test about which entry got picked and what
+ * was put into it — which is the behaviour these cover.
+ */
 describe('relativeTime', () => {
   it('reports anything under a minute as just now', () => {
-    expect(relativeTime(NOW - 30_000, NOW)).toEqual({ key: 'time.justNow', count: 0 })
+    expect(relativeTime(NOW - 30_000, NOW)).toBe(TEXT.time.justNow)
   })
 
   it('reports minutes', () => {
-    expect(relativeTime(NOW - 5 * MINUTE, NOW)).toEqual({ key: 'time.minutesAgo', count: 5 })
+    expect(relativeTime(NOW - 5 * MINUTE, NOW)).toBe(TEXT.time.minutesAgo(5))
   })
 
   it('reports hours', () => {
-    expect(relativeTime(NOW - 3 * HOUR, NOW)).toEqual({ key: 'time.hoursAgo', count: 3 })
+    expect(relativeTime(NOW - 3 * HOUR, NOW)).toBe(TEXT.time.hoursAgo(3))
   })
 
   it('reports days', () => {
-    expect(relativeTime(NOW - 2 * DAY, NOW)).toEqual({ key: 'time.daysAgo', count: 2 })
+    expect(relativeTime(NOW - 2 * DAY, NOW)).toBe(TEXT.time.daysAgo(2))
   })
 
   it('never reports a negative age for a clock skew', () => {
-    expect(relativeTime(NOW + 5 * MINUTE, NOW)).toEqual({ key: 'time.justNow', count: 0 })
+    expect(relativeTime(NOW + 5 * MINUTE, NOW)).toBe(TEXT.time.justNow)
   })
 })
 
 describe('outcomeSummary', () => {
   it('says nothing has run yet when there is no outcome', () => {
-    expect(outcomeSummary(null)).toEqual({ tone: 'idle', key: 'outcome.never' })
+    expect(outcomeSummary(null)).toEqual({ tone: 'idle', text: TEXT.outcome.never })
   })
 
   it('surfaces a refusal reason so the operator knows why it is quiet', () => {
     expect(outcomeSummary({ opened: false, reason: 'NO_TEMPLATE' })).toEqual({
       tone: 'warn',
-      key: 'outcome.refused.NO_TEMPLATE',
+      text: TEXT.outcome.refused.NO_TEMPLATE,
     })
   })
 
   it('treats being logged out as an alarm, not a warning', () => {
     expect(outcomeSummary({ opened: false, reason: 'NOT_LOGGED_IN' })).toEqual({
       tone: 'alarm',
-      key: 'outcome.refused.NOT_LOGGED_IN',
+      text: TEXT.outcome.refused.NOT_LOGGED_IN,
     })
   })
 
   it('treats a quiet session outside the operating window as normal', () => {
     expect(outcomeSummary({ opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' })).toEqual({
       tone: 'idle',
-      key: 'outcome.refused.OUTSIDE_ACTIVE_HOURS',
+      text: TEXT.outcome.refused.OUTSIDE_ACTIVE_HOURS,
     })
   })
 
@@ -71,7 +77,7 @@ describe('outcomeSummary', () => {
         awaitingApproval: 0,
         failed: 0,
       }),
-    ).toEqual({ tone: 'ok', key: 'outcome.ran', count: 3 })
+    ).toEqual({ tone: 'ok', text: TEXT.outcome.ran(3) })
   })
 
   it('flags a session that produced failures', () => {
@@ -83,7 +89,18 @@ describe('outcomeSummary', () => {
         awaitingApproval: 0,
         failed: 2,
       }),
-    ).toEqual({ tone: 'alarm', key: 'outcome.ranWithFailures', count: 2 })
+    ).toEqual({ tone: 'alarm', text: TEXT.outcome.ranWithFailures(2) })
+  })
+
+  it('names every refusal the session can return', () => {
+    // The tone map and the wording map are indexed by the same union, so a
+    // reason missing from either is a compile error rather than a blank banner.
+    // This walks them anyway, because an empty string would still compile.
+    const REASONS = Object.keys(TEXT.outcome.refused) as (keyof typeof TEXT.outcome.refused)[]
+    for (const reason of REASONS) {
+      const summary = outcomeSummary({ opened: false, reason })
+      expect(summary.text, `no wording for ${reason}`).not.toBe('')
+    }
   })
 })
 
@@ -149,55 +166,57 @@ describe('getBridgeStatusTone', () => {
   })
 })
 
-describe('getBridgeStatusKey', () => {
-  it('returns connected key when status is CONNECTED', () => {
-    expect(getBridgeStatusKey('CONNECTED')).toBe('status.bridgeConnected')
+describe('getBridgeStatusText', () => {
+  it('names a connected bridge', () => {
+    expect(getBridgeStatusText('CONNECTED')).toBe(TEXT.status.bridgeConnected)
   })
 
-  it('returns reconnecting key when status is RECONNECTING', () => {
-    expect(getBridgeStatusKey('RECONNECTING')).toBe('status.bridgeReconnecting')
+  it('names a bridge waiting to reconnect', () => {
+    expect(getBridgeStatusText('RECONNECTING')).toBe(TEXT.status.bridgeReconnecting)
   })
 
-  it('returns offline key when status is OFFLINE', () => {
-    expect(getBridgeStatusKey('OFFLINE')).toBe('status.bridgeOffline')
+  it('names a bridge that is gone', () => {
+    expect(getBridgeStatusText('OFFLINE')).toBe(TEXT.status.bridgeOffline)
+  })
+
+  it('tells the three states apart', () => {
+    const named = ['CONNECTED', 'RECONNECTING', 'OFFLINE'] as const
+    expect(new Set(named.map(getBridgeStatusText)).size).toBe(3)
   })
 })
 
 describe('progressSummary', () => {
   it('names the phase when collecting, and the counts once it has read a page', () => {
-    expect(progressSummary({ phase: 'COLLECTING' })).toEqual({ key: 'progress.collecting', values: {} })
-    expect(progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })).toEqual({
-      key: 'progress.collectingCounted',
-      values: { pages: 2, count: 87 },
-    })
+    expect(progressSummary({ phase: 'COLLECTING' })).toBe(TEXT.progress.collecting)
+    expect(progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })).toBe(
+      TEXT.progress.collectingCounted(2, 87),
+    )
   })
 
   it('counts the post in hand as the current position, not as finished', () => {
-    expect(
-      progressSummary({ phase: 'WORKING', done: 0, total: 3, nickname: '\uc65c\ubc24\uc774' }),
-    ).toEqual({
-      key: 'progress.workingOn',
-      values: { position: 1, total: 3, nickname: '\uc65c\ubc24\uc774' },
-    })
+    expect(progressSummary({ phase: 'WORKING', done: 0, total: 3, nickname: '왜밤이' })).toBe(
+      TEXT.progress.workingOn(1, 3, '왜밤이'),
+    )
   })
 
   it('keeps the backlog distinct from the fresh collection', () => {
-    expect(
-      progressSummary({ phase: 'BACKLOG', done: 0, total: 2, nickname: '\uc655\ubc24\uc774' }),
-    ).toEqual({
-      key: 'progress.backlogOn',
-      values: { position: 1, total: 2, nickname: '\uc655\ubc24\uc774' },
-    })
-    expect(progressSummary({ phase: 'BACKLOG', done: 1, total: 2, nickname: null })).toEqual({
-      key: 'progress.backlog',
-      values: { position: 2, total: 2 },
-    })
+    expect(progressSummary({ phase: 'BACKLOG', done: 0, total: 2, nickname: '왕밤이' })).toBe(
+      TEXT.progress.backlogOn(1, 2, '왕밤이'),
+    )
+    expect(progressSummary({ phase: 'BACKLOG', done: 1, total: 2, nickname: null })).toBe(
+      TEXT.progress.backlog(2, 2),
+    )
   })
 
   it('drops the name when the post has none', () => {
-    expect(progressSummary({ phase: 'WORKING', done: 2, total: 3, nickname: null })).toEqual({
-      key: 'progress.working',
-      values: { position: 3, total: 3 },
-    })
+    expect(progressSummary({ phase: 'WORKING', done: 2, total: 3, nickname: null })).toBe(
+      TEXT.progress.working(3, 3),
+    )
+  })
+
+  it("says something different for a backlog walk than for today's own posts", () => {
+    const backlog = progressSummary({ phase: 'BACKLOG', done: 0, total: 4, nickname: null })
+    const working = progressSummary({ phase: 'WORKING', done: 0, total: 4, nickname: null })
+    expect(backlog).not.toBe(working)
   })
 })
