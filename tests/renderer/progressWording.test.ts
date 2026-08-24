@@ -62,6 +62,7 @@ describe('run confirmation wording', () => {
     ['run.alreadyHandled', {}],
     ['run.estimate', {}],
     ['run.countUnit', { count: 154 }],
+    ['run.countWithPending', { count: 154, pending: 45 }],
     ['run.minutesUnit', { minutes: 42 }],
     ['run.confirm', {}],
     ['run.cancel', {}],

@@ -105,6 +105,7 @@ void app.whenReady().then(async () => {
         automationId === WELCOME_AUTOMATION_ID ? appContext.lastOutcome() : null,
       lastOutcomeAt: () => appContext.lastOutcomeAt(),
       getStartupPreview: () => appContext.getStartupPreview(),
+      getDayPreview: () => appContext.getDayPreview(),
       lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
       nextSessionAt: () => appContext.automation.nextRunAt(),
       sessionProgress: () => appContext.sessionProgress(),

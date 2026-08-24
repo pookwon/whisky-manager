@@ -50,6 +50,11 @@ export interface DashboardSnapshot {
    */
   readonly startupPreview: StartupPreview | null
   /**
+   * Current narrowing preview for a day the operator is reviewing before running it.
+   * Null when no day is under preview; updates 5 times a second via polling.
+   */
+  readonly dayPreview: StartupPreview | null
+  /**
    * When the last session outcome arrived. Null if no session has ever run.
    * Allows the renderer to show this as a past event rather than present state.
    */

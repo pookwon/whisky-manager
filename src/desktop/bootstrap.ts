@@ -16,6 +16,7 @@ import { createSessionLoop } from './sessionLoop.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
+import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAuthors.js'
 
 // Re-exported so the many main-process callers keep their existing import.
 export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
@@ -67,7 +68,9 @@ export interface AppContext {
    */
   getStartupPreview(): StartupPreview | null
   /** Counts what a run on that day would answer, without answering any. */
-  previewDay(dayStartMs: number): Promise<StartupPreview>
+  previewDay(dayStartMs?: number): Promise<StartupPreview>
+  /** Current narrowing preview for the day under preview, or null if none. */
+  getDayPreview(): StartupPreview | null
   /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   lastBridgeConnectedAt(): number | null
   shutdown(): Promise<void>
@@ -117,6 +120,19 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   let startupPreview: StartupPreview | null = null
   let previewMonitorHandle: NodeJS.Timeout | null = null
   let lastBridgeConnectedAt: number | null = null
+
+  // For narrowing the day preview as lookups land
+  let dayPreview: StartupPreview | null = null
+  let dayPreviewId = 0
+  const commentLookup: CommentAuthorLookup = createCommentAuthorLookup({
+    transport: bridge,
+    cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
+    boardId: DEFAULT_BOARD_ID,
+    automationId: WELCOME_AUTOMATION_ID,
+    newRequestId: () => randomUUID(),
+    random: systemRandom,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  })
 
   // The one runtime this build ships. Adding a catalogue entry without adding
   // it here fails the boot, which is the point: the seam where a second
@@ -220,6 +236,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
           newRequestId: () => randomUUID(),
           operatorAccounts,
           policy: automationSetting?.policy ?? 'AUTO',
+          lookup: commentLookup,
+          onNarrow: (progress) => {
+            dayPreview = progress
+          },
         }).then((result) => {
           startupPreview = result
         }).catch((error) => {
@@ -259,8 +279,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     lastOutcomeAt: () => lastOutcomeAt,
     sessionProgress: () => sessionProgress,
     getStartupPreview: () => startupPreview,
-    previewDay: (dayStartMs) =>
-      previewDay({
+    previewDay: (dayStartMs?) => {
+      const id = ++dayPreviewId
+      return previewDay({
         transport: bridge,
         cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
         boardId: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? DEFAULT_BOARD_ID,
@@ -269,8 +290,16 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         newRequestId: () => randomUUID(),
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
         policy: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.policy ?? 'AUTO',
-        dayStartMs,
-      }),
+        ...(dayStartMs !== undefined ? { dayStartMs } : {}),
+        lookup: commentLookup,
+        onNarrow: (progress) => {
+          if (dayPreviewId === id) {
+            dayPreview = progress
+          }
+        },
+      })
+    },
+    getDayPreview: () => dayPreview,
     lastBridgeConnectedAt: () => lastBridgeConnectedAt,
     async shutdown() {
       if (previewMonitorHandle !== null) {

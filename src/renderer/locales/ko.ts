@@ -81,6 +81,7 @@ export const ko = {
       alreadyHandled: '이미 댓글이 달린 글',
       estimate: '예상 소요',
       countUnit: '{{count}}건',
+      countWithPending: '{{count}}건 (확인 중 {{pending}}건)',
       minutesUnit: '{{minutes}}분',
       confirm: '실행',
       cancel: '취소',
