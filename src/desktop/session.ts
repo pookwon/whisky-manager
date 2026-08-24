@@ -6,6 +6,7 @@ import { pickTemplate, renderTemplate } from '../shared/templates.js'
 import { kstDayStartMs } from '../shared/kst.js'
 import type { Candidate, Profile, RunMode } from '../shared/types.js'
 import type { AppRepos } from './bootstrap.js'
+import { createCommentAuthorLookup } from './commentAuthors.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import {
   runSession,
@@ -101,6 +102,16 @@ export function createSessionRunner(
         : { ok: false, missing: result.missing }
     }
 
+    const commentAuthors = createCommentAuthorLookup({
+      transport: options.transport,
+      cafeId: cafe,
+      boardId: board,
+      automationId,
+      newRequestId: options.newId,
+      random: options.random,
+      sleep: options.sleep,
+    })
+
     const outcome = await runSession({
       automationId,
       cafeId: cafe,
@@ -120,6 +131,7 @@ export function createSessionRunner(
       isKilled: options.isKilled,
       sleep: options.sleep,
       newRequestId: options.newId,
+      commentAuthors,
       runMode: mode,
       ...(dayStartMs === undefined ? {} : { dayStartMs }),
       // An absent reporter has to be absent rather than undefined here.

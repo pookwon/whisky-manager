@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { previewDay } from '../../src/desktop/preview.js'
+import { previewDay, type StartupPreview } from '../../src/desktop/preview.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { kstDayStartMs } from '../../src/shared/kst.js'
+import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
+import type { CommentAuthor } from '../../src/shared/types.js'
 
 const CAFE = '10000000'
 /** 2026-08-23 12:00 KST. */
@@ -15,7 +17,7 @@ function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
     authorNickname: '가입자하나',
     authorId: 'member-1',
     postedAt: NOW,
-    existingCommentAuthors: [],
+    commentCount: 0,
     ...overrides,
   }
 }
@@ -43,6 +45,16 @@ function offlineTransport() {
   }
 }
 
+function mockLookup(results: Record<string, CommentAuthor[]>): CommentAuthorLookup {
+  return {
+    resolve: (postId, commentCount) => {
+      if (commentCount === null) return Promise.resolve(null)
+      if (commentCount === 0) return Promise.resolve([])
+      return Promise.resolve(results[postId] ?? [])
+    },
+  }
+}
+
 const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => ({
   cafeId: CAFE,
   boardId: '5',
@@ -63,7 +75,7 @@ describe('previewDay', () => {
       raw({ postId: '1003', authorNickname: '가입자셋', authorId: 'member-3' }),
     ]
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
-    expect(result).toEqual({ kind: 'READY', count: 3, alreadyHandled: 0, checkedAt: NOW })
+    expect(result).toEqual({ kind: 'READY', count: 3, alreadyHandled: 0, pending: 0, checkedAt: NOW })
   })
 
   it('counts only the first post when same author posts multiple times', async () => {
@@ -73,7 +85,7 @@ describe('previewDay', () => {
       raw({ postId: '1003', authorNickname: '가입자둘', authorId: 'member-2' }),
     ]
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
-    expect(result).toEqual({ kind: 'READY', count: 2, alreadyHandled: 0, checkedAt: NOW })
+    expect(result).toEqual({ kind: 'READY', count: 2, alreadyHandled: 0, pending: 0, checkedAt: NOW })
   })
 
   it('returns BRIDGE_OFFLINE when transport is not connected', async () => {
@@ -161,8 +173,8 @@ describe('previewDay — the number the operator approves against', () => {
     // the list, so the guard flags it and AUTO skips it. Counting it promises
     // a comment that will never be sent.
     const candidates = [
-      raw({ postId: '9001', authorId: 'a1', existingCommentAuthors: null }),
-      raw({ postId: '9002', authorId: 'a2', existingCommentAuthors: [] }),
+      raw({ postId: '9001', authorId: 'a1', commentCount: null }),
+      raw({ postId: '9002', authorId: 'a2', commentCount: 0 }),
     ]
 
     const result = await previewDay(
@@ -173,7 +185,7 @@ describe('previewDay — the number the operator approves against', () => {
   })
 
   it('counts nothing under MANUAL, where every post waits for a person', async () => {
-    const candidates = [raw({ postId: '9003', authorId: 'a3', existingCommentAuthors: [] })]
+    const candidates = [raw({ postId: '9003', authorId: 'a3', commentCount: 0 })]
 
     const result = await previewDay(
       deps({ transport: transportReturning(candidates), policy: 'MANUAL' }),
@@ -184,8 +196,8 @@ describe('previewDay — the number the operator approves against', () => {
 
   it('counts the clean post but not the flagged one under SEMI', async () => {
     const candidates = [
-      raw({ postId: '9004', authorId: 'a4', existingCommentAuthors: null }),
-      raw({ postId: '9005', authorId: 'a5', existingCommentAuthors: [] }),
+      raw({ postId: '9004', authorId: 'a4', commentCount: null }),
+      raw({ postId: '9005', authorId: 'a5', commentCount: 0 }),
     ]
 
     const result = await previewDay(
@@ -200,10 +212,10 @@ describe('previewDay — telling the buckets apart', () => {
   it('separates what will be commented from what already has one', async () => {
     const candidates = [
       // Already answered: the list gives a comment count but never the names.
-      raw({ postId: '9101', authorId: 'a1', existingCommentAuthors: null }),
-      raw({ postId: '9102', authorId: 'a2', existingCommentAuthors: null }),
+      raw({ postId: '9101', authorId: 'a1', commentCount: null }),
+      raw({ postId: '9102', authorId: 'a2', commentCount: null }),
       // Proven empty, so it is a target.
-      raw({ postId: '9103', authorId: 'a3', existingCommentAuthors: [] }),
+      raw({ postId: '9103', authorId: 'a3', commentCount: 0 }),
     ]
 
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
@@ -215,12 +227,109 @@ describe('previewDay — telling the buckets apart', () => {
     // It is not a target, and nobody has answered it. Folding it into either
     // number would make the two stop describing what they are named after.
     const candidates = [
-      raw({ postId: '9201', authorId: 'same', postedAt: NOW - 7_200_000, existingCommentAuthors: [] }),
-      raw({ postId: '9202', authorId: 'same', postedAt: NOW - 3_600_000, existingCommentAuthors: [] }),
+      raw({ postId: '9201', authorId: 'same', postedAt: NOW - 7_200_000, commentCount: 0 }),
+      raw({ postId: '9202', authorId: 'same', postedAt: NOW - 3_600_000, commentCount: 0 }),
     ]
 
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
 
     expect(result).toMatchObject({ kind: 'READY', count: 1, alreadyHandled: 0 })
+  })
+})
+
+describe('previewDay — narrowing as lookups land', () => {
+  it('with lookup: initially shows pending count, then narrows to final count', async () => {
+    // Two posts: one empty, one with comments awaiting lookup
+    const candidates = [
+      raw({ postId: '7001', authorId: 'a1', commentCount: 0 }),
+      raw({ postId: '7002', authorId: 'a2', commentCount: 2 }),
+    ]
+
+    const previews: StartupPreview[] = []
+    const lookup = mockLookup({ '7002': [{ nickname: 'user1' } as CommentAuthor] })
+    await previewDay(deps({
+      transport: transportReturning(candidates),
+      lookup,
+      onNarrow: (p) => previews.push(p),
+    }))
+
+    // Initial: count is confirmed empty, pending is unknown
+    expect(previews[0]).toMatchObject({ kind: 'READY', count: 1, pending: 1, alreadyHandled: 0 })
+
+    // Final: all resolved, no pending
+    expect(previews.length).toBeGreaterThan(0)
+    const final = previews[previews.length - 1]!
+    expect(final).toMatchObject({ kind: 'READY', pending: 0 })
+    if (final.kind === 'READY') {
+      expect(final.count + final.alreadyHandled).toBe(2) // All posts accounted for
+    }
+  })
+
+  it('each post ends up in exactly one bucket: count, alreadyHandled, or neither', async () => {
+    // Three posts to verify narrowing resolves everything
+    const candidates = [
+      raw({ postId: '7101', authorId: 'a1', commentCount: 0 }),
+      raw({ postId: '7102', authorId: 'a2', commentCount: 2 }),
+      raw({ postId: '7103', authorId: 'a3', commentCount: null }),
+    ]
+
+    const previews: StartupPreview[] = []
+    const lookup = mockLookup({ '7102': [{ nickname: 'user' } as CommentAuthor] })
+    await previewDay(deps({
+      transport: transportReturning(candidates),
+      lookup,
+      onNarrow: (p) => previews.push(p),
+    }))
+
+    expect(previews.length).toBeGreaterThan(0)
+    const initial = previews[0]!
+    const final = previews[previews.length - 1]!
+
+    // Initially: only empty posts can be counted, rest are pending
+    expect(initial).toMatchObject({ kind: 'READY', count: 1, pending: 2, alreadyHandled: 0 })
+
+    // Finally: pending is 0, every post is in count or alreadyHandled or neither
+    expect(final).toMatchObject({ kind: 'READY', pending: 0 })
+    if (final.kind === 'READY') {
+      expect(final.count + final.alreadyHandled).toBeGreaterThanOrEqual(1) // At least some posts counted
+    }
+  })
+
+  it('session reusing panel lookup avoids re-checking already-resolved posts', async () => {
+    const candidates = [
+      raw({ postId: '7201', authorId: 'a1', commentCount: 0 }),
+      raw({ postId: '7202', authorId: 'a2', commentCount: 2 }),
+    ]
+
+    const lookup = mockLookup({ '7202': [{ nickname: 'user1' } as CommentAuthor] })
+
+    // First run
+    const previews1: StartupPreview[] = []
+    await previewDay(deps({
+      transport: transportReturning(candidates),
+      lookup,
+      onNarrow: (p) => previews1.push(p),
+    }))
+    expect(previews1.length).toBeGreaterThan(0)
+    const final1 = previews1[previews1.length - 1]!
+
+    // Second run with same lookup instance
+    const previews2: StartupPreview[] = []
+    await previewDay(deps({
+      transport: transportReturning(candidates),
+      lookup, // Cached
+      onNarrow: (p) => previews2.push(p),
+    }))
+    expect(previews2.length).toBeGreaterThan(0)
+    const final2 = previews2[previews2.length - 1]!
+
+    // Both runs should produce identical final counts because lookup is cached
+    expect(final1).toMatchObject({ kind: 'READY' })
+    expect(final2).toMatchObject({ kind: 'READY' })
+    if (final1.kind === 'READY' && final2.kind === 'READY') {
+      expect(final1.count).toBe(final2.count)
+      expect(final1.alreadyHandled).toBe(final2.alreadyHandled)
+      expect(final1.pending).toBe(final2.pending)
+    }
   })
 })

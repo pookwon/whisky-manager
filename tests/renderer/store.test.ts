@@ -42,6 +42,7 @@ const snapshot: DashboardSnapshot = {
   lastOutcome: null,
   automations: [],
   startupPreview: null,
+  dayPreview: null,
   lastOutcomeAt: null,
   nextSessionAt: null,
   sessionProgress: null,

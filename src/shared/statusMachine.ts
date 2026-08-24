@@ -8,7 +8,6 @@ export type StatusEvent =
   | { type: 'EXECUTION_SUCCEEDED' }
   | { type: 'EXECUTION_FAILED'; attempts: number }
   | { type: 'RETRY_DUE' }
-  | { type: 'DAILY_CAP_EXCEEDED' }
   | { type: 'KILLED' }
 
 export class InvalidTransitionError extends Error {
@@ -53,7 +52,6 @@ export function transition(
       if (event.type === 'EXECUTION_FAILED') {
         return event.attempts >= limits.maxAttempts ? 'FAILED' : 'RETRY_WAIT'
       }
-      if (event.type === 'DAILY_CAP_EXCEEDED') return 'EXPIRED'
       break
 
     case 'RETRY_WAIT':

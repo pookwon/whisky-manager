@@ -8,6 +8,7 @@ import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { CommentAuthor } from '../../src/shared/types.js'
+import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
 import { runSession, firstPostIdByAuthor, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
 import { firstPostOnlyGuard } from '../../src/shared/automations/welcome-comment/firstPost.js'
@@ -79,7 +80,7 @@ function candidate(postId: string, postedAt = MON_10_00 - 60_000): RawCandidate 
     authorNickname: 'nick',
     authorId: `m${postId}`,
     postedAt,
-    existingCommentAuthors: [],
+    commentCount: 0,
   }
 }
 
@@ -89,6 +90,15 @@ let repo: ExecutionsRepo
 let idCounter = 0
 
 function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
+  const defaultLookup: CommentAuthorLookup = {
+    resolve: async (postId, commentCount) => {
+      if (commentCount === null) return null
+      if (commentCount === 0) return []
+      // Default: return an operator comment (matching the old stopgap behavior
+      // where posts with comments were treated as having operator comments)
+      return [{ nickname: 'cafe-ops', memberKey: 'key-ops' }]
+    },
+  }
   return {
     automationId: 'welcome-comment',
     cafeId: '10000000',
@@ -111,6 +121,7 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     isKilled: () => false,
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
+    commentAuthors: defaultLookup,
     runMode: 'SCHEDULED',
     ...overrides,
   }
@@ -137,7 +148,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const post2: RawCandidate = {
       postId: '1002',
@@ -146,7 +157,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const result = firstPostIdByAuthor([post1, post2])
     expect(result.get(sameAuthorId)).toBe('1001')
@@ -162,7 +173,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: sameTimestamp,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const post2: RawCandidate = {
       postId: '1001',
@@ -171,7 +182,7 @@ describe('firstPostIdByAuthor', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: sameTimestamp,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const result = firstPostIdByAuthor([post1, post2])
     // When times are identical, lower post ID wins (comparePostId('1001', '2001') < 0)
@@ -215,7 +226,6 @@ describe('runSession — AUTO policy', () => {
       skipped: 0,
       awaitingApproval: 0,
       failed: 0,
-      expired: 0,
     })
     expect(db.select().from(executions).all().map((r) => r.status)).toEqual(['SUCCESS', 'SUCCESS'])
   })
@@ -237,7 +247,7 @@ describe('runSession — AUTO policy', () => {
   })
 
   it('stores the risk flags that drove the decision', async () => {
-    const unchecked = { ...candidate('1030'), existingCommentAuthors: null }
+    const unchecked = { ...candidate('1030'), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [unchecked] }), policy: 'SEMI' }))
 
     expect(db.select().from(executions).all()[0]?.riskFlags).toBe('["COMMENT_CHECK_FAILED"]')
@@ -254,7 +264,7 @@ describe('runSession — AUTO policy', () => {
   it('skips a post an operator already greeted', async () => {
     const already = {
       ...candidate('1003'),
-      existingCommentAuthors: [{ nickname: 'cafe-ops', memberKey: 'key-ops' }],
+      commentCount: 1,
     }
     expect(await runSession(deps({ transport: fakeTransport({ candidates: [already] }) }))).toMatchObject({
       opened: true,
@@ -264,7 +274,7 @@ describe('runSession — AUTO policy', () => {
   })
 
   it('skips rather than queues when the comment check failed', async () => {
-    const unchecked = { ...candidate('1004'), existingCommentAuthors: null }
+    const unchecked = { ...candidate('1004'), commentCount: null }
     expect(await runSession(deps({ transport: fakeTransport({ candidates: [unchecked] }) }))).toMatchObject({
       opened: true,
       executed: 0,
@@ -276,7 +286,7 @@ describe('runSession — AUTO policy', () => {
 
 describe('runSession — SEMI and MANUAL policies', () => {
   it('queues a flagged candidate for approval under SEMI', async () => {
-    const unchecked = { ...candidate('1005'), existingCommentAuthors: null }
+    const unchecked = { ...candidate('1005'), commentCount: null }
     const transport = fakeTransport({ candidates: [unchecked] })
 
     expect(await runSession(deps({ transport, policy: 'SEMI' }))).toMatchObject({
@@ -298,22 +308,22 @@ describe('runSession — SEMI and MANUAL policies', () => {
 })
 
 describe('runSession — caps and failures', () => {
-  it('stops at the per-session cap and leaves the current one queued', async () => {
+  it('stops at the per-session cap and does not leave a row behind', async () => {
     const many = Array.from({ length: 4 }, (_, i) => candidate(`20${i}`))
     const transport = fakeTransport({ candidates: many })
     const limits = { ...PROFILES.production, perSessionCap: 2 }
 
     expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 2 })
-    // The candidate that hit the cap stays QUEUED; the ones after it are never
-    // claimed at all and will simply be collected again next session.
-    expect(repo.listUnresolved('welcome-comment')).toHaveLength(1)
+    // The candidates that hit the cap are never claimed at all and will simply
+    // be collected again next session. No row is left behind.
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
   })
 
-  it('expires candidates once the daily cap is reached', async () => {
+  it('does not process candidates when the hour has no room left', async () => {
     const transport = fakeTransport({ candidates: [candidate('3001')] })
-    const limits = { ...PROFILES.production, dailyCap: 0 }
+    const limits = { ...PROFILES.production, hourlyCap: 0 }
 
-    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0, expired: 1 })
+    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0 })
   })
 
   it('parks a failed execution in RETRY_WAIT rather than failing outright', async () => {
@@ -331,7 +341,7 @@ describe('runSession — caps and failures', () => {
     // A retry that ages out is retired by the sweep, so the brake never sees it.
     // What the brake is actually for is work a human has left sitting: an
     // approval request older than the backlog limit but younger than its TTL.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), existingCommentAuthors: null }
+    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -405,13 +415,13 @@ describe('runSession — caps', () => {
     expect(outcome).toMatchObject({ opened: true, executed: overCap })
   })
 
-  it('a manual run still respects the daily cap', async () => {
+  it('a manual run still respects the hourly cap', async () => {
     const many = Array.from({ length: 30 }, (_, i) => candidate(`${8000 + i}`))
     const transport = fakeTransport({ candidates: many })
-    const limits = { ...PROFILES.production, dailyCap: 20 }
+    const limits = { ...PROFILES.production, hourlyCap: 20 }
 
     const outcome = await runSession(deps({ transport, limits, runMode: 'MANUAL' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 20, expired: 10 })
+    expect(outcome).toMatchObject({ opened: true, executed: 20 })
   })
 })
 
@@ -486,7 +496,7 @@ describe('runSession — maintenance runs before the brake', () => {
   })
 
   it('expires an approval request that outlived its ttl', async () => {
-    const flagged = { ...candidate('5300'), existingCommentAuthors: null }
+    const flagged = { ...candidate('5300'), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [flagged] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -518,12 +528,34 @@ describe('runSession — kill switch during the pacing wait', () => {
   })
 })
 
+describe('runSession — the hourly cap moves with the clock', () => {
+  it('lets a later session through once earlier requests leave the window', async () => {
+    const clock = new FakeClock(MON_10_00)
+    const limits = { ...PROFILES.production, hourlyCap: 1 }
+    const send = (postId: string) =>
+      runSession(deps({ clock, limits, transport: fakeTransport({ candidates: [candidate(postId)] }) }))
+
+    expect(await send('6400')).toMatchObject({ opened: true, executed: 1 })
+
+    // Same hour: the one slot is spent.
+    expect(await send('6401')).toMatchObject({ opened: true, executed: 0 })
+
+    // This is what separates an hourly cap from a daily one — the window slides
+    // rather than resetting at some boundary, so the first request stops
+    // counting once it is an hour old.
+    clock.set(MON_10_00 + 61 * 60_000)
+    expect(await send('6402')).toMatchObject({ opened: true, executed: 1 })
+  })
+})
+
 describe('runSession — caps count attempts, not successes', () => {
-  it('counts a failed execution against the daily cap', async () => {
+  it('counts a failed execution against the hourly cap', async () => {
     // One failure, then a second session with a cap of 1 must refuse to send.
+    // The hour does not care whether naver accepted the request, only that it
+    // was made.
     await runSession(deps({ transport: fakeTransport({ candidates: [candidate('6200')], executeOk: false }) }))
 
-    const limits = { ...PROFILES.production, dailyCap: 1 }
+    const limits = { ...PROFILES.production, hourlyCap: 1 }
     const outcome = await runSession(
       deps({ transport: fakeTransport({ candidates: [candidate('6201')] }), limits }),
     )
@@ -537,9 +569,10 @@ describe('runSession — caps count attempts, not successes', () => {
 
     const outcome = await runSession(deps({ transport, limits }))
 
-    // The first attempt used the only slot even though it failed.
+    // The first attempt used the only slot even though it failed. The second
+    // candidate is not claimed at all since the cap check before claim rejects it.
     expect(outcome).toMatchObject({ opened: true, executed: 0, failed: 0 })
-    expect(repo.listUnresolved('welcome-comment')).toHaveLength(2)
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(1)
   })
 })
 
@@ -664,7 +697,7 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       authorNickname: 'shared-nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const laterPost: RawCandidate = {
       postId: '2002',
@@ -673,7 +706,7 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       authorNickname: 'shared-nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
 
     const transport = fakeTransport({ candidates: [earlierPost, laterPost] })
@@ -704,7 +737,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const post2: RawCandidate = {
       postId: '1002',
@@ -713,7 +746,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick',
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
 
     // Test with oldest-first order
@@ -735,7 +768,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick',
       authorId: null,
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     await runSession(deps({ transport: fakeTransport({ candidates: [unknownAuthorPost] }), policy: 'AUTO' }))
 
@@ -755,7 +788,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick1',
       authorId: 'author-1',
       postedAt: MON_10_00 - 60_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const unknownAuthorPost: RawCandidate = {
       postId: '1002',
@@ -764,7 +797,7 @@ describe('runSession — first post detection', () => {
       authorNickname: 'nick2',
       authorId: null,
       postedAt: MON_10_00 - 45_000,
-      existingCommentAuthors: [],
+      commentCount: 0,
     }
     const transport = fakeTransport({ candidates: [author1Post, unknownAuthorPost] })
     const outcome = await runSession(deps({ transport, policy: 'AUTO' }))
@@ -793,7 +826,7 @@ describe('runSession — forced runs', () => {
   it('opens despite a backlog old enough to stop the schedule', async () => {
     // Same shape the brake was built for: an approval a human left sitting,
     // older than the backlog limit but younger than its own expiry.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), existingCommentAuthors: null }
+    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -804,14 +837,14 @@ describe('runSession — forced runs', () => {
     expect(await runSession(deps({ runMode: 'FORCED' }))).toMatchObject({ opened: true })
   })
 
-  it('carries on past the daily cap', async () => {
+  it('carries on past the hourly cap', async () => {
     const many = Array.from({ length: 30 }, (_, i) => candidate(`${9100 + i}`))
-    const limits = { ...PROFILES.production, dailyCap: 20 }
+    const limits = { ...PROFILES.production, hourlyCap: 20 }
 
     const outcome = await runSession(
       deps({ transport: fakeTransport({ candidates: many }), limits, runMode: 'FORCED' }),
     )
-    expect(outcome).toMatchObject({ opened: true, executed: 30, expired: 0 })
+    expect(outcome).toMatchObject({ opened: true, executed: 30 })
   })
 
   it('still refuses when the kill switch is engaged', async () => {
@@ -915,5 +948,176 @@ describe('runSession — a chosen day', () => {
 
     const collect = sent.find((m) => m.type === 'COLLECT')
     expect(collect).toMatchObject({ sincePostedAt: kstDayStartMs(MON_10_00) })
+  })
+})
+
+describe('runSession — comment author resolution', () => {
+  function fakeLookup(options: { responses?: Record<string, CommentAuthor[] | null> } = {}) {
+    const checked = new Set<string>()
+    return {
+      checked,
+      lookup: {
+        resolve: async (postId: string, commentCount: number | null) => {
+          if (commentCount === null) return null
+          if (commentCount === 0) return []
+          checked.add(postId)
+          return options.responses?.[postId] ?? null
+        },
+      },
+    }
+  }
+
+  it('resolves existing comments and judges based on who commented', async () => {
+    // Post with an operator comment should be skipped
+    const withOperator = { ...candidate('8001'), commentCount: 2 }
+    // Post with only member comments should be executed
+    const withoutOperator = { ...candidate('8002'), commentCount: 3 }
+
+    const lookup = fakeLookup({
+      responses: {
+        '8001': [{ nickname: 'cafe-ops', memberKey: 'key-ops' }],
+        '8002': [{ nickname: 'member1', memberKey: 'key1' }],
+      },
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [withOperator, withoutOperator] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1, skipped: 1 })
+    expect(lookup.checked).toContain('8001')
+    expect(lookup.checked).toContain('8002')
+  })
+
+  it('does not check posts with zero comments', async () => {
+    const zeroComments = { ...candidate('8010'), commentCount: 0 }
+
+    const lookup = fakeLookup()
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [zeroComments] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+    expect(lookup.checked).not.toContain('8010')
+  })
+
+  it('skips posts where the comment count is unreadable and marks COMMENT_CHECK_FAILED', async () => {
+    const nullCount = { ...candidate('8020'), commentCount: null }
+
+    const lookup = fakeLookup()
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [nullCount] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+    expect(lookup.checked).not.toContain('8020')
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.riskFlags).toContain('COMMENT_CHECK_FAILED')
+  })
+
+  it('skips and flags when the lookup returns null (check failed)', async () => {
+    const withComments = { ...candidate('8030'), commentCount: 2 }
+
+    const lookup = fakeLookup({
+      responses: { '8030': null }, // Lookup failed
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [withComments] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+    expect(lookup.checked).toContain('8030')
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.riskFlags).toContain('COMMENT_CHECK_FAILED')
+  })
+
+  it('does not check posts past the session cap', async () => {
+    const cap = 2
+    const capped = { ...PROFILES.production, perSessionCap: cap }
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      ...candidate(`80${40 + i}`),
+      commentCount: 1,
+    }))
+
+    // Return member comments (no operator) so posts can be executed
+    const lookup = fakeLookup({
+      responses: {
+        '8040': [{ nickname: 'member1', memberKey: 'key1' }],
+        '8041': [{ nickname: 'member2', memberKey: 'key2' }],
+        '8042': [{ nickname: 'member3', memberKey: 'key3' }],
+        '8043': [{ nickname: 'member4', memberKey: 'key4' }],
+        '8044': [{ nickname: 'member5', memberKey: 'key5' }],
+      },
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: many }),
+        limits: capped,
+        runMode: 'SCHEDULED',
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: cap })
+    // Only the first `cap` posts should be checked
+    expect(lookup.checked).toContain('8040')
+    expect(lookup.checked).toContain('8041')
+    // Posts past the cap should NOT be checked
+    expect(lookup.checked).not.toContain('8042')
+    expect(lookup.checked).not.toContain('8043')
+    expect(lookup.checked).not.toContain('8044')
+
+    // No lingering QUEUED row from hitting the cap
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+
+  it('leaves nothing behind when a cap stops the walk', async () => {
+    const cap = 1
+    const capped = { ...PROFILES.production, perSessionCap: cap, hourlyCap: 1 }
+    const many = Array.from({ length: 3 }, (_, i) => ({
+      ...candidate(`80${50 + i}`),
+      commentCount: 1,
+    }))
+
+    // Return member comments (no operator) so posts can be executed
+    const lookup = fakeLookup({
+      responses: {
+        '8050': [{ nickname: 'member1', memberKey: 'key1' }],
+        '8051': [{ nickname: 'member2', memberKey: 'key2' }],
+        '8052': [{ nickname: 'member3', memberKey: 'key3' }],
+      },
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: many }),
+        limits: capped,
+        runMode: 'SCHEDULED',
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    // First session: one executes, others are not checked and leave no row
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+    expect(lookup.checked).toContain('8050')
+    expect(lookup.checked).not.toContain('8051')
+    expect(lookup.checked).not.toContain('8052')
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
   })
 })

@@ -57,3 +57,15 @@ const PAGE_FETCH_MAX_MS = 2_500
 export function nextPageFetchDelayMs(random: Random): number {
   return random.intInclusive(PAGE_FETCH_MIN_MS, PAGE_FETCH_MAX_MS)
 }
+
+/**
+ * Delay before asking a post who commented on it. Shorter than the page gap
+ * because these are single reads rather than a walk, and drawn at random for
+ * the same reason everything else here is: a fixed beat is what gets noticed.
+ */
+const COMMENT_LOOKUP_MIN_MS = 1_000
+const COMMENT_LOOKUP_MAX_MS = 1_500
+
+export function nextCommentLookupDelayMs(random: Random): number {
+  return random.intInclusive(COMMENT_LOOKUP_MIN_MS, COMMENT_LOOKUP_MAX_MS)
+}

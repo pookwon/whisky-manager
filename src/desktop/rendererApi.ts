@@ -38,6 +38,8 @@ export interface RendererApiDeps {
   readonly lastOutcomeAt: () => number | null
   /** Greeting target count available at startup, or null if not yet counted. */
   readonly getStartupPreview: () => import('./preview.js').StartupPreview | null
+  /** Current narrowing preview for a day under preview, or null if none. */
+  readonly getDayPreview: () => import('./preview.js').StartupPreview | null
   /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   readonly lastBridgeConnectedAt: () => number | null
   /** When the next session is scheduled to run, or null if the loop is not running. */
@@ -145,6 +147,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           null,
         automations,
         startupPreview: deps.getStartupPreview(),
+        dayPreview: deps.getDayPreview(),
         lastOutcomeAt: deps.lastOutcomeAt(),
         nextSessionAt: deps.nextSessionAt(),
         sessionProgress: deps.sessionProgress(),

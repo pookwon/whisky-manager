@@ -6,37 +6,44 @@ const limits = PROFILES.production
 const HOUR = 3_600_000
 
 describe('checkGates by run mode', () => {
-  const atBothCaps = { killed: false, dailyCount: limits.dailyCap, sessionCount: limits.perSessionCap }
-  const atSessionCap = { killed: false, dailyCount: 0, sessionCount: limits.perSessionCap }
+  const atSessionCap = { killed: false, hourlyCount: 0, sessionCount: limits.perSessionCap }
+  const atHourlyCap = { killed: false, hourlyCount: limits.hourlyCap, sessionCount: 0 }
 
   it('holds a scheduled session to both caps', () => {
     expect(checkGates(atSessionCap, limits, 'SCHEDULED')).toEqual({
       allowed: false,
       reason: 'SESSION_CAP_REACHED',
     })
-    expect(checkGates({ killed: false, dailyCount: 200, sessionCount: 0 }, limits, 'SCHEDULED')).toEqual({
+    expect(checkGates(atHourlyCap, limits, 'SCHEDULED')).toEqual({
       allowed: false,
-      reason: 'DAILY_CAP_EXCEEDED',
+      reason: 'HOURLY_CAP_REACHED',
     })
   })
 
-  it('lets a manual run past the session cap but not the daily one', () => {
+  it('lets a manual run past the session cap', () => {
     expect(checkGates(atSessionCap, limits, 'MANUAL')).toEqual({ allowed: true })
-    expect(checkGates({ killed: false, dailyCount: 200, sessionCount: 0 }, limits, 'MANUAL')).toEqual({
-      allowed: false,
-      reason: 'DAILY_CAP_EXCEEDED',
-    })
   })
 
   it('lets a forced run past both caps', () => {
-    expect(checkGates(atBothCaps, limits, 'FORCED')).toEqual({ allowed: true })
+    // The cap describes steady operation rather than a line that must never be
+    // crossed, so the operator keeps the override they had over the old one.
+    expect(checkGates({ ...atHourlyCap, sessionCount: limits.perSessionCap }, limits, 'FORCED')).toEqual({
+      allowed: true,
+    })
+  })
+
+  it('holds a manual run to the hourly cap', () => {
+    expect(checkGates(atHourlyCap, limits, 'MANUAL')).toEqual({
+      allowed: false,
+      reason: 'HOURLY_CAP_REACHED',
+    })
   })
 
   it('stops every mode at the kill switch', () => {
     // The one thing an operator can always reach. A mode that outranked it
     // would leave a long run with no way out.
     for (const mode of ['SCHEDULED', 'MANUAL', 'FORCED'] as const) {
-      expect(checkGates({ killed: true, dailyCount: 0, sessionCount: 0 }, limits, mode)).toEqual({
+      expect(checkGates({ killed: true, hourlyCount: 0, sessionCount: 0 }, limits, mode)).toEqual({
         allowed: false,
         reason: 'KILLED',
       })
@@ -54,25 +61,25 @@ describe('checkGates by run mode', () => {
 
 describe('checkGates', () => {
   it('allows a normal candidate', () => {
-    expect(checkGates({ killed: false, dailyCount: 10, sessionCount: 2 }, limits)).toEqual({ allowed: true })
+    expect(checkGates({ killed: false, hourlyCount: 10, sessionCount: 2 }, limits)).toEqual({ allowed: true })
   })
 
   it('blocks everything when the kill switch is engaged', () => {
-    expect(checkGates({ killed: true, dailyCount: 0, sessionCount: 0 }, limits)).toEqual({
+    expect(checkGates({ killed: true, hourlyCount: 0, sessionCount: 0 }, limits)).toEqual({
       allowed: false,
       reason: 'KILLED',
     })
   })
 
-  it('blocks once the daily cap is reached', () => {
-    expect(checkGates({ killed: false, dailyCount: 200, sessionCount: 0 }, limits)).toEqual({
+  it('blocks once the hourly cap is reached', () => {
+    expect(checkGates({ killed: false, hourlyCount: limits.hourlyCap, sessionCount: 0 }, limits)).toEqual({
       allowed: false,
-      reason: 'DAILY_CAP_EXCEEDED',
+      reason: 'HOURLY_CAP_REACHED',
     })
   })
 
   it('blocks once the per-session cap is reached', () => {
-    expect(checkGates({ killed: false, dailyCount: 0, sessionCount: limits.perSessionCap }, limits)).toEqual({
+    expect(checkGates({ killed: false, hourlyCount: 0, sessionCount: limits.perSessionCap }, limits)).toEqual({
       allowed: false,
       reason: 'SESSION_CAP_REACHED',
     })
@@ -81,21 +88,21 @@ describe('checkGates', () => {
   it('allows one below each cap', () => {
     expect(
       checkGates(
-        { killed: false, dailyCount: limits.dailyCap - 1, sessionCount: limits.perSessionCap - 1 },
+        { killed: false, hourlyCount: limits.hourlyCap - 1, sessionCount: limits.perSessionCap - 1 },
         limits,
       ),
     ).toEqual({ allowed: true })
   })
 
-  it('blocks past the daily cap, not only at it', () => {
-    expect(checkGates({ killed: false, dailyCount: 201, sessionCount: 0 }, limits)).toEqual({
+  it('blocks past the hourly cap, not only at it', () => {
+    expect(checkGates({ killed: false, hourlyCount: limits.hourlyCap + 1, sessionCount: 0 }, limits)).toEqual({
       allowed: false,
-      reason: 'DAILY_CAP_EXCEEDED',
+      reason: 'HOURLY_CAP_REACHED',
     })
   })
 
   it('reports the kill switch before any cap', () => {
-    expect(checkGates({ killed: true, dailyCount: 999, sessionCount: 999 }, limits)).toEqual({
+    expect(checkGates({ killed: true, hourlyCount: 999, sessionCount: 999 }, limits)).toEqual({
       allowed: false,
       reason: 'KILLED',
     })

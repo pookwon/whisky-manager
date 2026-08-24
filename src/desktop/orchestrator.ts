@@ -1,5 +1,5 @@
 import { containsOperator, evaluateGuards, type Guard } from '../shared/guards.js'
-import { checkGates, hasStaleBacklog } from '../shared/limits.js'
+import { RATE_WINDOW_MS, checkGates, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { comparePostId } from '../shared/postId.js'
 import { decide } from '../shared/policy.js'
@@ -8,6 +8,7 @@ import { kstDayRange } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits, RunMode } from '../shared/types.js'
+import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
@@ -38,6 +39,8 @@ export interface SessionDeps {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
+  /** Resolves who commented on a post. Consulted only for posts about to be judged. */
+  readonly commentAuthors: CommentAuthorLookup
   /**
    * Who asked for this session. A forced run is an operator who was shown what
    * they were overriding and chose to go ahead, so it passes the operating
@@ -77,7 +80,6 @@ export type SessionOutcome =
       skipped: number
       awaitingApproval: number
       failed: number
-      expired: number
     }
 
 interface PostWalk {
@@ -112,11 +114,15 @@ interface ExecutionJob {
   readonly priorAttempts: number
 }
 
-type JobResult = 'EXECUTED' | 'SKIPPED' | 'EXPIRED' | 'FAILED' | 'RETRY' | 'STOP'
+type JobResult = 'EXECUTED' | 'SKIPPED' | 'FAILED' | 'RETRY' | 'STOP'
 
-interface Counters {
-  readonly dailyCount: number
-  readonly sessionCount: number
+/**
+ * What the cafe has heard from us in the hour ending now. Read fresh at every
+ * gate rather than carried along: a session can run for the better part of an
+ * hour, and by its end the requests it opened with have left the window.
+ */
+function sentWithinTheHour(deps: SessionDeps, nowMs: number): number {
+  return deps.repo.countExecutedSince(deps.automationId, nowMs - RATE_WINDOW_MS)
 }
 
 /**
@@ -229,18 +235,14 @@ async function execute(
  * Everything from the gate to the recorded outcome, shared by backlog rows and
  * freshly collected candidates so both obey the same caps, pacing and re-check.
  */
-async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters): Promise<JobResult> {
+async function runJob(deps: SessionDeps, job: ExecutionJob, sessionCount: number): Promise<JobResult> {
+  const now = deps.clock.now()
   const gate = checkGates(
-    { killed: deps.isKilled(), dailyCount: counters.dailyCount, sessionCount: counters.sessionCount },
+    { killed: deps.isKilled(), hourlyCount: sentWithinTheHour(deps, now), sessionCount },
     deps.limits,
     deps.runMode,
   )
   if (!gate.allowed) {
-    const now = deps.clock.now()
-    if (gate.reason === 'SESSION_CAP_REACHED') {
-      // Left QUEUED so the next session picks it up from the backlog.
-      return 'STOP'
-    }
     if (gate.reason === 'KILLED') {
       deps.repo.applyPatch(job.executionId, {
         status: transition('QUEUED', { type: 'KILLED' }, deps.limits),
@@ -249,12 +251,10 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, counters: Counters):
       })
       return 'STOP'
     }
-    deps.repo.applyPatch(job.executionId, {
-      status: transition('QUEUED', { type: 'DAILY_CAP_EXCEEDED' }, deps.limits),
-      reason: 'DAILY_CAP_EXCEEDED',
-      resolvedAt: now,
-    })
-    return 'EXPIRED'
+    // Either cap leaves the row QUEUED for the next session. Neither is a
+    // verdict on the post: the hour moves on, and a session that ran out of
+    // room says nothing about whether the greeting deserves an answer.
+    return 'STOP'
   }
 
   await deps.sleep(nextActionDelayMs(deps.limits, deps.random))
@@ -368,25 +368,18 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   let skipped = 0
   let awaitingApproval = 0
   let failed = 0
-  let expired = 0
   /** Requests actually sent this session. Caps count attempts, not successes. */
   let attempted = 0
-
-  const today = kstDayRange(openedAt)
-  let dailyCount = deps.repo.countExecutedForDay(deps.automationId, today.startMs, today.endMs)
 
   const tally = (result: JobResult): void => {
     // EXECUTED, FAILED and RETRY all mean a request reached naver.
     if (result === 'EXECUTED' || result === 'FAILED' || result === 'RETRY') {
       attempted += 1
-      dailyCount += 1
     }
     if (result === 'EXECUTED') {
       executed += 1
     } else if (result === 'SKIPPED') {
       skipped += 1
-    } else if (result === 'EXPIRED') {
-      expired += 1
     } else if (result === 'FAILED') {
       failed += 1
     }
@@ -398,7 +391,6 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     skipped,
     awaitingApproval,
     failed,
-    expired,
   })
 
   // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
@@ -425,7 +417,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         templateId: row.templateId,
         priorAttempts: row.attempts,
       },
-      { dailyCount, sessionCount: attempted },
+      attempted,
     )
     if (result === 'STOP') return summary()
     tally(result)
@@ -453,6 +445,18 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       total: raws.length,
       nickname: raw.authorNickname,
     })
+
+    // Ahead of the claim so a post past the cap costs neither a row nor a
+    // lookup. runJob checks again for the backlog walk, which does not come
+    // through here.
+    const gate = checkGates(
+      { killed: deps.isKilled(), hourlyCount: sentWithinTheHour(deps, deps.clock.now()), sessionCount: attempted },
+      deps.limits,
+      deps.runMode,
+    )
+    if (!gate.allowed) {
+      break
+    }
 
     const now = deps.clock.now()
 
@@ -484,12 +488,15 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     // Render before deciding so a failed substitution can raise a risk flag
     // and let the policy handle it, instead of being discovered too late.
     const rendered = deps.renderBody(candidate)
+
+    const existingCommentAuthors = await deps.commentAuthors.resolve(raw.postId, raw.commentCount)
     const guardEvaluation = evaluateGuards(deps.guards, candidate, {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
-      existingCommentAuthors: raw.existingCommentAuthors,
+      existingCommentAuthors,
       isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     })
+
     const evaluation = rendered.ok
       ? guardEvaluation
       : {
@@ -542,7 +549,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         templateId: rendered.templateId,
         priorAttempts: 0,
       },
-      { dailyCount, sessionCount: attempted },
+      attempted,
     )
     if (result === 'STOP') break
     tally(result)

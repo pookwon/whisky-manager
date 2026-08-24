@@ -1,6 +1,7 @@
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage } from 'electron'
+import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage } from 'electron'
 import { PROFILES } from '../shared/profiles.js'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
@@ -8,6 +9,16 @@ import { createRendererApi } from './rendererApi.js'
 import { systemClock } from './runtime.js'
 
 const BRIDGE_PORT = 39_217
+
+/**
+ * Where the data lives is fixed, not derived. Electron takes this directory
+ * from the app's name, which is a display choice — the bundle was renamed once
+ * already, and had this been left alone that rename would have stranded every
+ * template, token and execution record in a directory nobody would think to
+ * look in. The development run and the installed build also have to meet in
+ * the same database, and this is what makes them.
+ */
+app.setPath('userData', join(app.getPath('appData'), 'whisky-manager'))
 
 let context: AppContext | null = null
 let tray: Tray | null = null
@@ -72,6 +83,27 @@ function registerIpc(api: RendererApi): void {
   }
 }
 
+/**
+ * A throw while the app is coming up otherwise reaches nobody. There is no
+ * window to show it in yet, so the process aborts and leaves a crash report
+ * naming Electron rather than the failure — which is unreadable to the
+ * operator and near-useless to whoever is asked to fix it. Writing it down and
+ * saying so out loud is the difference between a fault that can be read and
+ * one that can only be guessed at.
+ */
+function reportFatalStartupError(error: unknown): void {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  console.error('[startup] failed:', detail)
+  try {
+    writeFileSync(join(app.getPath('userData'), 'startup-error.log'), `${detail}\n`)
+  } catch {
+    // The log is a convenience. Failing to write it must not replace the
+    // original fault with a second one.
+  }
+  dialog.showErrorBox('시작하지 못했습니다', detail)
+  app.quit()
+}
+
 void app.whenReady().then(async () => {
   // Only the installed build registers itself to start with the machine. A dev
   // run must not leave a login item pointing at a temporary electron binary.
@@ -105,6 +137,7 @@ void app.whenReady().then(async () => {
         automationId === WELCOME_AUTOMATION_ID ? appContext.lastOutcome() : null,
       lastOutcomeAt: () => appContext.lastOutcomeAt(),
       getStartupPreview: () => appContext.getStartupPreview(),
+      getDayPreview: () => appContext.getDayPreview(),
       lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
       nextSessionAt: () => appContext.automation.nextRunAt(),
       sessionProgress: () => appContext.sessionProgress(),
@@ -119,7 +152,7 @@ void app.whenReady().then(async () => {
   tray.setToolTip('카페 관리')
   refreshTray(context)
   showWindow()
-})
+}).catch(reportFatalStartupError)
 
 // Tray-resident: closing the window must not quit the app.
 app.on('window-all-closed', () => {})

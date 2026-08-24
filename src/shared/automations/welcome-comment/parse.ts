@@ -1,7 +1,6 @@
 import { parse, type HTMLElement } from 'node-html-parser'
 import { KST_OFFSET_MS } from '../../kst.js'
 import type { RawCandidate } from '../../protocol.js'
-import type { CommentAuthor } from '../../types.js'
 
 /**
  * The 가입인사 board is a memo board: a legacy server-rendered page, not a JSON
@@ -46,15 +45,16 @@ function postedAt(titBox: HTMLElement): number | null {
 }
 
 /**
- * An empty list is proof: naver says nobody has replied. A non-zero count means
- * someone has, but the list page never names them, so the authors are unknown
- * and the caller has to re-check before it can rule out an operator.
+ * How many comments the list says a post has. The list never names who wrote
+ * them — the comment block it renders is empty until the page asks for it — so
+ * a count above zero means "somebody, unknown" and has to be resolved against
+ * the post itself. `null` is the count being unreadable, which is the list
+ * changing shape under us rather than anything about the post.
  */
-function commentAuthors(replyBox: HTMLElement): CommentAuthor[] | null {
+function commentCount(replyBox: HTMLElement): number | null {
   const label = replyBox.querySelector('._totalCnt')?.text ?? ''
   const match = COMMENT_COUNT.exec(label)
-  if (match === null) return null
-  return Number(match[1]) === 0 ? [] : null
+  return match === null ? null : Number(match[1])
 }
 
 export function parseMemoList(html: string): RawCandidate[] {
@@ -87,7 +87,7 @@ export function parseMemoList(html: string): RawCandidate[] {
         authorNickname: textOf(titBox.querySelector('.p-nick a')),
         authorId: memberId(titBox),
         postedAt: when,
-        existingCommentAuthors: commentAuthors(node),
+        commentCount: commentCount(node),
       })
     }
     titBox = null

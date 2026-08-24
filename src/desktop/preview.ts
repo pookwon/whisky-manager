@@ -6,6 +6,7 @@ import { decide } from '../shared/policy.js'
 import type { ApprovalPolicy, Candidate } from '../shared/types.js'
 import { firstPostIdByAuthor } from './orchestrator.js'
 import type { ExtensionTransport } from './ws/server.js'
+import type { CommentAuthorLookup } from './commentAuthors.js'
 
 export type StartupPreview =
   | {
@@ -14,6 +15,8 @@ export type StartupPreview =
       count: number
       /** Posts on that day that somebody has already answered. */
       alreadyHandled: number
+      /** Posts still waiting on a lookup before they can be judged. */
+      pending: number
       checkedAt: number
     }
   | { kind: 'UNAVAILABLE'; reason: 'BRIDGE_OFFLINE' | 'READ_FAILED' }
@@ -34,6 +37,10 @@ export interface PreviewDeps {
   readonly policy: ApprovalPolicy
   /** Midnight KST of the day to count. Omitted means the day `nowMs` falls in. */
   readonly dayStartMs?: number
+  /** Resolves who commented on posts so we can judge whether to answer. */
+  readonly lookup?: CommentAuthorLookup
+  /** Called after each post is settled, so a caller can show the count narrowing. */
+  readonly onNarrow?: (progress: StartupPreview) => void
 }
 
 async function collect(
@@ -82,9 +89,16 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
 
   const firstPosts = firstPostIdByAuthor(raws)
   const guards = [operatorAlreadyCommentedGuard, firstPostOnlyGuard]
-  let count = 0
-  let alreadyHandled = 0
 
+  interface PostWithDecision {
+    raw: RawCandidate
+    candidate: Candidate
+    guardContext: GuardContext
+  }
+
+  const posts: PostWithDecision[] = []
+
+  // Pre-compute candidate and guard context for each post
   for (const raw of raws) {
     const candidate: Candidate = {
       automationId: deps.automationId,
@@ -101,25 +115,76 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
     const guardContext: GuardContext = {
       nowMs: deps.nowMs,
       operatorAccounts: deps.operatorAccounts,
-      existingCommentAuthors: raw.existingCommentAuthors,
+      existingCommentAuthors: raw.commentCount === 0 ? [] : null,
       isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     }
 
-    // Read off the post rather than off the verdict: the operator is asking
-    // whether the greeting has been answered, and an empty list is the board
-    // saying nobody has. `null` is a comment count above zero the list will
-    // not name, which on this board means somebody got there first.
-    if (raw.existingCommentAuthors === null || raw.existingCommentAuthors.length > 0) {
-      alreadyHandled += 1
-    }
+    posts.push({ raw, candidate, guardContext })
+  }
 
-    // The same decision the session will reach, so the number shown is the
-    // number of comments that happen. Anything routed to a person instead is
-    // not one of them: it is waiting in the approval queue, not going out.
-    if (decide(deps.policy, evaluateGuards(guards, candidate, guardContext)).kind === 'EXECUTE') {
+  // Initial state: separate posts by whether we need to look them up
+  let count = 0
+  let alreadyHandled = 0
+  let pending = 0
+
+  for (const { raw, candidate, guardContext } of posts) {
+    const willComment = decide(deps.policy, evaluateGuards(guards, candidate, guardContext)).kind === 'EXECUTE'
+
+    if (willComment && raw.commentCount === 0) {
+      // Confirmed empty and will comment
       count += 1
+    } else if (!willComment && (raw.commentCount === null || raw.commentCount > 0)) {
+      // Won't comment but has comments (either unknown count or known count)
+      if (!deps.lookup) {
+        // Without lookup, we know this is already handled
+        alreadyHandled += 1
+      } else {
+        // With lookup, we need to check first
+        pending += 1
+      }
     }
   }
 
-  return { kind: 'READY', count, alreadyHandled, checkedAt: deps.nowMs }
+  // Report initial state
+  if (deps.onNarrow) {
+    deps.onNarrow({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
+  }
+
+  // If there's no lookup, return the initial state
+  if (!deps.lookup) {
+    return { kind: 'READY', count, alreadyHandled, pending: 0, checkedAt: deps.nowMs }
+  }
+
+  // Now resolve pending posts via lookup
+  for (const { raw, candidate, guardContext } of posts) {
+    if (raw.commentCount === null || raw.commentCount > 0) {
+      const authors = await deps.lookup.resolve(raw.postId, raw.commentCount)
+
+      // Create new guard context with real comment authors
+      const resolvedContext: GuardContext = {
+        ...guardContext,
+        existingCommentAuthors: authors,
+      }
+
+      // Re-evaluate the decision with the real comment authors
+      const decision = decide(deps.policy, evaluateGuards(guards, candidate, resolvedContext))
+      const willComment = decision.kind === 'EXECUTE'
+
+      if (willComment) {
+        count += 1
+      } else if (authors !== null && authors.length > 0) {
+        // Only count as already handled if the lookup succeeded with non-empty authors
+        alreadyHandled += 1
+      }
+
+      pending -= 1
+
+      // Report progress as each lookup lands
+      if (deps.onNarrow) {
+        deps.onNarrow({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
+      }
+    }
+  }
+
+  return { kind: 'READY', count, alreadyHandled, pending: 0, checkedAt: deps.nowMs }
 }

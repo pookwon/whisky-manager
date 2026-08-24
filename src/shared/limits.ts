@@ -1,9 +1,12 @@
 import type { GateBlockReason, Limits, RunMode } from './types.js'
 
+/** The stretch of clock time the hourly cap is measured over. */
+export const RATE_WINDOW_MS = 3_600_000
+
 export interface GateContext {
   readonly killed: boolean
-  /** Executions already performed inside the current daily window. */
-  readonly dailyCount: number
+  /** Requests sent to the cafe in the last hour, this session's and earlier. */
+  readonly hourlyCount: number
   /** Executions already performed inside the current session. */
   readonly sessionCount: number
 }
@@ -24,8 +27,12 @@ export function checkGates(
   if (ctx.killed) {
     return { allowed: false, reason: 'KILLED' }
   }
-  if (mode !== 'FORCED' && ctx.dailyCount >= limits.dailyCap) {
-    return { allowed: false, reason: 'DAILY_CAP_EXCEEDED' }
+  // What makes the tool conspicuous is how much it does inside an hour rather
+  // than how much it does in a day, so the volume gate is drawn there. A forced
+  // run still steps over it: the cap is what steady operation looks like, not a
+  // line that must never be crossed.
+  if (mode !== 'FORCED' && ctx.hourlyCount >= limits.hourlyCap) {
+    return { allowed: false, reason: 'HOURLY_CAP_REACHED' }
   }
   if (mode === 'SCHEDULED' && ctx.sessionCount >= limits.perSessionCap) {
     return { allowed: false, reason: 'SESSION_CAP_REACHED' }

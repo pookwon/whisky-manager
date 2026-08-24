@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { ExecutionStatus, ExecutionStrategy } from '../../shared/types.js'
 
 /**
@@ -38,6 +38,10 @@ export const executions = sqliteTable(
       table.automationId,
       table.targetPostId,
     ),
+    // The hourly cap asks how much went out in the last sixty minutes, once per
+    // candidate. Without this the answer costs a scan of every execution ever
+    // recorded, and that table only grows.
+    index('executions_automation_executed_at').on(table.automationId, table.executedAt),
   ],
 )
 

@@ -4,6 +4,7 @@ import {
   isWithinActiveHours,
   nextActionDelayMs,
   nextActiveStart,
+  nextCommentLookupDelayMs,
   nextPageFetchDelayMs,
   nextSessionStart,
 } from '../../src/shared/schedule.js'
@@ -93,5 +94,26 @@ describe('nextPageFetchDelayMs', () => {
     const delay = nextPageFetchDelayMs(new SequenceRandom([2_125]))
     expect(delay).toBeGreaterThanOrEqual(1_750)
     expect(delay).toBeLessThanOrEqual(2_500)
+  })
+})
+
+describe('nextCommentLookupDelayMs', () => {
+  it('returns the lower bound when random returns its minimum', () => {
+    // SequenceRandom clamps to [min, max], so passing 0 means it uses 0
+    // which maps to 1000ms in the range [1000, 1500]
+    const delay = nextCommentLookupDelayMs(new SequenceRandom([0]))
+    expect(delay).toBe(1_000)
+  })
+
+  it('returns the upper bound when random returns its maximum', () => {
+    // Passing a high value should clamp to the max
+    const delay = nextCommentLookupDelayMs(new SequenceRandom([10_000]))
+    expect(delay).toBe(1_500)
+  })
+
+  it('returns a value in the middle when random returns a midpoint', () => {
+    const delay = nextCommentLookupDelayMs(new SequenceRandom([1_250]))
+    expect(delay).toBeGreaterThanOrEqual(1_000)
+    expect(delay).toBeLessThanOrEqual(1_500)
   })
 })

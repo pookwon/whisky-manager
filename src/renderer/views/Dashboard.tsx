@@ -96,7 +96,11 @@ export function Dashboard(): React.JSX.Element {
   const breakdown = (preview: Extract<StartupPreview, { kind: 'READY' }>): React.JSX.Element => (
     <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
       <dt style={{ color: 'var(--ink-muted)' }}>{t('run.target')}</dt>
-      <dd className="font-semibold tabular-nums">{t('run.countUnit', { count: preview.count })}</dd>
+      <dd className="font-semibold tabular-nums">
+        {preview.pending > 0
+          ? t('run.countWithPending', { count: preview.count, pending: preview.pending })
+          : t('run.countUnit', { count: preview.count })}
+      </dd>
       <dt style={{ color: 'var(--ink-muted)' }}>{t('run.alreadyHandled')}</dt>
       <dd className="tabular-nums" style={{ color: 'var(--ink-muted)' }}>
         {t('run.countUnit', { count: preview.alreadyHandled })}

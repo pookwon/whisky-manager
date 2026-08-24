@@ -13,7 +13,7 @@
  *   node scripts/dry-run.mjs [며칠 전]     # 인자를 주지 않으면 오늘
  */
 import { existsSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomInt } from 'node:crypto'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
@@ -24,6 +24,7 @@ import { parseOperatorAccounts } from '../dist/desktop/session.js'
 import { evaluateGuards, operatorAlreadyCommentedGuard } from '../dist/shared/guards.js'
 import { firstPostOnlyGuard } from '../dist/shared/automations/welcome-comment/firstPost.js'
 import { firstPostIdByAuthor } from '../dist/desktop/orchestrator.js'
+import { createCommentAuthorLookup } from '../dist/desktop/commentAuthors.js'
 
 const PORT = 39217
 const PAIR_TIMEOUT_MS = 900_000
@@ -136,12 +137,30 @@ if (!connected) {
 
 const ask = (message) => bridge.request({ ...message, requestId: randomUUID() }, REPLY_TIMEOUT_MS)
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const random = {
+  intInclusive(min, max) {
+    return randomInt(min, max + 1)
+  },
+}
+
 try {
 
   // Check login
   const login = await ask({ type: 'CHECK_LOGIN', source: SOURCE })
   console.log('로그인:', login.loggedIn ? `${login.account} 로 로그인됨` : '미로그인')
   if (!login.loggedIn) throw new Error('로그인되지 않아 중단합니다')
+
+  const commentAuthors = createCommentAuthorLookup({
+    transport: { request: ask },
+    cafeId: SOURCE.cafeId,
+    boardId: SOURCE.boardId,
+    automationId: 'welcome-comment',
+    newRequestId: () => randomUUID(),
+    random,
+    sleep,
+  })
 
   const collectStartedAt = Date.now()
   const collected = await ask({
@@ -174,13 +193,14 @@ try {
   for (const c of candidates) {
     const isFirstPost = firstPosts.get(c.authorId) === c.postId
 
+    const existingCommentAuthors = await commentAuthors.resolve(c.postId, c.commentCount)
     const evaluation = evaluateGuards(
       [operatorAlreadyCommentedGuard, firstPostOnlyGuard],
       c,
       {
         nowMs: Date.now(),
         operatorAccounts,
-        existingCommentAuthors: c.existingCommentAuthors,
+        existingCommentAuthors,
         isFirstPostByAuthor: isFirstPost,
       },
     )
