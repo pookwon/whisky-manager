@@ -96,7 +96,7 @@ function commentCount(replyBox: HTMLElement): number | null {
   readonly commentCount: number | null
 ```
 
-`PROTOCOL_VERSION`을 **6**으로 올린다. 확장을 다시 로드해야 앱과 붙는다.
+`PROTOCOL_VERSION`은 지금 **6**이다(브리지 수정이 올려두었다). `RawCandidate`의 모양이 바뀌므로 **7**로 올린다. 확장을 다시 로드해야 앱과 붙는다.
 
 `CommentAuthor` import가 `RawCandidate`에서만 쓰였다면 정리한다 — `COMMENTS` 메시지가 여전히 쓰므로 확인 후 판단한다.
 
@@ -108,6 +108,15 @@ function commentCount(replyBox: HTMLElement): number | null {
 - 그 밖(양수 또는 `null`) → `existingCommentAuthors: null`
 
 즉 동작은 그대로 두고 값의 출처만 바꾼다. 이렇게 해야 이 작업 하나로 전체가 초록이 된다.
+
+매핑하는 자리에 **왜 임시인지** 주석을 남긴다. 다음 사람이 이것을 최종 형태로 읽으면 안 된다.
+
+```ts
+// The list gives a count, never the names. Until the lookup lands, a count
+// above zero is handed on as "unknown", which is what the guards already do
+// with it — behaviour is unchanged and only the source of the value moved.
+const existingCommentAuthors = raw.commentCount === 0 ? [] : null
+```
 
 Run: `pnpm typecheck && pnpm lint && pnpm test && pnpm build:all`
 
@@ -290,7 +299,24 @@ git commit -m "feat: ask a post who commented on it, once"
 
 가드 문맥의 `existingCommentAuthors`가 이 값을 쓴다.
 
-**상한 확인이 조회보다 앞이어야 한다.** 지금 상한은 `runJob` 안의 `checkGates`가 본다. 조회를 그 앞에 두면 상한 뒤의 글도 조회된다. `checkGates`를 후보 순회 안에서 조회 전에 한 번 더 부르거나, 상한에 걸리면 순회를 끊는다 — 둘 중 하나를 고르고 **왜 그렇게 했는지 주석에 남긴다.**
+**상한 확인이 조회보다 앞이어야 한다.** 지금 상한은 `runJob` 안의 `checkGates`가 보는데, 그때는 이미 행을 만들고 조회까지 끝낸 뒤다.
+
+후보 순회에서 **`claim`보다 앞에** 게이트를 한 번 확인하고, 통과하지 못하면 순회를 끊는다.
+
+```ts
+    // Ahead of the claim so a post past the cap costs neither a row nor a
+    // lookup. runJob checks again for the backlog walk, which does not come
+    // through here.
+    if (!checkGates({ killed: deps.isKilled(), dailyCount, sessionCount: attempted }, deps.limits, deps.runMode).allowed) {
+      break
+    }
+```
+
+**이것은 동작을 바꾼다.** 지금은 상한을 넘은 첫 글이 `QUEUED`(세션 상한) 또는 `EXPIRED`(하루 상한) 행으로 남는다. 앞에서 끊으면 그런 행이 생기지 않는다.
+
+바뀌어도 되는 이유는 두 가지다. 남겨진 `QUEUED` 행은 다음 세션의 백로그 경로로 들어가는데, **그 경로는 다시 판정하지 않고 저장된 문구를 그대로 실행한다** — 하루를 매번 다시 판정하기로 한 지금 규칙과 어긋난다. 행을 만들지 않으면 그 글은 다음 세션이 정상적으로 다시 판정한다. `EXPIRED` 행도 마찬가지로, 상한에 걸린 글마다 행과 조회를 하나씩 쓰는 값을 하지 않는다.
+
+세션 결과의 `expired`는 이제 백로그에서 생긴 것만 센다. **그 사실을 확인하는 테스트를 더한다.**
 
 - [ ] **Step 3: 세션 조립을 맞춘다**
 
@@ -328,7 +354,39 @@ git commit -m "feat: judge a greeting by who actually commented on it"
 
 - [ ] **Step 2: 실패를 확인하고 구현한다**
 
-`previewDay`가 `CommentAuthorLookup`을 받아 쓴다. 진행 상태를 앱이 들고 있어야 렌더러가 폴링으로 읽을 수 있으므로, `bootstrap`에 하루치 미리보기 상태를 두고 `previewDay`가 진행하면서 갱신한다.
+`StartupPreview`의 `READY`에 `pending`을 더한다.
+
+```ts
+export type StartupPreview =
+  | {
+      kind: 'READY'
+      /** Posts that will be commented on under the current policy. */
+      count: number
+      /** Posts on that day somebody has already answered. */
+      alreadyHandled: number
+      /** Posts still waiting on a lookup before they can be judged. */
+      pending: number
+      checkedAt: number
+    }
+  | { kind: 'UNAVAILABLE'; reason: 'BRIDGE_OFFLINE' | 'READ_FAILED' }
+```
+
+`previewDay`가 `CommentAuthorLookup`과 **진행 보고 콜백**을 받는다. 세션이 `onProgress`로 진행을 알리는 것과 같은 방식이다.
+
+```ts
+  /** Called after each post is settled, so a caller can show the count narrowing. */
+  readonly onNarrow?: (progress: StartupPreview) => void
+```
+
+`bootstrap`이 그 콜백에서 자기 변수를 갱신하고, `getDayPreview()`로 내준다 — `startupPreview`·`sessionProgress`가 이미 쓰는 방식 그대로다.
+
+```ts
+  let dayPreview: StartupPreview | null = null
+  // ...
+  void previewDay({ ..., onNarrow: (progress) => { dayPreview = progress } })
+```
+
+**날짜가 바뀌면 앞의 것을 버린다.** 새 미리보기를 시작할 때 `dayPreview`를 `null`로 되돌리고, 늦게 도착한 앞 미리보기의 보고가 새 것을 덮지 않도록 **어느 미리보기의 보고인지 확인한다** — 대시보드 패널이 늦은 조회 결과를 막을 때 쓴 것과 같은 문제다.
 
 `DashboardSnapshot`에 실어 렌더러가 지금 쓰는 5초 폴링으로 읽는다. **새로운 밀어내기 통로를 만들지 않는다.**
 
