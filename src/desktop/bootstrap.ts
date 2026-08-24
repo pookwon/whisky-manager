@@ -227,6 +227,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         const boardId = automationSetting?.boardId ?? DEFAULT_BOARD_ID
 
         // Run the preview asynchronously; don't block the monitor loop
+        const startupId = ++dayPreviewId
         void previewDay({
           transport: bridge,
           cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
@@ -238,7 +239,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
           policy: automationSetting?.policy ?? 'AUTO',
           lookup: commentLookup,
           onNarrow: (progress) => {
-            dayPreview = progress
+            // Only update dayPreview if this is still the current preview
+            if (dayPreviewId === startupId) {
+              dayPreview = progress
+            }
           },
         }).then((result) => {
           startupPreview = result

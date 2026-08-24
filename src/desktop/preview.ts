@@ -128,21 +128,26 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
   let pending = 0
 
   for (const { raw, candidate, guardContext } of posts) {
-    if (raw.commentCount === null || raw.commentCount > 0) {
-      alreadyHandled += 1
-      pending += 1
-    }
+    const willComment = decide(deps.policy, evaluateGuards(guards, candidate, guardContext)).kind === 'EXECUTE'
 
-    if (decide(deps.policy, evaluateGuards(guards, candidate, guardContext)).kind === 'EXECUTE') {
-      if (raw.commentCount === 0) {
-        count += 1
+    if (willComment && raw.commentCount === 0) {
+      // Confirmed empty and will comment
+      count += 1
+    } else if (!willComment && (raw.commentCount === null || raw.commentCount > 0)) {
+      // Won't comment but has comments (either unknown count or known count)
+      if (!deps.lookup) {
+        // Without lookup, we know this is already handled
+        alreadyHandled += 1
+      } else {
+        // With lookup, we need to check first
+        pending += 1
       }
     }
   }
 
-  // Report initial state: posts we know are empty (count) vs posts we need to check (pending)
+  // Report initial state
   if (deps.onNarrow) {
-    deps.onNarrow({ kind: 'READY', count, alreadyHandled: 0, pending, checkedAt: deps.nowMs })
+    deps.onNarrow({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
   }
 
   // If there's no lookup, return the initial state
@@ -167,10 +172,9 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
 
       if (willComment) {
         count += 1
-      }
-
-      if (authors !== null && authors.length === 0) {
-        alreadyHandled -= 1
+      } else if (authors !== null && authors.length > 0) {
+        // Only count as already handled if the lookup succeeded with non-empty authors
+        alreadyHandled += 1
       }
 
       pending -= 1

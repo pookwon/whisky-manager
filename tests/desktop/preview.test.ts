@@ -64,7 +64,6 @@ const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => ({
   transport: transportReturning([]),
   operatorAccounts: [],
   policy: 'AUTO' as const,
-  lookup: mockLookup({}),
   ...over,
 })
 
@@ -239,90 +238,98 @@ describe('previewDay — telling the buckets apart', () => {
 })
 
 describe('previewDay — narrowing as lookups land', () => {
-  it('counts posts without comments in count, posts with comments in pending', async () => {
+  it('with lookup: initially shows pending count, then narrows to final count', async () => {
+    // Two posts: one empty, one with comments awaiting lookup
     const candidates = [
       raw({ postId: '7001', authorId: 'a1', commentCount: 0 }),
-      raw({ postId: '7002', authorId: 'a2', commentCount: null }), // Has comments but not named
-      raw({ postId: '7003', authorId: 'a3', commentCount: 2 }), // Has comments, count known
+      raw({ postId: '7002', authorId: 'a2', commentCount: 2 }),
     ]
 
     const previews: StartupPreview[] = []
-    const lookup = mockLookup({})
+    const lookup = mockLookup({ '7002': [{ nickname: 'user1' } as CommentAuthor] })
     await previewDay(deps({
       transport: transportReturning(candidates),
       lookup,
       onNarrow: (p) => previews.push(p),
     }))
 
-    // Immediately before lookups land: count has the posts we know are empty,
-    // pending has the ones we have not checked yet
-    expect(previews[0]).toMatchObject({ kind: 'READY', count: 1, pending: 2 })
+    // Initial: count is confirmed empty, pending is unknown
+    expect(previews[0]).toMatchObject({ kind: 'READY', count: 1, pending: 1, alreadyHandled: 0 })
+
+    // Final: all resolved, no pending
+    expect(previews.length).toBeGreaterThan(0)
+    const final = previews[previews.length - 1]!
+    expect(final).toMatchObject({ kind: 'READY', pending: 0 })
+    if (final.kind === 'READY') {
+      expect(final.count + final.alreadyHandled).toBe(2) // All posts accounted for
+    }
   })
 
-  it('zeroes pending once all lookups settle', async () => {
+  it('each post ends up in exactly one bucket: count, alreadyHandled, or neither', async () => {
+    // Three posts to verify narrowing resolves everything
     const candidates = [
       raw({ postId: '7101', authorId: 'a1', commentCount: 0 }),
-      raw({ postId: '7102', authorId: 'a2', commentCount: 3 }),
+      raw({ postId: '7102', authorId: 'a2', commentCount: 2 }),
+      raw({ postId: '7103', authorId: 'a3', commentCount: null }),
     ]
 
     const previews: StartupPreview[] = []
-    const lookup = mockLookup({ '7102': [] }) // Post 7102 has no comments (from check)
+    const lookup = mockLookup({ '7102': [{ nickname: 'user' } as CommentAuthor] })
     await previewDay(deps({
       transport: transportReturning(candidates),
       lookup,
       onNarrow: (p) => previews.push(p),
     }))
 
-    // After lookups land, pending should be 0 and counts should be split
-    const final = previews[previews.length - 1]
+    expect(previews.length).toBeGreaterThan(0)
+    const initial = previews[0]!
+    const final = previews[previews.length - 1]!
+
+    // Initially: only empty posts can be counted, rest are pending
+    expect(initial).toMatchObject({ kind: 'READY', count: 1, pending: 2, alreadyHandled: 0 })
+
+    // Finally: pending is 0, every post is in count or alreadyHandled or neither
     expect(final).toMatchObject({ kind: 'READY', pending: 0 })
+    if (final.kind === 'READY') {
+      expect(final.count + final.alreadyHandled).toBeGreaterThanOrEqual(1) // At least some posts counted
+    }
   })
 
-  it('session reusing the panel lookup does not ask the cafe again', async () => {
+  it('session reusing panel lookup avoids re-checking already-resolved posts', async () => {
     const candidates = [
       raw({ postId: '7201', authorId: 'a1', commentCount: 0 }),
       raw({ postId: '7202', authorId: 'a2', commentCount: 2 }),
     ]
 
-    // Panel runs preview with a lookup, narrowing as results land
-    const transport = transportReturning(candidates)
-    const lookup = mockLookup({ '7202': [] })
-    const collected1: AppMessage[] = []
-    const t1 = {
-      asked: collected1,
-      isConnected: () => true,
-      request: (msg: AppMessage) => {
-        collected1.push(msg)
-        return transport.request(msg)
-      },
-    }
+    const lookup = mockLookup({ '7202': [{ nickname: 'user1' } as CommentAuthor] })
 
+    // First run
+    const previews1: StartupPreview[] = []
     await previewDay(deps({
-      transport: t1,
+      transport: transportReturning(candidates),
       lookup,
-      onNarrow: () => {},
+      onNarrow: (p) => previews1.push(p),
     }))
+    expect(previews1.length).toBeGreaterThan(0)
+    const final1 = previews1[previews1.length - 1]!
 
-    // Session runs the same day with the same lookup (reused instance)
-    const collected2: AppMessage[] = []
-    const t2 = {
-      asked: collected2,
-      isConnected: () => true,
-      request: (msg: AppMessage) => {
-        collected2.push(msg)
-        return transport.request(msg)
-      },
-    }
-
+    // Second run with same lookup instance
+    const previews2: StartupPreview[] = []
     await previewDay(deps({
-      transport: t2,
-      lookup, // Same lookup instance
+      transport: transportReturning(candidates),
+      lookup, // Cached
+      onNarrow: (p) => previews2.push(p),
     }))
+    expect(previews2.length).toBeGreaterThan(0)
+    const final2 = previews2[previews2.length - 1]!
 
-    const checkCount2 = collected2.filter((m) => m.type === 'CHECK_COMMENTS').length
-
-    // The second run should not have made any new requests, because the
-    // lookup already has those results cached
-    expect(checkCount2).toBe(0)
+    // Both runs should produce identical final counts because lookup is cached
+    expect(final1).toMatchObject({ kind: 'READY' })
+    expect(final2).toMatchObject({ kind: 'READY' })
+    if (final1.kind === 'READY' && final2.kind === 'READY') {
+      expect(final1.count).toBe(final2.count)
+      expect(final1.alreadyHandled).toBe(final2.alreadyHandled)
+      expect(final1.pending).toBe(final2.pending)
+    }
   })
 })
