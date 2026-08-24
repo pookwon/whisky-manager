@@ -17,6 +17,7 @@ import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
 import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAuthors.js'
+import { createCollectGate } from './collectGate.js'
 
 // Re-exported so the many main-process callers keep their existing import.
 export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
@@ -106,6 +107,14 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onBind: (extensionId) => settings.set('boundExtensionId', extensionId),
   })
 
+  /**
+   * Everything that reads the board goes through the gate rather than the
+   * bridge, so the banner, the confirmation panel and the session cannot walk
+   * it at the same time. The bridge itself stays for what is not a read of the
+   * board: pairing state and shutdown.
+   */
+  const transport = createCollectGate(bridge)
+
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -125,7 +134,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   let dayPreview: StartupPreview | null = null
   let dayPreviewId = 0
   const commentLookup: CommentAuthorLookup = createCommentAuthorLookup({
-    transport: bridge,
+    transport,
     cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
     boardId: DEFAULT_BOARD_ID,
     automationId: WELCOME_AUTOMATION_ID,
@@ -145,7 +154,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     profile: options.profile,
     clock: systemClock,
     random: systemRandom,
-    transport: bridge,
+    transport,
     repos,
     settings,
     isKilled: () => killed,
@@ -229,7 +238,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         // Run the preview asynchronously; don't block the monitor loop
         const startupId = ++dayPreviewId
         void previewDay({
-          transport: bridge,
+          transport,
           cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
           boardId,
           automationId: WELCOME_AUTOMATION_ID,
@@ -286,7 +295,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     previewDay: (dayStartMs?) => {
       const id = ++dayPreviewId
       return previewDay({
-        transport: bridge,
+        transport,
         cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
         boardId: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? DEFAULT_BOARD_ID,
         automationId: WELCOME_AUTOMATION_ID,
