@@ -3,10 +3,33 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import WebSocket from 'ws'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from '../../src/desktop/bootstrap.js'
 import { AUTOMATIONS } from '../../src/shared/automations/catalog.js'
+import { PROTOCOL_VERSION } from '../../src/shared/protocol.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
+const EXTENSION_ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
+/** The connection monitor samples once a second; two samples need a little over two. */
+const TWO_SAMPLES_MS = 2_400
+const ONE_SAMPLE_MS = 1_200
+
+/** Stands in for the extension: a real socket that completes the handshake. */
+async function pairExtension(): Promise<WebSocket> {
+  const token = ctx.settings.get('pairingToken')
+  if (token === undefined) throw new Error('the app generated no pairing token')
+
+  const ws = new WebSocket(`ws://127.0.0.1:${ctx.bridge.port}`, { origin: EXTENSION_ORIGIN })
+  await new Promise<void>((resolve, reject) => {
+    ws.once('open', resolve)
+    ws.once('error', reject)
+  })
+  ws.send(JSON.stringify({ type: 'HELLO', token, extensionId: 'ignored', protocolVersion: PROTOCOL_VERSION }))
+  await new Promise<void>((resolve) => ws.once('message', () => resolve()))
+  return ws
+}
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 let dir: string
 let ctx: AppContext
@@ -170,4 +193,38 @@ describe('runtime coverage', () => {
   it('keeps the welcome automation id in the catalogue', () => {
     expect(AUTOMATIONS.some((a) => a.id === WELCOME_AUTOMATION_ID)).toBe(true)
   })
+})
+
+describe('bridge connection monitor', () => {
+  it('records nothing until an extension has actually paired', () => {
+    expect(ctx.lastBridgeConnectedAt()).toBeNull()
+  })
+
+  it('marks the bridge as seen once an extension pairs', async () => {
+    const ws = await pairExtension()
+    try {
+      await wait(ONE_SAMPLE_MS)
+      expect(ctx.lastBridgeConnectedAt()).not.toBeNull()
+    } finally {
+      ws.close()
+    }
+  }, 10_000)
+
+  it('keeps the mark current for as long as the bridge stays up', async () => {
+    const ws = await pairExtension()
+    try {
+      await wait(ONE_SAMPLE_MS)
+      const first = ctx.lastBridgeConnectedAt()
+      expect(first).not.toBeNull()
+
+      await wait(TWO_SAMPLES_MS)
+
+      // This mark is the whole difference between RECONNECTING and OFFLINE.
+      // Written once and never refreshed it ages past the grace period while the
+      // bridge is still up, and the next worker cycle reads as a dead extension.
+      expect(ctx.lastBridgeConnectedAt()).toBeGreaterThan(first as number)
+    } finally {
+      ws.close()
+    }
+  }, 15_000)
 })

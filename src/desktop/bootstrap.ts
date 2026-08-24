@@ -68,7 +68,7 @@ export interface AppContext {
   getStartupPreview(): StartupPreview | null
   /** Counts what a run on that day would answer, without answering any. */
   previewDay(dayStartMs: number): Promise<StartupPreview>
-  /** Epoch timestamp when the bridge last connected, or null if never. */
+  /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   lastBridgeConnectedAt(): number | null
   shutdown(): Promise<void>
 }
@@ -232,16 +232,19 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   // Start monitoring after bridge is initialized
   startPreviewMonitor()
 
-  // Monitor bridge connection state to track when it connects.
-  // This is called synchronously when the extension connects, and we record
-  // the timestamp so we can calculate how long it has been disconnected.
+  /**
+   * Marks the bridge every second it is up, so a later teardown can be measured
+   * from the last sighting. Recording only the first pairing would freeze the
+   * mark at app start: an hour later every ordinary service worker cycle reads
+   * as an hour of silence, and a live extension is reported as offline.
+   */
+  const BRIDGE_SAMPLE_MS = 1_000
+
   let monitorConnectionHandle: NodeJS.Timeout | null = null
   const startBridgeMonitor = (): void => {
     monitorConnectionHandle = setInterval(() => {
-      if (bridge.isConnected() && lastBridgeConnectedAt === null) {
-        lastBridgeConnectedAt = systemClock.now()
-      }
-    }, 1000)
+      if (bridge.isConnected()) lastBridgeConnectedAt = systemClock.now()
+    }, BRIDGE_SAMPLE_MS)
   }
   startBridgeMonitor()
 

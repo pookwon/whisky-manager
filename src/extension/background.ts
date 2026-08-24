@@ -256,13 +256,17 @@ const client = createBridgeClient({
     return typeof token === 'string' ? token : null
   },
   handle,
+  repeat: (periodMs, run) => {
+    const timer = setInterval(run, periodMs)
+    return () => clearInterval(timer)
+  },
 })
 
 /**
- * The only timer in the extension. WebSocket traffic keeps the service worker
- * alive during a session (Chrome 116+), but between sessions the worker is torn
- * down and takes the socket with it. The app cannot wake a dead worker, so the
- * extension re-establishes the connection on its own.
+ * Recovery, not upkeep. The keepalive holds an established connection open; this
+ * alarm dials again after the things it cannot prevent — a browser restart, a
+ * crashed worker, or an app that was not running when the extension first tried.
+ * The app cannot wake a dead worker, so the extension retries on its own.
  */
 chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: RECONNECT_PERIOD_MINUTES })
 chrome.alarms.onAlarm.addListener((alarm) => {

@@ -6,6 +6,7 @@ import {
   isRefusalStale,
   formatNextSessionTime,
   getBridgeStatusKey,
+  getBridgeStatusTone,
 } from '../../src/renderer/format.js'
 
 const NOW = Date.UTC(2026, 7, 24, 10, 0, 0)
@@ -130,6 +131,20 @@ describe('formatNextSessionTime', () => {
     const nextSessionMs = NOW + DAY + (14 * HOUR + 30 * MINUTE)
     const result = formatNextSessionTime(nextSessionMs)
     expect(result).toBe('00:30')
+  })
+})
+
+describe('getBridgeStatusTone', () => {
+  it('gives a live bridge the ok tone', () => {
+    expect(getBridgeStatusTone('CONNECTED')).toBe('ok')
+  })
+
+  it('gives a cycling worker the warn tone rather than an alarm', () => {
+    expect(getBridgeStatusTone('RECONNECTING')).toBe('warn')
+  })
+
+  it('treats an absent extension as idle, not as something going wrong', () => {
+    expect(getBridgeStatusTone('OFFLINE')).toBe('idle')
   })
 })
 

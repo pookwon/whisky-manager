@@ -11,6 +11,7 @@ import {
   isRefusalStale,
   formatNextSessionTime,
   getBridgeStatusKey,
+  getBridgeStatusTone,
 } from '../format.js'
 import { useApp } from '../store.js'
 
@@ -354,7 +355,7 @@ export function Dashboard(): React.JSX.Element {
           >
             {t('dashboard.automations')}
           </h2>
-          <span className={`text-xs font-medium tone-${dashboard.bridgeStatus === 'CONNECTED' ? 'ok' : dashboard.bridgeStatus === 'RECONNECTING' ? 'warn' : 'idle'}`}>
+          <span className={`text-xs font-medium tone-${getBridgeStatusTone(dashboard.bridgeStatus)}`}>
             {t(getBridgeStatusKey(dashboard.bridgeStatus))}
           </span>
         </div>

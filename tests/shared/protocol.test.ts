@@ -108,6 +108,24 @@ describe('probe messages', () => {
   })
 })
 
+describe('keepalive messages', () => {
+  it('recognises PING as an extension message', () => {
+    expect(isExtensionMessage({ type: 'PING', requestId: null })).toBe(true)
+  })
+
+  it('keeps the keepalive one-directional', () => {
+    // Only the extension has a worker Chrome can tear down, so only the
+    // extension has a reason to speak into an idle socket.
+    expect(isAppMessage({ type: 'PING', requestId: null })).toBe(false)
+  })
+
+  it('never ends a request in flight', () => {
+    // A keepalive that counted as interim would refresh a timeout the extension
+    // is no longer working on, and hide a stalled request for as long as it ran.
+    expect(isInterimMessage({ type: 'PING', requestId: null })).toBe(false)
+  })
+})
+
 describe('collection progress messages', () => {
   it('accepts a COLLECT_PROGRESS interim message', () => {
     expect(

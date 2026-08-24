@@ -34,7 +34,6 @@ const { useApp } = await import('../../src/renderer/store.js')
 const { DEFAULT_ROUTE } = await import('../../src/renderer/routes.js')
 
 const snapshot: DashboardSnapshot = {
-  bridgeConnected: false,
   loopRunning: false,
   awaitingApproval: 0,
   executedToday: 0,

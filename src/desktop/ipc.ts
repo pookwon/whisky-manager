@@ -30,7 +30,6 @@ export const IPC_CHANNELS = {
 } as const
 
 export interface DashboardSnapshot {
-  readonly bridgeConnected: boolean
   readonly loopRunning: boolean
   readonly awaitingApproval: number
   readonly executedToday: number

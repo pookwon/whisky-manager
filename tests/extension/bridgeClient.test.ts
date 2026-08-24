@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBridgeClient, type Socket } from '../../src/extension/bridgeClient.js'
+import { KEEPALIVE_PERIOD_MS, createBridgeClient, type Socket } from '../../src/extension/bridgeClient.js'
 import type { AppMessage, ExtensionMessage } from '../../src/shared/protocol.js'
 
 const CONNECTING = 0
@@ -36,9 +36,17 @@ class FakeSocket implements Socket {
   }
 }
 
+/** A repeating timer the test fires by hand instead of waiting out an interval. */
+interface FakeTimer {
+  readonly periodMs: number
+  readonly run: () => void
+  stopped: boolean
+}
+
 function harness(overrides: { token?: string | null } = {}) {
   const sockets: FakeSocket[] = []
   const handled: AppMessage[] = []
+  const timers: FakeTimer[] = []
   const client = createBridgeClient({
     url: 'ws://127.0.0.1:39217',
     extensionId: 'abcdef',
@@ -54,8 +62,15 @@ function harness(overrides: { token?: string | null } = {}) {
         reply({ type: 'LOGIN_STATE', requestId: message.requestId, loggedIn: true, account: 'ops' })
       }
     },
+    repeat: (periodMs, run) => {
+      const timer: FakeTimer = { periodMs, run, stopped: false }
+      timers.push(timer)
+      return () => {
+        timer.stopped = true
+      }
+    },
   })
-  return { client, sockets, handled }
+  return { client, sockets, handled, timers }
 }
 
 describe('createBridgeClient', () => {
@@ -151,5 +166,62 @@ describe('createBridgeClient', () => {
     await client.connect()
 
     expect(sockets).toHaveLength(0)
+  })
+})
+
+describe('keepalive', () => {
+  it('speaks well inside the idle timeout that ends the worker', () => {
+    // Chrome tears down an MV3 service worker after 30s without activity, and
+    // a period at or past that deadline would never get to fire.
+    expect(KEEPALIVE_PERIOD_MS).toBeLessThan(30_000)
+  })
+
+  it('pings on every tick so an idle socket outlives the silence', async () => {
+    const { client, sockets, timers } = harness()
+    await client.connect()
+    const socket = sockets[0] as FakeSocket
+    socket.emit('open')
+
+    expect(timers).toHaveLength(1)
+    expect((timers[0] as FakeTimer).periodMs).toBe(KEEPALIVE_PERIOD_MS)
+    ;(timers[0] as FakeTimer).run()
+
+    // sent[0] is the handshake; the keepalive follows it.
+    expect(JSON.parse(socket.sent[1] as string)).toEqual({ type: 'PING', requestId: null })
+  })
+
+  it('stops pinging once the socket is gone', async () => {
+    const { client, sockets, timers } = harness()
+    await client.connect()
+    const socket = sockets[0] as FakeSocket
+    socket.emit('open')
+
+    socket.emit('close')
+
+    expect((timers[0] as FakeTimer).stopped).toBe(true)
+  })
+
+  it('stops pinging when the socket is dropped for a new token', async () => {
+    const { client, sockets, timers } = harness()
+    await client.connect()
+    ;(sockets[0] as FakeSocket).emit('open')
+
+    client.disconnect()
+
+    expect((timers[0] as FakeTimer).stopped).toBe(true)
+  })
+
+  it('starts no timer for a socket that was already replaced', async () => {
+    const { client, sockets, timers } = harness()
+    await client.connect()
+    const first = sockets[0] as FakeSocket
+    client.disconnect()
+    await client.connect()
+
+    // The replaced socket can still fire `open`. A timer started for it belongs
+    // to nobody, and would go on waking the worker with sends that go nowhere.
+    first.emit('open')
+
+    expect(timers).toHaveLength(0)
   })
 })
