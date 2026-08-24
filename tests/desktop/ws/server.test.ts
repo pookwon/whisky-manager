@@ -73,6 +73,30 @@ describe('createBridgeServer', () => {
     ws.close()
   })
 
+  it('takes a keepalive without disturbing the request in flight', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const ws = await connect(TOKEN)
+    await nextMessage(ws)
+
+    const promise = server.request(
+      { type: 'CHECK_LOGIN', requestId: 'r6', source: { cafeId: 'c', boardId: 'b' } },
+      1_000,
+    )
+
+    // A keepalive belongs to no request. Resolving or refreshing one on it would
+    // answer the app with a message that carries none of what it asked for.
+    ws.send(JSON.stringify({ type: 'PING', requestId: null }))
+    await new Promise((r) => setTimeout(r, 20))
+
+    ws.send(JSON.stringify({ type: 'LOGIN_STATE', requestId: 'r6', loggedIn: true, account: 'cafe-ops' }))
+
+    const reply = (await promise) as Extract<ExtensionMessage, { type: 'LOGIN_STATE' }>
+    expect(reply.type).toBe('LOGIN_STATE')
+    expect(reply.account).toBe('cafe-ops')
+    expect(server.isConnected()).toBe(true)
+    ws.close()
+  })
+
   it('rejects a request that gets no reply before the timeout', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
     const ws = await connect(TOKEN)

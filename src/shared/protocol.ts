@@ -1,6 +1,6 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
 
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -60,6 +60,15 @@ export type AppMessage =
 
 export type ExtensionMessage =
   | { type: 'HELLO'; token: string; extensionId: string; protocolVersion: number }
+  /**
+   * Keeps the extension's service worker alive. Chrome ends an MV3 worker after
+   * 30s without activity and the socket dies with it, and only sending or
+   * receiving a WebSocket message resets that timer. Between sessions the bridge
+   * is silent, so the extension speaks on its own. It answers no request and
+   * asks for none: `requestId` is null, and the transport drops it where it
+   * drops every other message that is not a reply.
+   */
+  | { type: 'PING'; requestId: null }
   | { type: 'LOGIN_STATE'; requestId: string; loggedIn: boolean; account: string | null }
   | { type: 'COLLECTED'; requestId: string; candidates: RawCandidate[] }
   | { type: 'COMMENTS'; requestId: string; authors: CommentAuthor[] | null }
@@ -118,6 +127,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
 ])
 const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'HELLO',
+  'PING',
   'LOGIN_STATE',
   'COLLECTED',
   'COMMENTS',

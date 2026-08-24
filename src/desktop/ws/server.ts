@@ -82,8 +82,9 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 
       if (!authorised) return
 
-      // Every reply but HELLO carries a requestId; ERROR may carry null when it
-      // is not tied to a specific request, and there is nothing to resolve then.
+      // Every reply but HELLO carries a requestId; a PING always carries null and
+      // an ERROR may, when it is not tied to a specific request. There is nothing
+      // to resolve then, and a keepalive must not disturb a request in flight.
       const requestId: string | null = parsed.requestId
       if (requestId === null) return
 

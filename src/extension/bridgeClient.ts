@@ -10,6 +10,17 @@ export interface Socket {
 
 const OPEN = 1
 
+/**
+ * How often the client speaks into an otherwise silent socket.
+ *
+ * Chrome ends an MV3 service worker after 30 seconds without activity and the
+ * socket goes down with it, which is what made the connection flap between
+ * sessions: the worker died on idle and only the reconnect alarm brought it
+ * back, a minute later. Only sending or receiving a WebSocket message resets
+ * that timer (Chrome 116+), so the period has to leave room for a late tick.
+ */
+export const KEEPALIVE_PERIOD_MS = 20_000
+
 export type Reply = (message: ExtensionMessage) => void
 
 export interface BridgeClientDeps {
@@ -18,6 +29,11 @@ export interface BridgeClientDeps {
   readonly open: (url: string) => Socket
   readonly readToken: () => Promise<string | null>
   readonly handle: (message: AppMessage, reply: Reply) => void
+  /**
+   * Starts a repeating timer and returns the call that stops it. Injected so a
+   * test can fire the keepalive instead of waiting out a real interval.
+   */
+  readonly repeat: (periodMs: number, run: () => void) => () => void
 }
 
 export interface BridgeClient {
@@ -39,6 +55,7 @@ export interface BridgeClient {
 export function createBridgeClient(deps: BridgeClientDeps): BridgeClient {
   let socket: Socket | null = null
   let connecting: Promise<void> | null = null
+  let stopKeepalive: (() => void) | null = null
 
   const replyVia =
     (target: Socket): Reply =>
@@ -48,7 +65,12 @@ export function createBridgeClient(deps: BridgeClientDeps): BridgeClient {
     }
 
   function forget(target: Socket): void {
-    if (socket === target) socket = null
+    if (socket !== target) return
+    socket = null
+    // A timer outliving its socket would go on waking the worker every twenty
+    // seconds to write into a connection that is already gone.
+    stopKeepalive?.()
+    stopKeepalive = null
   }
 
   async function dial(token: string): Promise<void> {
@@ -58,6 +80,12 @@ export function createBridgeClient(deps: BridgeClientDeps): BridgeClient {
 
     ws.addEventListener('open', () => {
       reply({ type: 'HELLO', token, extensionId: deps.extensionId, protocolVersion: PROTOCOL_VERSION })
+      // A socket replaced while it was still connecting owns nothing, and the
+      // timer it started would have nobody left to stop it.
+      if (socket !== ws) return
+      stopKeepalive = deps.repeat(KEEPALIVE_PERIOD_MS, () => {
+        reply({ type: 'PING', requestId: null })
+      })
     })
 
     ws.addEventListener('message', (event) => {
@@ -97,8 +125,9 @@ export function createBridgeClient(deps: BridgeClientDeps): BridgeClient {
     },
 
     disconnect() {
-      socket?.close()
-      socket = null
+      const target = socket
+      if (target !== null) forget(target)
+      target?.close()
     },
 
     isConnected() {
