@@ -4,6 +4,7 @@ import {
   assertRuntimesRegistered,
   findAutomation,
 } from '../../../src/shared/automations/catalog.js'
+import { TEXT } from '../../../src/shared/text.js'
 
 describe('automation catalogue', () => {
   it('lists the welcome comment automation', () => {
@@ -21,7 +22,18 @@ describe('automation catalogue', () => {
   })
 
   it('finds an entry by id', () => {
-    expect(findAutomation('welcome-comment')?.labelKey).toBe('automation.welcomeComment')
+    expect(findAutomation('welcome-comment')?.labelKey).toBe('welcomeComment')
+  })
+
+  /**
+   * The sidebar shows an automation by looking its label up in the text
+   * catalogue. A key with no wording behind it would put the operator in front
+   * of a blank menu entry, so every entry is walked rather than trusted.
+   */
+  it('gives every entry a name the operator can read', () => {
+    for (const automation of AUTOMATIONS) {
+      expect(TEXT.automation[automation.labelKey], `no label for ${automation.id}`).toBeTruthy()
+    }
   })
 
   it('returns undefined for an unknown id', () => {

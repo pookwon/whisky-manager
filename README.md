@@ -56,7 +56,7 @@
 
 ```bash
 pnpm install
-pnpm test          # 106 tests
+pnpm test          # 520 tests
 pnpm typecheck
 pnpm lint
 pnpm build:all     # 데스크톱 + 렌더러 + 확장

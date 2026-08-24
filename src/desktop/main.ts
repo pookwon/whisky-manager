@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage } from 'electron'
 import { PROFILES } from '../shared/profiles.js'
+import { TEXT } from '../shared/text.js'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
 import { createRendererApi } from './rendererApi.js'
@@ -49,10 +50,10 @@ function showWindow(): void {
 function refreshTray(ctx: AppContext): void {
   tray?.setContextMenu(
     Menu.buildFromTemplate([
-      { label: '창 열기', click: showWindow },
+      { label: TEXT.tray.openWindow, click: showWindow },
       { type: 'separator' },
       {
-        label: ctx.automation.isRunning() ? '자동화 중지' : '자동화 시작',
+        label: ctx.automation.isRunning() ? TEXT.tray.stopAutomation : TEXT.tray.startAutomation,
         click: () => {
           if (ctx.automation.isRunning()) ctx.automation.stop()
           else ctx.automation.start()
@@ -60,14 +61,14 @@ function refreshTray(ctx: AppContext): void {
         },
       },
       {
-        label: '전면 정지 (킬 스위치)',
+        label: TEXT.tray.kill,
         click: () => {
           ctx.automation.kill()
           refreshTray(ctx)
         },
       },
       { type: 'separator' },
-      { label: '종료', role: 'quit' },
+      { label: TEXT.tray.quit, role: 'quit' },
     ]),
   )
 }
@@ -149,7 +150,7 @@ void app.whenReady().then(async () => {
   )
 
   tray = new Tray(nativeImage.createEmpty())
-  tray.setToolTip('카페 관리')
+  tray.setToolTip(TEXT.app.title)
   refreshTray(context)
   showWindow()
 }).catch(reportFatalStartupError)

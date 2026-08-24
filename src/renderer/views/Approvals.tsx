@@ -1,4 +1,4 @@
-import { useTranslation } from 'react-i18next'
+import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import { relativeTime } from '../format.js'
 import { useApp } from '../store.js'
@@ -13,7 +13,6 @@ interface ApprovalsProps {
 }
 
 export function Approvals(_props: ApprovalsProps): React.JSX.Element {
-  const { t } = useTranslation()
   const awaiting = useApp((s) => s.awaiting)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
@@ -22,12 +21,12 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h1 className="text-lg font-bold tracking-tight">{t('approvals.heading')}</h1>
+        <h1 className="text-lg font-bold tracking-tight">{TEXT.approvals.heading}</h1>
       </header>
 
       {awaiting.length === 0 ? (
         <div className="panel px-5 py-10 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-          {t('approvals.empty')}
+          {TEXT.approvals.empty}
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
@@ -40,11 +39,15 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold">{item.author ?? '—'}</span>
                       <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {t('approvals.post')} {item.postId} · {t(age.key, { count: age.count })}
+                        {TEXT.approvals.post} {item.postId} · {age}
                       </span>
                       {item.riskFlags.map((flag) => (
                         <span key={flag} className="chip tone-warn">
-                          {t(`risk.${flag}`)}
+                          {/* Stored flags are read back without validation, so a
+                              row written by another build can name one this one
+                              has no word for. Showing the raw name beats an
+                              empty chip on a queue someone is approving from. */}
+                          {TEXT.risk[flag] ?? flag}
                         </span>
                       ))}
                     </div>
@@ -63,9 +66,9 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
                         className="mb-1 text-[0.625rem] font-medium uppercase tracking-wider"
                         style={{ color: 'var(--ink-muted)' }}
                       >
-                        {t('approvals.preview')}
+                        {TEXT.approvals.preview}
                       </div>
-                      {item.renderedText ?? t('approvals.noText')}
+                      {item.renderedText ?? TEXT.approvals.noText}
                     </div>
                   </div>
 
@@ -76,7 +79,7 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
                       disabled={busy}
                       onClick={() => void act(() => api.approve(item.id))}
                     >
-                      {t('approvals.approve')}
+                      {TEXT.approvals.approve}
                     </button>
                     <button
                       type="button"
@@ -84,7 +87,7 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
                       disabled={busy}
                       onClick={() => void act(() => api.reject(item.id))}
                     >
-                      {t('approvals.reject')}
+                      {TEXT.approvals.reject}
                     </button>
                   </div>
                 </div>

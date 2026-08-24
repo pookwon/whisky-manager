@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { TEXT } from '../../shared/text.js'
 import type { ApprovalPolicy } from '../../shared/types.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
 
 const POLICIES: ApprovalPolicy[] = ['AUTO', 'SEMI', 'MANUAL']
+
+/** Every policy is named and explained, or the build fails. */
 const POLICY_LABEL: Record<ApprovalPolicy, { label: string; hint: string }> = {
-  AUTO: { label: 'settings.policyAuto', hint: 'settings.policyAutoHint' },
-  SEMI: { label: 'settings.policySemi', hint: 'settings.policySemiHint' },
-  MANUAL: { label: 'settings.policyManual', hint: 'settings.policyManualHint' },
+  AUTO: { label: TEXT.settings.policyAuto, hint: TEXT.settings.policyAutoHint },
+  SEMI: { label: TEXT.settings.policySemi, hint: TEXT.settings.policySemiHint },
+  MANUAL: { label: TEXT.settings.policyManual, hint: TEXT.settings.policyManualHint },
 }
 
 interface AutomationSettingsProps {
@@ -16,7 +18,6 @@ interface AutomationSettingsProps {
 }
 
 export function AutomationSettings({ automationId }: AutomationSettingsProps): React.JSX.Element {
-  const { t } = useTranslation()
   const settings = useApp((s) => s.automationSettings)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
@@ -33,18 +34,18 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
   return (
     <div className="flex max-w-2xl flex-col gap-7">
       <header>
-        <h1 className="text-lg font-bold tracking-tight">{t('settings.automationHeading')}</h1>
+        <h1 className="text-lg font-bold tracking-tight">{TEXT.settings.automationHeading}</h1>
       </header>
 
       <section className="panel flex items-center justify-between px-5 py-4">
-        <span className="text-sm font-medium">{t('settings.enabled')}</span>
+        <span className="text-sm font-medium">{TEXT.settings.enabled}</span>
         <button
           type="button"
           className={settings.enabled ? 'btn btn-primary' : 'btn'}
           disabled={busy}
           onClick={() => void act(() => api.setEnabled(automationId, !settings.enabled))}
         >
-          {t(settings.enabled ? 'status.running' : 'status.stopped')}
+          {settings.enabled ? TEXT.status.running : TEXT.status.stopped}
         </button>
       </section>
 
@@ -53,7 +54,7 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
           className="text-[0.6875rem] font-medium uppercase tracking-wider"
           style={{ color: 'var(--ink-muted)' }}
         >
-          {t('settings.policy')}
+          {TEXT.settings.policy}
         </h2>
         {POLICIES.map((policy) => (
           <button
@@ -67,10 +68,10 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
             <div
               className={`text-sm font-semibold ${settings.policy === policy ? 'tone-warn' : ''}`}
             >
-              {t(POLICY_LABEL[policy].label)}
+              {POLICY_LABEL[policy].label}
             </div>
             <div className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              {t(POLICY_LABEL[policy].hint)}
+              {POLICY_LABEL[policy].hint}
             </div>
           </button>
         ))}
@@ -81,12 +82,12 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
           className="text-[0.6875rem] font-medium uppercase tracking-wider"
           style={{ color: 'var(--ink-muted)' }}
         >
-          {t('settings.board')}
+          {TEXT.settings.board}
         </h2>
         <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          {t('settings.boardId')}
+          {TEXT.settings.boardId}
           <input className="field" value={boardId} onChange={(e) => setBoardId(e.target.value)} />
-          <span className="mt-0.5">{t('settings.boardIdHint')}</span>
+          <span className="mt-0.5">{TEXT.settings.boardIdHint}</span>
         </label>
         <button
           type="button"
@@ -94,7 +95,7 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
           disabled={busy}
           onClick={() => void act(() => api.setBoardId(automationId, boardId))}
         >
-          {t('settings.save')}
+          {TEXT.settings.save}
         </button>
       </section>
     </div>
