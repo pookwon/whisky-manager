@@ -88,14 +88,27 @@ export function Dashboard(): React.JSX.Element {
     setPending((current) => (current === null ? null : { ...current, preview }))
   }
 
-  /** What the count says, in the operator's terms. */
-  const describe = (preview: StartupPreview | null): string => {
-    if (preview === null) return t('run.counting')
-    if (preview.kind === 'UNAVAILABLE') return t('run.countFailed')
-    return `${t('run.target', { count: preview.count })} · ${t('run.estimate', {
-      minutes: estimatedMinutes(preview.count, dashboard.averageActionGapMs),
-    })}`
-  }
+  /**
+   * The three numbers the operator is weighing, each on its own line. Run
+   * together they read as one figure, and the one that matters — how many
+   * comments actually go out — is the smallest of them.
+   */
+  const breakdown = (preview: Extract<StartupPreview, { kind: 'READY' }>): React.JSX.Element => (
+    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+      <dt style={{ color: 'var(--ink-muted)' }}>{t('run.target')}</dt>
+      <dd className="font-semibold tabular-nums">{t('run.countUnit', { count: preview.count })}</dd>
+      <dt style={{ color: 'var(--ink-muted)' }}>{t('run.alreadyHandled')}</dt>
+      <dd className="tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+        {t('run.countUnit', { count: preview.alreadyHandled })}
+      </dd>
+      <dt style={{ color: 'var(--ink-muted)' }}>{t('run.estimate')}</dt>
+      <dd className="tabular-nums">
+        {t('run.minutesUnit', {
+          minutes: estimatedMinutes(preview.count, dashboard.averageActionGapMs),
+        })}
+      </dd>
+    </dl>
+  )
 
   /** Non-null exactly while a session is in flight. */
   const progress =
@@ -272,7 +285,15 @@ export function Dashboard(): React.JSX.Element {
               <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
                 {t('run.bypasses')}
               </p>
-              <p className="mt-2 text-sm">{describe(pending.preview)}</p>
+              {pending.preview === null && (
+                <p className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  {t('run.counting')}
+                </p>
+              )}
+              {pending.preview?.kind === 'UNAVAILABLE' && (
+                <p className="mt-2 text-sm tone-warn">{t('run.countFailed')}</p>
+              )}
+              {pending.preview?.kind === 'READY' && breakdown(pending.preview)}
 
               <div className="mt-3 flex items-center gap-2">
                 <button

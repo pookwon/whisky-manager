@@ -75,7 +75,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     lastBridgeConnectedAt: () => bridge.lastSeenConnectedAt ?? null,
     nextSessionAt: () => null,
     sessionProgress: () => progress,
-    previewDay: () => Promise.resolve({ kind: 'READY' as const, count: 0, checkedAt: 0 }),
+    previewDay: () =>
+      Promise.resolve({ kind: 'READY' as const, count: 0, alreadyHandled: 0, checkedAt: 0 }),
     clock: new FakeClock(nowMs),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,

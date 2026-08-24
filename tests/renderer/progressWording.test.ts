@@ -2,6 +2,8 @@ import i18next from 'i18next'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ko } from '../../src/renderer/locales/ko.js'
 import { estimatedMinutes, progressSummary } from '../../src/renderer/format.js'
+
+const t = (key: string): string => i18next.t(key)
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 
 /**
@@ -56,8 +58,11 @@ describe('run confirmation wording', () => {
     ['run.bypasses', {}],
     ['run.counting', {}],
     ['run.countFailed', {}],
-    ['run.target', { count: 154 }],
-    ['run.estimate', { minutes: 42 }],
+    ['run.target', {}],
+    ['run.alreadyHandled', {}],
+    ['run.estimate', {}],
+    ['run.countUnit', { count: 154 }],
+    ['run.minutesUnit', { minutes: 42 }],
     ['run.confirm', {}],
     ['run.cancel', {}],
     ['run.dayLabel', {}],
@@ -79,9 +84,15 @@ describe('run confirmation wording', () => {
   })
 
   it('puts the numbers the operator is deciding on into the text', () => {
-    expect(i18next.t('run.target', { count: 154 })).toContain('154')
-    expect(i18next.t('run.estimate', { minutes: 42 })).toContain('42')
+    expect(i18next.t('run.countUnit', { count: 154 })).toContain('154')
+    expect(i18next.t('run.minutesUnit', { minutes: 42 })).toContain('42')
     expect(i18next.t('run.chosenDay', { date: '2026-08-20' })).toContain('2026-08-20')
+  })
+
+  it('labels the three figures apart from each other', () => {
+    // Read together they are one number; the operator is comparing them.
+    const labels = [t('run.target'), t('run.alreadyHandled'), t('run.estimate')]
+    expect(new Set(labels).size).toBe(3)
   })
 })
 
