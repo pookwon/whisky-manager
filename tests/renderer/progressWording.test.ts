@@ -2,9 +2,9 @@ import i18next from 'i18next'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ko } from '../../src/renderer/locales/ko.js'
 import { estimatedMinutes, progressSummary } from '../../src/renderer/format.js'
+import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 
 const t = (key: string): string => i18next.t(key)
-import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 
 /**
  * Every progress state an operator can land on, rendered through the real i18n
