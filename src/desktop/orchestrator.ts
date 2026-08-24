@@ -8,6 +8,7 @@ import { kstDayRange } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits, RunMode } from '../shared/types.js'
+import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
@@ -38,6 +39,8 @@ export interface SessionDeps {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newRequestId: () => string
+  /** Resolves who commented on a post. Consulted only for posts about to be judged. */
+  readonly commentAuthors: CommentAuthorLookup
   /**
    * Who asked for this session. A forced run is an operator who was shown what
    * they were overriding and chose to go ahead, so it passes the operating
@@ -454,6 +457,13 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
       nickname: raw.authorNickname,
     })
 
+    // Ahead of the claim so a post past the cap costs neither a row nor a
+    // lookup. runJob checks again for the backlog walk, which does not come
+    // through here.
+    if (!checkGates({ killed: deps.isKilled(), dailyCount, sessionCount: attempted }, deps.limits, deps.runMode).allowed) {
+      break
+    }
+
     const now = deps.clock.now()
 
     const executionId = await deps.dedupe.claim({
@@ -484,16 +494,15 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     // Render before deciding so a failed substitution can raise a risk flag
     // and let the policy handle it, instead of being discovered too late.
     const rendered = deps.renderBody(candidate)
-    // The list gives a count, never the names. Until the lookup lands, a count
-    // above zero is handed on as "unknown", which is what the guards already do
-    // with it — behaviour is unchanged and only the source of the value moved.
-    const existingCommentAuthors = raw.commentCount === 0 ? [] : null
+
+    const existingCommentAuthors = await deps.commentAuthors.resolve(raw.postId, raw.commentCount)
     const guardEvaluation = evaluateGuards(deps.guards, candidate, {
       nowMs: now,
       operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors,
       isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     })
+
     const evaluation = rendered.ok
       ? guardEvaluation
       : {

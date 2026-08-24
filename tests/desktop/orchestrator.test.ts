@@ -8,6 +8,7 @@ import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import type { CommentAuthor } from '../../src/shared/types.js'
+import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
 import { runSession, firstPostIdByAuthor, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
 import { firstPostOnlyGuard } from '../../src/shared/automations/welcome-comment/firstPost.js'
@@ -89,6 +90,15 @@ let repo: ExecutionsRepo
 let idCounter = 0
 
 function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
+  const defaultLookup: CommentAuthorLookup = {
+    resolve: async (postId, commentCount) => {
+      if (commentCount === null) return null
+      if (commentCount === 0) return []
+      // Default: return an operator comment (matching the old stopgap behavior
+      // where posts with comments were treated as having operator comments)
+      return [{ nickname: 'cafe-ops', memberKey: 'key-ops' }]
+    },
+  }
   return {
     automationId: 'welcome-comment',
     cafeId: '10000000',
@@ -111,6 +121,7 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     isKilled: () => false,
     sleep: () => Promise.resolve(),
     newRequestId: () => `req-${++idCounter}`,
+    commentAuthors: defaultLookup,
     runMode: 'SCHEDULED',
     ...overrides,
   }
@@ -298,22 +309,22 @@ describe('runSession — SEMI and MANUAL policies', () => {
 })
 
 describe('runSession — caps and failures', () => {
-  it('stops at the per-session cap and leaves the current one queued', async () => {
+  it('stops at the per-session cap and does not leave a row behind', async () => {
     const many = Array.from({ length: 4 }, (_, i) => candidate(`20${i}`))
     const transport = fakeTransport({ candidates: many })
     const limits = { ...PROFILES.production, perSessionCap: 2 }
 
     expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 2 })
-    // The candidate that hit the cap stays QUEUED; the ones after it are never
-    // claimed at all and will simply be collected again next session.
-    expect(repo.listUnresolved('welcome-comment')).toHaveLength(1)
+    // The candidates that hit the cap are never claimed at all and will simply
+    // be collected again next session. No row is left behind.
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
   })
 
-  it('expires candidates once the daily cap is reached', async () => {
+  it('does not process candidates when the daily cap is already reached', async () => {
     const transport = fakeTransport({ candidates: [candidate('3001')] })
     const limits = { ...PROFILES.production, dailyCap: 0 }
 
-    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0, expired: 1 })
+    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0, expired: 0 })
   })
 
   it('parks a failed execution in RETRY_WAIT rather than failing outright', async () => {
@@ -411,7 +422,7 @@ describe('runSession — caps', () => {
     const limits = { ...PROFILES.production, dailyCap: 20 }
 
     const outcome = await runSession(deps({ transport, limits, runMode: 'MANUAL' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 20, expired: 10 })
+    expect(outcome).toMatchObject({ opened: true, executed: 20 })
   })
 })
 
@@ -537,9 +548,10 @@ describe('runSession — caps count attempts, not successes', () => {
 
     const outcome = await runSession(deps({ transport, limits }))
 
-    // The first attempt used the only slot even though it failed.
+    // The first attempt used the only slot even though it failed. The second
+    // candidate is not claimed at all since the cap check before claim rejects it.
     expect(outcome).toMatchObject({ opened: true, executed: 0, failed: 0 })
-    expect(repo.listUnresolved('welcome-comment')).toHaveLength(2)
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(1)
   })
 })
 
@@ -915,5 +927,176 @@ describe('runSession — a chosen day', () => {
 
     const collect = sent.find((m) => m.type === 'COLLECT')
     expect(collect).toMatchObject({ sincePostedAt: kstDayStartMs(MON_10_00) })
+  })
+})
+
+describe('runSession — comment author resolution', () => {
+  function fakeLookup(options: { responses?: Record<string, CommentAuthor[] | null> } = {}) {
+    const checked = new Set<string>()
+    return {
+      checked,
+      lookup: {
+        resolve: async (postId: string, commentCount: number | null) => {
+          if (commentCount === null) return null
+          if (commentCount === 0) return []
+          checked.add(postId)
+          return options.responses?.[postId] ?? null
+        },
+      },
+    }
+  }
+
+  it('resolves existing comments and judges based on who commented', async () => {
+    // Post with an operator comment should be skipped
+    const withOperator = { ...candidate('8001'), commentCount: 2 }
+    // Post with only member comments should be executed
+    const withoutOperator = { ...candidate('8002'), commentCount: 3 }
+
+    const lookup = fakeLookup({
+      responses: {
+        '8001': [{ nickname: 'cafe-ops', memberKey: 'key-ops' }],
+        '8002': [{ nickname: 'member1', memberKey: 'key1' }],
+      },
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [withOperator, withoutOperator] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1, skipped: 1 })
+    expect(lookup.checked).toContain('8001')
+    expect(lookup.checked).toContain('8002')
+  })
+
+  it('does not check posts with zero comments', async () => {
+    const zeroComments = { ...candidate('8010'), commentCount: 0 }
+
+    const lookup = fakeLookup()
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [zeroComments] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+    expect(lookup.checked).not.toContain('8010')
+  })
+
+  it('skips posts where the comment count is unreadable and marks COMMENT_CHECK_FAILED', async () => {
+    const nullCount = { ...candidate('8020'), commentCount: null }
+
+    const lookup = fakeLookup()
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [nullCount] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+    expect(lookup.checked).not.toContain('8020')
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.riskFlags).toContain('COMMENT_CHECK_FAILED')
+  })
+
+  it('skips and flags when the lookup returns null (check failed)', async () => {
+    const withComments = { ...candidate('8030'), commentCount: 2 }
+
+    const lookup = fakeLookup({
+      responses: { '8030': null }, // Lookup failed
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: [withComments] }),
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0, skipped: 1 })
+    expect(lookup.checked).toContain('8030')
+    const rows = db.select().from(executions).all()
+    expect(rows[0]?.riskFlags).toContain('COMMENT_CHECK_FAILED')
+  })
+
+  it('does not check posts past the session cap', async () => {
+    const cap = 2
+    const capped = { ...PROFILES.production, perSessionCap: cap }
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      ...candidate(`80${40 + i}`),
+      commentCount: 1,
+    }))
+
+    // Return member comments (no operator) so posts can be executed
+    const lookup = fakeLookup({
+      responses: {
+        '8040': [{ nickname: 'member1', memberKey: 'key1' }],
+        '8041': [{ nickname: 'member2', memberKey: 'key2' }],
+        '8042': [{ nickname: 'member3', memberKey: 'key3' }],
+        '8043': [{ nickname: 'member4', memberKey: 'key4' }],
+        '8044': [{ nickname: 'member5', memberKey: 'key5' }],
+      },
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: many }),
+        limits: capped,
+        runMode: 'SCHEDULED',
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: cap })
+    // Only the first `cap` posts should be checked
+    expect(lookup.checked).toContain('8040')
+    expect(lookup.checked).toContain('8041')
+    // Posts past the cap should NOT be checked
+    expect(lookup.checked).not.toContain('8042')
+    expect(lookup.checked).not.toContain('8043')
+    expect(lookup.checked).not.toContain('8044')
+
+    // No lingering QUEUED row from hitting the cap
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+
+  it('expired rows from backlog only, not from hitting the cap', async () => {
+    const cap = 1
+    const capped = { ...PROFILES.production, perSessionCap: cap, dailyCap: 1 }
+    const many = Array.from({ length: 3 }, (_, i) => ({
+      ...candidate(`80${50 + i}`),
+      commentCount: 1,
+    }))
+
+    // Return member comments (no operator) so posts can be executed
+    const lookup = fakeLookup({
+      responses: {
+        '8050': [{ nickname: 'member1', memberKey: 'key1' }],
+        '8051': [{ nickname: 'member2', memberKey: 'key2' }],
+        '8052': [{ nickname: 'member3', memberKey: 'key3' }],
+      },
+    })
+
+    const outcome = await runSession(
+      deps({
+        transport: fakeTransport({ candidates: many }),
+        limits: capped,
+        runMode: 'SCHEDULED',
+        commentAuthors: lookup.lookup,
+      }),
+    )
+
+    // First session: one executes, others are not checked and leave no row
+    expect(outcome).toMatchObject({ opened: true, executed: 1, expired: 0 })
+    expect(lookup.checked).toContain('8050')
+    expect(lookup.checked).not.toContain('8051')
+    expect(lookup.checked).not.toContain('8052')
+    expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
   })
 })

@@ -33,10 +33,15 @@ function candidate(postId: string, nickname: string | null = '신입회원'): Ra
   }
 }
 
-function transportWith(candidates: RawCandidate[]) {
+interface TransportOptions {
+  commentsByPostId?: Record<string, import('../../src/shared/types.js').CommentAuthor[] | null>
+}
+
+function transportWith(candidates: RawCandidate[], options: TransportOptions = {}) {
   const executed: string[] = []
   /** Every board the session actually asked about, in order. */
   const boards: string[] = []
+  const { commentsByPostId = {} } = options
   return {
     executed,
     boards,
@@ -56,7 +61,12 @@ function transportWith(candidates: RawCandidate[]) {
           return Promise.resolve({ type: 'COLLECTED', requestId: message.requestId, candidates })
         }
         if (message.type === 'CHECK_COMMENTS') {
-          return Promise.resolve({ type: 'COMMENTS', requestId: message.requestId, authors: [] })
+          // The endpoint fetches the actual comment authors from the thread.
+          // Use provided overrides, or default to empty list (no comments).
+          const postId = message.action.postId
+          const authors: import('../../src/shared/types.js').CommentAuthor[] | null =
+            postId in commentsByPostId ? (commentsByPostId[postId] ?? []) : []
+          return Promise.resolve({ type: 'COMMENTS', requestId: message.requestId, authors })
         }
         if (message.type === 'EXECUTE') {
           executed.push(message.action.body)
@@ -80,8 +90,8 @@ let dir: string
 let db: AppDatabase
 let counter = 0
 
-function build(candidates: RawCandidate[]) {
-  const { transport, executed, boards } = transportWith(candidates)
+function buildWithOptions(candidates: RawCandidate[], options: TransportOptions) {
+  const { transport, executed, boards } = transportWith(candidates, options)
   const repos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -102,6 +112,10 @@ function build(candidates: RawCandidate[]) {
     newId: () => `req-${++counter}`,
   })
   return { run, repos, settings, executed, boards }
+}
+
+function build(candidates: RawCandidate[]) {
+  return buildWithOptions(candidates, {})
 }
 
 function enable(repos: ReturnType<typeof build>['repos']): void {
@@ -162,7 +176,7 @@ describe('createSessionRunner — the day to work', () => {
 
 describe('createSessionRunner', () => {
   it('watches the board recorded on the automation, not the global setting', async () => {
-    const { run, repos, settings, boards } = build([])
+    const { run, repos, settings, boards } = buildWithOptions([], {})
     repos.automationSettings.upsert({
       automationId: WELCOME_AUTOMATION_ID,
       policy: 'AUTO',
@@ -184,7 +198,7 @@ describe('createSessionRunner', () => {
   })
 
   it('falls back to the default board when the automation has none', async () => {
-    const { run, repos, settings, boards } = build([])
+    const { run, repos, settings, boards } = buildWithOptions([], {})
     enable(repos)
     repos.templates.add({
       id: 't1',
@@ -278,24 +292,43 @@ describe('createSessionRunner', () => {
     expect(await run()).toMatchObject({ opened: true, executed: 1 })
   })
 
-  it('skips a post somebody has commented on, without knowing who', async () => {
-    // The list gives a count and never the names, so a post with any comment
-    // is unknown rather than answered. AUTO refuses what it cannot establish.
-    // The case where an operator is known to have answered comes from the
-    // re-check right before writing, and is covered in the orchestrator tests.
-    const greeted = {
+  it('executes a post whose only comments come from ordinary members', async () => {
+    // The lookup resolves who commented, so we can distinguish member-only comments
+    // from operator comments. Posts with member-only comments get greeted.
+    const memberOnly = {
       ...candidate('5001'),
       commentCount: 1,
     }
-    const { run, repos, settings } = build([greeted])
+    const { run, repos, settings, executed } = buildWithOptions([memberOnly], {
+      commentsByPostId: {
+        '5001': [{ nickname: 'member1', memberKey: 'key1' }],
+      },
+    })
     enable(repos)
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
     settings.set(SETTING_KEYS.operatorAccounts, JSON.stringify(['cafe-ops', 'staff-personal']))
 
-    // With commentCount > 0, existingCommentAuthors becomes null, triggering COMMENT_CHECK_FAILED.
-    // In AUTO mode, risk flags cause a skip with reason 'RISK_FLAGGED'.
+    expect(await run()).toMatchObject({ opened: true, executed: 1, skipped: 0 })
+    expect(executed).toEqual(['hi'])
+  })
+
+  it('skips a post an operator has already answered', async () => {
+    // When the lookup shows an operator has commented, the post is skipped
+    // with reason ALREADY_COMMENTED.
+    const operatorGreeted = {
+      ...candidate('5002'),
+      commentCount: 1,
+    }
+    const { run, repos, settings } = buildWithOptions([operatorGreeted], {
+      commentsByPostId: {
+        '5002': [{ nickname: 'cafe-ops', memberKey: 'key-ops' }],
+      },
+    })
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+    settings.set(SETTING_KEYS.operatorAccounts, JSON.stringify(['cafe-ops', 'staff-personal']))
+
     expect(await run()).toMatchObject({ opened: true, executed: 0, skipped: 1 })
-    expect(db.select().from(executions).all()[0]?.reason).toBe('RISK_FLAGGED')
-    expect(db.select().from(executions).all()[0]?.riskFlags).toContain('COMMENT_CHECK_FAILED')
+    expect(db.select().from(executions).all()[0]?.reason).toBe('ALREADY_COMMENTED')
   })
 })
