@@ -82,6 +82,7 @@ export interface ExecutionsRepo {
     dayEndMs: number,
   ): number
   countExecutedForDay(automationId: string, dayStartMs: number, dayEndMs: number): number
+  countExecutedSince(automationId: string, sinceMs: number): number
   listUnresolved(automationId: string): UnresolvedRow[]
   listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
   listQueued(automationId: string): QueuedRow[]
@@ -147,6 +148,25 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
               eq(executions.status, status),
               gte(executions.targetPostedAt, dayStartMs),
               lt(executions.targetPostedAt, dayEndMs),
+            ),
+          )
+          .get()?.value ?? 0
+      )
+    },
+
+    countExecutedSince(automationId, sinceMs) {
+      // Counted by when the request went out rather than by the day of the post
+      // it answered: this is what the cafe saw in that stretch of clock time,
+      // and filling in an earlier day is traffic like any other.
+      return (
+        db
+          .select({ value: count() })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.automationId, automationId),
+              isNotNull(executions.executedAt),
+              gte(executions.executedAt, sinceMs),
             ),
           )
           .get()?.value ?? 0

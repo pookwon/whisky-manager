@@ -74,7 +74,7 @@ export const ko = {
       confirmHeading: '확인이 필요합니다',
       outsideHours: '지금은 운영 시간(08~24시)이 아닙니다.',
       chosenDay: '{{date}} 하루치를 처리합니다.',
-      bypasses: '운영 시간, 하루 상한, 밀린 작업 브레이크를 넘깁니다. 전면 정지는 그대로 듣습니다.',
+      bypasses: '운영 시간, 시간당 상한, 밀린 작업 브레이크를 넘깁니다. 전면 정지는 그대로 듣습니다.',
       counting: '대상을 세는 중…',
       countFailed: '대상을 세지 못했습니다. 그대로 진행하면 실제 건수만큼 나갑니다.',
       target: '댓글을 달 대상',

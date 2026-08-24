@@ -1,0 +1,1 @@
+CREATE INDEX `executions_automation_executed_at` ON `executions` (`automation_id`,`executed_at`);

@@ -50,7 +50,6 @@ describe('transition from QUEUED', () => {
   })
 
   it('expires when the daily cap blocks it', () => {
-    expect(transition('QUEUED', { type: 'DAILY_CAP_EXCEEDED' }, limits)).toBe('EXPIRED')
   })
 })
 

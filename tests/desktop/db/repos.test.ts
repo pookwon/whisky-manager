@@ -70,7 +70,7 @@ describe('automationSettingsRepo', () => {
     repo.upsert({
       automationId: 'welcome-comment',
       policy: 'SEMI',
-      limits: { dailyCap: 50 },
+      limits: { hourlyCap: 50 },
       enabled: false,
       boardId: null,
     })
@@ -78,7 +78,7 @@ describe('automationSettingsRepo', () => {
     expect(repo.get('welcome-comment')).toEqual({
       automationId: 'welcome-comment',
       policy: 'SEMI',
-      limits: { dailyCap: 50 },
+      limits: { hourlyCap: 50 },
       enabled: false,
       boardId: null,
     })

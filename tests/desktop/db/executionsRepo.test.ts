@@ -191,6 +191,33 @@ describe('countExecutedForDay', () => {
   })
 })
 
+describe('countExecutedSince', () => {
+  it('counts every request sent after the mark, whatever day its post came from', async () => {
+    // The hourly cap is about the traffic the cafe sees, so filling in an
+    // earlier day spends the same allowance as answering today's greetings.
+    const today = await claim('1001', TODAY + 3_600_000)
+    const earlier = await claim('2001', EARLIER_DAY + 3_600_000)
+
+    repo.applyPatch(today, { status: 'SUCCESS', executedAt: TODAY + 40_000_000, resolvedAt: TODAY + 40_000_000 })
+    repo.applyPatch(earlier, { status: 'RETRY_WAIT', executedAt: TODAY + 40_000_000 })
+
+    expect(repo.countExecutedSince(AUTOMATION, TODAY + 39_000_000)).toBe(2)
+  })
+
+  it('leaves out what was sent before the mark', async () => {
+    const old = await claim('1002', TODAY + 3_600_000)
+    repo.applyPatch(old, { status: 'SUCCESS', executedAt: TODAY + 10_000_000, resolvedAt: TODAY + 10_000_000 })
+
+    expect(repo.countExecutedSince(AUTOMATION, TODAY + 40_000_000)).toBe(0)
+  })
+
+  it('ignores a post nothing was sent for', async () => {
+    await claim('3001', TODAY + 3_600_000)
+
+    expect(repo.countExecutedSince(AUTOMATION, TODAY)).toBe(0)
+  })
+})
+
 describe('listAwaitingDetail', () => {
   it('returns what an operator needs to judge the request', async () => {
     const id = await claim('1001', 1_000)

@@ -38,7 +38,7 @@ export type SkipReason = 'ALREADY_COMMENTED' | 'RISK_FLAGGED' | 'REJECTED_BY_OPE
  */
 export type RunMode = 'SCHEDULED' | 'MANUAL' | 'FORCED'
 
-export type GateBlockReason = 'KILLED' | 'DAILY_CAP_EXCEEDED' | 'SESSION_CAP_REACHED'
+export type GateBlockReason = 'KILLED' | 'HOURLY_CAP_REACHED' | 'SESSION_CAP_REACHED'
 
 export type ExecutionStrategy = 'FETCH' | 'DOM'
 
@@ -70,7 +70,8 @@ export interface Limits {
   readonly actionIntervalMinMs: number
   readonly actionIntervalMaxMs: number
   readonly perSessionCap: number
-  readonly dailyCap: number
+  /** Most requests the tool may send the cafe in any sixty-minute stretch. */
+  readonly hourlyCap: number
   /** Local hour the operating window opens, inclusive. */
   readonly activeHourStart: number
   /** Local hour the operating window closes, exclusive. 24 means midnight. */

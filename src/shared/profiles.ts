@@ -5,6 +5,11 @@ const MINUTE = 60_000
 const HOUR = 3_600_000
 
 const SHARED = {
+  // Drawn per hour rather than per day because that is the stretch steady
+  // operation is judged over. A hundred and fifty covers the busiest hour the
+  // board sees — today's signups arrived sixty-four inside five minutes — and
+  // keeps a catch-up run from emptying a backlog in one sitting.
+  hourlyCap: 150,
   activeHourStart: 8,
   activeHourEnd: 24,
   weekendIntervalMultiplier: 1.5,
@@ -31,7 +36,6 @@ export const PROFILES: Record<Profile, Limits> = {
     // Around 150 greetings a day over four sessions is under forty each; the
     // headroom is for a day the tool was off.
     perSessionCap: 75,
-    dailyCap: 200,
   },
   debug: {
     ...SHARED,
@@ -40,6 +44,5 @@ export const PROFILES: Record<Profile, Limits> = {
     actionIntervalMinMs: 3 * SECOND,
     actionIntervalMaxMs: 8 * SECOND,
     perSessionCap: 5,
-    dailyCap: 200,
   },
 }

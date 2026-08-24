@@ -14,7 +14,6 @@ const idleOutcome: SessionOutcome = {
   skipped: 0,
   awaitingApproval: 0,
   failed: 0,
-  expired: 0,
 }
 
 function loopDeps(overrides: Partial<SessionLoopDeps> = {}): SessionLoopDeps {

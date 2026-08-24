@@ -226,7 +226,6 @@ describe('runSession — AUTO policy', () => {
       skipped: 0,
       awaitingApproval: 0,
       failed: 0,
-      expired: 0,
     })
     expect(db.select().from(executions).all().map((r) => r.status)).toEqual(['SUCCESS', 'SUCCESS'])
   })
@@ -320,11 +319,11 @@ describe('runSession — caps and failures', () => {
     expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
   })
 
-  it('does not process candidates when the daily cap is already reached', async () => {
+  it('does not process candidates when the hour has no room left', async () => {
     const transport = fakeTransport({ candidates: [candidate('3001')] })
-    const limits = { ...PROFILES.production, dailyCap: 0 }
+    const limits = { ...PROFILES.production, hourlyCap: 0 }
 
-    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0, expired: 0 })
+    expect(await runSession(deps({ transport, limits }))).toMatchObject({ opened: true, executed: 0 })
   })
 
   it('parks a failed execution in RETRY_WAIT rather than failing outright', async () => {
@@ -416,10 +415,10 @@ describe('runSession — caps', () => {
     expect(outcome).toMatchObject({ opened: true, executed: overCap })
   })
 
-  it('a manual run still respects the daily cap', async () => {
+  it('a manual run still respects the hourly cap', async () => {
     const many = Array.from({ length: 30 }, (_, i) => candidate(`${8000 + i}`))
     const transport = fakeTransport({ candidates: many })
-    const limits = { ...PROFILES.production, dailyCap: 20 }
+    const limits = { ...PROFILES.production, hourlyCap: 20 }
 
     const outcome = await runSession(deps({ transport, limits, runMode: 'MANUAL' }))
     expect(outcome).toMatchObject({ opened: true, executed: 20 })
@@ -529,12 +528,34 @@ describe('runSession — kill switch during the pacing wait', () => {
   })
 })
 
+describe('runSession — the hourly cap moves with the clock', () => {
+  it('lets a later session through once earlier requests leave the window', async () => {
+    const clock = new FakeClock(MON_10_00)
+    const limits = { ...PROFILES.production, hourlyCap: 1 }
+    const send = (postId: string) =>
+      runSession(deps({ clock, limits, transport: fakeTransport({ candidates: [candidate(postId)] }) }))
+
+    expect(await send('6400')).toMatchObject({ opened: true, executed: 1 })
+
+    // Same hour: the one slot is spent.
+    expect(await send('6401')).toMatchObject({ opened: true, executed: 0 })
+
+    // This is what separates an hourly cap from a daily one — the window slides
+    // rather than resetting at some boundary, so the first request stops
+    // counting once it is an hour old.
+    clock.set(MON_10_00 + 61 * 60_000)
+    expect(await send('6402')).toMatchObject({ opened: true, executed: 1 })
+  })
+})
+
 describe('runSession — caps count attempts, not successes', () => {
-  it('counts a failed execution against the daily cap', async () => {
+  it('counts a failed execution against the hourly cap', async () => {
     // One failure, then a second session with a cap of 1 must refuse to send.
+    // The hour does not care whether naver accepted the request, only that it
+    // was made.
     await runSession(deps({ transport: fakeTransport({ candidates: [candidate('6200')], executeOk: false }) }))
 
-    const limits = { ...PROFILES.production, dailyCap: 1 }
+    const limits = { ...PROFILES.production, hourlyCap: 1 }
     const outcome = await runSession(
       deps({ transport: fakeTransport({ candidates: [candidate('6201')] }), limits }),
     )
@@ -816,14 +837,14 @@ describe('runSession — forced runs', () => {
     expect(await runSession(deps({ runMode: 'FORCED' }))).toMatchObject({ opened: true })
   })
 
-  it('carries on past the daily cap', async () => {
+  it('carries on past the hourly cap', async () => {
     const many = Array.from({ length: 30 }, (_, i) => candidate(`${9100 + i}`))
-    const limits = { ...PROFILES.production, dailyCap: 20 }
+    const limits = { ...PROFILES.production, hourlyCap: 20 }
 
     const outcome = await runSession(
       deps({ transport: fakeTransport({ candidates: many }), limits, runMode: 'FORCED' }),
     )
-    expect(outcome).toMatchObject({ opened: true, executed: 30, expired: 0 })
+    expect(outcome).toMatchObject({ opened: true, executed: 30 })
   })
 
   it('still refuses when the kill switch is engaged', async () => {
@@ -1066,9 +1087,9 @@ describe('runSession — comment author resolution', () => {
     expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
   })
 
-  it('expired rows from backlog only, not from hitting the cap', async () => {
+  it('leaves nothing behind when a cap stops the walk', async () => {
     const cap = 1
-    const capped = { ...PROFILES.production, perSessionCap: cap, dailyCap: 1 }
+    const capped = { ...PROFILES.production, perSessionCap: cap, hourlyCap: 1 }
     const many = Array.from({ length: 3 }, (_, i) => ({
       ...candidate(`80${50 + i}`),
       commentCount: 1,
@@ -1093,7 +1114,7 @@ describe('runSession — comment author resolution', () => {
     )
 
     // First session: one executes, others are not checked and leave no row
-    expect(outcome).toMatchObject({ opened: true, executed: 1, expired: 0 })
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
     expect(lookup.checked).toContain('8050')
     expect(lookup.checked).not.toContain('8051')
     expect(lookup.checked).not.toContain('8052')
