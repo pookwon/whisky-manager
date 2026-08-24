@@ -12,7 +12,16 @@ import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { SETTING_KEYS, createSessionRunner } from '../../src/desktop/session.js'
 import { executions } from '../../src/desktop/db/schema.js'
+import { previewDay } from '../../src/desktop/preview.js'
+import { createCommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
+import { WELCOME_GUARDS } from '../../src/shared/automations/welcome-comment/guards.js'
+import {
+  renderAnyWelcomeComment,
+  renderWelcomeComment,
+} from '../../src/shared/automations/welcome-comment/render.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
+import type { RenderOutcome } from '../../src/shared/templates.js'
+import type { Candidate } from '../../src/shared/types.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
 import { kstDayStartMs } from '../../src/shared/kst.js'
 
@@ -39,11 +48,14 @@ interface TransportOptions {
 
 function transportWith(candidates: RawCandidate[], options: TransportOptions = {}) {
   const executed: string[] = []
+  /** Which posts were answered, in order, so a count can be held against them. */
+  const executedPosts: string[] = []
   /** Every board the session actually asked about, in order. */
   const boards: string[] = []
   const { commentsByPostId = {} } = options
   return {
     executed,
+    executedPosts,
     boards,
     transport: {
       isConnected: () => true,
@@ -70,6 +82,7 @@ function transportWith(candidates: RawCandidate[], options: TransportOptions = {
         }
         if (message.type === 'EXECUTE') {
           executed.push(message.action.body)
+          executedPosts.push(message.action.postId)
           return Promise.resolve({
             type: 'EXECUTED',
             requestId: message.requestId,
@@ -91,7 +104,7 @@ let db: AppDatabase
 let counter = 0
 
 function buildWithOptions(candidates: RawCandidate[], options: TransportOptions) {
-  const { transport, executed, boards } = transportWith(candidates, options)
+  const { transport, executed, executedPosts, boards } = transportWith(candidates, options)
   const repos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -102,19 +115,24 @@ function buildWithOptions(candidates: RawCandidate[], options: TransportOptions)
   // The tool under test is a configured one; the tests that care about an
   // unconfigured one strip this back themselves.
   settings.set(SETTING_KEYS.cafeId, CAFE)
+  // One generator for the template draw and the pacing alike, as the app wires it.
+  const random = new SequenceRandom([0])
+  const renderBody = (target: Candidate): RenderOutcome =>
+    renderWelcomeComment(repos.templates.listEnabled(WELCOME_AUTOMATION_ID), random, target)
   const run = createSessionRunner({
     automationId: WELCOME_AUTOMATION_ID,
     profile: 'production',
     clock: new FakeClock(MON_10_00),
-    random: new SequenceRandom([0]),
+    random,
     transport,
     repos,
     settings,
     isKilled: () => false,
     sleep: () => Promise.resolve(),
     newId: () => `req-${++counter}`,
+    renderBody,
   })
-  return { run, repos, settings, executed, boards }
+  return { run, repos, settings, executed, executedPosts, boards, transport }
 }
 
 function build(candidates: RawCandidate[]) {
@@ -139,6 +157,83 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe('the count shown before a run, against the run itself', () => {
+  /**
+   * The panel once offered 148 for a day that produced one comment, because the
+   * count and the run worked out their verdicts separately. They now come
+   * through one screening, and this holds the two numbers against each other
+   * over a day built to reach every branch of it.
+   */
+  it('promises exactly the comments the run posts', async () => {
+    const candidates: RawCandidate[] = [
+      // A plain target.
+      candidate('2001'),
+      // The same author again, later: covered by their first post.
+      { ...candidate('2002'), postedAt: MON_10_00 - 30_000 },
+      // Nickname unreadable, so the template cannot be filled.
+      { ...candidate('2004', null), authorId: 'm4' },
+      // Another plain target.
+      { ...candidate('2005'), authorId: 'm5' },
+      // Already has a comment, but from an ordinary member — still a target.
+      // Only the lookup can tell this apart from a staff greeting, so this is
+      // the one post that drives both sides down the lookup path.
+      { ...candidate('2006'), authorId: 'm6', commentCount: 1 },
+    ]
+
+    const { run, repos, settings, executedPosts, transport } = buildWithOptions(candidates, {
+      commentsByPostId: { '2006': [{ nickname: 'member9', memberKey: 'key9' }] },
+    })
+    enable(repos)
+    repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '{닉네임}님 환영합니다',
+      createdAt: MON_10_00 - 1000,
+    })
+    settings.set(SETTING_KEYS.cafeId, CAFE)
+
+    // The panel resolves commenters the same way the run does, off the same
+    // transport, so a post the board list cannot settle is judged rather than
+    // shelved. Without it, 2006 would sit in `alreadyHandled` and the count
+    // would fall one short of the run.
+    const lookup = createCommentAuthorLookup({
+      transport,
+      cafeId: CAFE,
+      boardId: BOARD,
+      automationId: WELCOME_AUTOMATION_ID,
+      newRequestId: () => `preview-lookup-${++counter}`,
+      random: new SequenceRandom([0]),
+      sleep: () => Promise.resolve(),
+    })
+
+    const preview = await previewDay({
+      transport,
+      cafeId: CAFE,
+      boardId: BOARD,
+      automationId: WELCOME_AUTOMATION_ID,
+      nowMs: MON_10_00,
+      newRequestId: () => `preview-${++counter}`,
+      operatorAccounts: [],
+      policy: 'AUTO',
+      guards: WELCOME_GUARDS,
+      renderBody: (target) =>
+        renderAnyWelcomeComment(repos.templates.listEnabled(WELCOME_AUTOMATION_ID), target),
+      lookup,
+    })
+
+    await run()
+
+    expect(preview.kind).toBe('READY')
+    if (preview.kind !== 'READY') return
+    // Three of the five. The repeat post and the one whose nickname cannot be
+    // read are both left alone; the member-commented post is answered, and only
+    // the lookup proves it. Named, so a count that happened to match while
+    // answering different posts would still fail.
+    expect(executedPosts).toEqual(['2001', '2005', '2006'])
+    expect(preview.count).toBe(executedPosts.length)
+  })
 })
 
 describe('createSessionRunner — the day to work', () => {

@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { WELCOME_AUTOMATION_ID, assertRuntimesRegistered } from '../shared/automations/catalog.js'
+import { WELCOME_GUARDS } from '../shared/automations/welcome-comment/guards.js'
+import {
+  renderAnyWelcomeComment,
+  renderWelcomeComment,
+} from '../shared/automations/welcome-comment/render.js'
 import { PROFILES } from '../shared/profiles.js'
 import { TIMEOUTS } from '../shared/protocol.js'
-import type { Profile } from '../shared/types.js'
+import type { RenderOutcome } from '../shared/templates.js'
+import type { Candidate, Profile } from '../shared/types.js'
 import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/automationSettingsRepo.js'
 import { openDatabase, type AppDatabase } from './db/client.js'
 import { createSqliteDedupeStore, type DedupeStore } from './db/dedupeStore.js'
@@ -201,6 +207,24 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   // a developer's memory.
   assertRuntimesRegistered([WELCOME_AUTOMATION_ID])
 
+  const enabledTemplates = () => repos.templates.listEnabled(WELCOME_AUTOMATION_ID)
+
+  /**
+   * The comment a run will leave, drawn fresh each time so a template
+   * registered mid-run takes effect on the next post.
+   */
+  const renderWelcomeBody = (candidate: Candidate): RenderOutcome =>
+    renderWelcomeComment(enabledTemplates(), systemRandom, candidate)
+
+  /**
+   * What the count screens against instead. The two differ on purpose and only
+   * here: a run commits to one drawn template, while a count must not depend on
+   * a draw it cannot repeat. Every other step of the judgement is the same
+   * `screenCandidate` for both.
+   */
+  const couldRenderWelcomeBody = (candidate: Candidate): RenderOutcome =>
+    renderAnyWelcomeComment(enabledTemplates(), candidate)
+
   const runSession = createSessionRunner({
     automationId: WELCOME_AUTOMATION_ID,
     profile: options.profile,
@@ -212,6 +236,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     isKilled: () => killed,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     newId: () => randomUUID(),
+    renderBody: renderWelcomeBody,
     onProgress: (progress) => {
       sessionProgress = progress
     },
@@ -339,6 +364,11 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
           newRequestId: () => randomUUID(),
           operatorAccounts,
           policy: automationSetting?.policy ?? 'AUTO',
+          guards: WELCOME_GUARDS,
+          renderBody: couldRenderWelcomeBody,
+          // main's per-source lookup, not the single shared one this branch
+          // was written against: the screening still takes resolved authors as
+          // facts, so which lookup resolved them is the caller's business.
           lookup: commentLookupFor(source),
           onNarrow: (progress) => {
             // Only update dayPreview if this is still the current preview
@@ -400,6 +430,8 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         newRequestId: () => randomUUID(),
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
         policy: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.policy ?? 'AUTO',
+        guards: WELCOME_GUARDS,
+        renderBody: couldRenderWelcomeBody,
         ...(dayStartMs !== undefined ? { dayStartMs } : {}),
         lookup: commentLookupFor(source),
         onNarrow: (progress) => {

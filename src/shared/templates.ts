@@ -17,6 +17,16 @@ export function pickTemplate(templates: readonly Template[], random: Random): Te
 export type RenderResult = { ok: true; text: string } | { ok: false; missing: string[] }
 
 /**
+ * A rendered comment, naming the template it came from so the execution record
+ * can say which wording went out. Failure is a first-class outcome: a missing
+ * variable becomes a risk flag the policy acts on, rather than a half-filled
+ * comment nobody meant to post.
+ */
+export type RenderOutcome =
+  | { ok: true; templateId: string; body: string }
+  | { ok: false; missing: string[] }
+
+/**
  * Substitution fails loudly rather than posting a half-filled template. An
  * empty value counts as missing: "님 환영합니다" reads as broken to a member.
  */

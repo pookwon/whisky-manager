@@ -1,10 +1,9 @@
-import { evaluateGuards, operatorAlreadyCommentedGuard, type GuardContext } from '../shared/guards.js'
-import { firstPostOnlyGuard } from '../shared/automations/welcome-comment/firstPost.js'
+import type { Guard } from '../shared/guards.js'
 import { TIMEOUTS, type RawCandidate } from '../shared/protocol.js'
 import { kstDayRange } from '../shared/kst.js'
-import { decide } from '../shared/policy.js'
-import type { ApprovalPolicy, Candidate } from '../shared/types.js'
-import { firstPostIdByAuthor } from './orchestrator.js'
+import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../shared/screening.js'
+import type { RenderOutcome } from '../shared/templates.js'
+import type { ApprovalPolicy, Candidate, CommentAuthor } from '../shared/types.js'
 import type { ExtensionTransport } from './ws/server.js'
 import type { CommentAuthorLookup } from './commentAuthors.js'
 
@@ -35,6 +34,19 @@ export interface PreviewDeps {
    * taken without it promises comments that never go out.
    */
   readonly policy: ApprovalPolicy
+  /** What a post is screened against. The run's own list, handed in by the caller. */
+  readonly guards: readonly Guard[]
+  /**
+   * Whether a comment could be written for this post, and one that could.
+   *
+   * Counting without rendering at all was the last place this and the run could
+   * disagree: an unfillable variable is a risk flag the policy acts on, and with
+   * nothing registered every post fails to render — a run that posts nothing,
+   * which the count used to report as the whole day.
+   *
+   * Deliberately not the run's own draw. See `renderAnyWelcomeComment`.
+   */
+  readonly renderBody: (candidate: Candidate) => RenderOutcome
   /** Midnight KST of the day to count. Omitted means the day `nowMs` falls in. */
   readonly dayStartMs?: number
   /** Resolves who commented on posts so we can judge whether to answer. */
@@ -69,10 +81,27 @@ async function collect(
 }
 
 /**
- * How many greetings a session would answer, without answering any of them.
- * It has to reach the same number the session will, so it collects the same
- * range and applies the same guards — including the trim to the day's end,
- * which for an earlier day decides who counts as an author's first post.
+ * How many greetings a run would answer, without answering any of them.
+ *
+ * Every post is judged the way the run judges it, through the same
+ * `screenCandidate`: the same guards, the same render, the same policy.
+ * Nothing is decided here — this asks and counts.
+ *
+ * The upper-bound reading — fewer comments than this may go out, never more —
+ * only holds once a lookup has settled `pending` to zero. A post that already
+ * carries comments cannot be judged from the board list alone: given a lookup
+ * it is asked about and judged like any other, but without one it is set aside
+ * as `alreadyHandled`, unjudged, while the run still resolves it and may answer
+ * a post whose only commenters are ordinary members. So the no-lookup figure
+ * can fall short of what the run posts. The real app always passes a lookup;
+ * the bare path exists for callers that want only the board-list tally.
+ *
+ * Even fully resolved, the figure sees no further than the post itself. A run
+ * also stops for reasons no post can show: the automation switched off, the
+ * kill switch, a window that has spent its allowance. It skips posts an earlier
+ * run already claimed but never answered. And a forced run deliberately passes
+ * the operating window and the backlog brake, which is the very panel this
+ * number is shown in.
  */
 export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
   if (!deps.transport.isConnected()) {
@@ -80,110 +109,77 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
   }
 
   const day = kstDayRange(deps.dayStartMs ?? deps.nowMs)
-  const collected = await collect(deps.transport, deps.automationId, deps.cafeId, deps.boardId, deps.newRequestId, day.startMs)
+  const collected = await collect(
+    deps.transport,
+    deps.automationId,
+    deps.cafeId,
+    deps.boardId,
+    deps.newRequestId,
+    day.startMs,
+  )
   if (collected === null) {
     return { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
   }
 
   const raws = collected.filter((raw) => raw.postedAt < day.endMs)
 
-  const firstPosts = firstPostIdByAuthor(raws)
-  const guards = [operatorAlreadyCommentedGuard, firstPostOnlyGuard]
-
-  interface PostWithDecision {
-    raw: RawCandidate
-    candidate: Candidate
-    guardContext: GuardContext
+  const screening: ScreeningContext = {
+    automationId: deps.automationId,
+    source: { cafeId: deps.cafeId, boardId: deps.boardId },
+    policy: deps.policy,
+    guards: deps.guards,
+    operatorAccounts: deps.operatorAccounts,
+    firstPosts: firstPostIdByAuthor(raws),
+    renderBody: deps.renderBody,
   }
 
-  const posts: PostWithDecision[] = []
+  /** The run's own verdict on this post, given what is known of its comments. */
+  const wouldAnswer = (
+    raw: RawCandidate,
+    existingCommentAuthors: readonly CommentAuthor[] | null,
+  ): boolean =>
+    screenCandidate(raw, screening, { nowMs: deps.nowMs, existingCommentAuthors }).disposition
+      .kind === 'EXECUTE'
 
-  // Pre-compute candidate and guard context for each post
-  for (const raw of raws) {
-    const candidate: Candidate = {
-      automationId: deps.automationId,
-      cafeId: deps.cafeId,
-      boardId: deps.boardId,
-      postId: raw.postId,
-      title: raw.title,
-      bodyText: raw.bodyText,
-      authorNickname: raw.authorNickname,
-      authorId: raw.authorId,
-      postedAt: raw.postedAt,
-    }
-
-    const guardContext: GuardContext = {
-      nowMs: deps.nowMs,
-      operatorAccounts: deps.operatorAccounts,
-      existingCommentAuthors: raw.commentCount === 0 ? [] : null,
-      isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
-    }
-
-    posts.push({ raw, candidate, guardContext })
-  }
-
-  // Initial state: separate posts by whether we need to look them up
   let count = 0
   let alreadyHandled = 0
   let pending = 0
 
-  for (const { raw, candidate, guardContext } of posts) {
-    const willComment = decide(deps.policy, evaluateGuards(guards, candidate, guardContext)).kind === 'EXECUTE'
-
-    if (willComment && raw.commentCount === 0) {
-      // Confirmed empty and will comment
-      count += 1
-    } else if (!willComment && (raw.commentCount === null || raw.commentCount > 0)) {
-      // Won't comment but has comments (either unknown count or known count)
-      if (!deps.lookup) {
-        // Without lookup, we know this is already handled
-        alreadyHandled += 1
-      } else {
-        // With lookup, we need to check first
-        pending += 1
-      }
+  // What the board list alone can settle. A tally of zero is the board stating
+  // nobody has commented, which needs no request; anything else cannot be
+  // judged until the post itself is asked.
+  for (const raw of raws) {
+    if (raw.commentCount === 0) {
+      if (wouldAnswer(raw, [])) count += 1
+      continue
     }
+    if (deps.lookup === undefined) alreadyHandled += 1
+    else pending += 1
   }
 
-  // Report initial state
-  if (deps.onNarrow) {
-    deps.onNarrow({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
-  }
+  deps.onNarrow?.({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
 
-  // If there's no lookup, return the initial state
-  if (!deps.lookup) {
+  const lookup = deps.lookup
+  if (lookup === undefined) {
     return { kind: 'READY', count, alreadyHandled, pending: 0, checkedAt: deps.nowMs }
   }
 
-  // Now resolve pending posts via lookup
-  for (const { raw, candidate, guardContext } of posts) {
-    if (raw.commentCount === null || raw.commentCount > 0) {
-      const authors = await deps.lookup.resolve(raw.postId, raw.commentCount)
+  // Then the rest, one answer at a time, so the operator watches the figure
+  // narrow rather than waiting on a screen that says nothing.
+  for (const raw of raws) {
+    if (raw.commentCount === 0) continue
 
-      // Create new guard context with real comment authors
-      const resolvedContext: GuardContext = {
-        ...guardContext,
-        existingCommentAuthors: authors,
-      }
-
-      // Re-evaluate the decision with the real comment authors
-      const decision = decide(deps.policy, evaluateGuards(guards, candidate, resolvedContext))
-      const willComment = decision.kind === 'EXECUTE'
-
-      if (willComment) {
-        count += 1
-      } else if (authors !== null && authors.length > 0) {
-        // Only count as already handled if the lookup succeeded with non-empty authors
-        alreadyHandled += 1
-      }
-
-      pending -= 1
-
-      // Report progress as each lookup lands
-      if (deps.onNarrow) {
-        deps.onNarrow({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
-      }
+    const authors = await lookup.resolve(raw.postId, raw.commentCount)
+    if (wouldAnswer(raw, authors)) {
+      count += 1
+    } else if (authors !== null && authors.length > 0) {
+      // Only the lookup can prove somebody got there first. A failed read
+      // proves nothing and must not be reported as answered.
+      alreadyHandled += 1
     }
+
+    pending -= 1
+    deps.onNarrow?.({ kind: 'READY', count, alreadyHandled, pending, checkedAt: deps.nowMs })
   }
 
   return { kind: 'READY', count, alreadyHandled, pending: 0, checkedAt: deps.nowMs }
