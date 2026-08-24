@@ -51,6 +51,7 @@ const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => ({
   newRequestId: () => 'r',
   transport: transportReturning([]),
   operatorAccounts: [],
+  policy: 'AUTO' as const,
   ...over,
 })
 
@@ -62,7 +63,7 @@ describe('previewDay', () => {
       raw({ postId: '1003', authorNickname: '가입자셋', authorId: 'member-3' }),
     ]
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
-    expect(result).toEqual({ kind: 'READY', count: 3, checkedAt: NOW })
+    expect(result).toEqual({ kind: 'READY', count: 3, alreadyHandled: 0, checkedAt: NOW })
   })
 
   it('counts only the first post when same author posts multiple times', async () => {
@@ -72,7 +73,7 @@ describe('previewDay', () => {
       raw({ postId: '1003', authorNickname: '가입자둘', authorId: 'member-2' }),
     ]
     const result = await previewDay(deps({ transport: transportReturning(candidates) }))
-    expect(result).toEqual({ kind: 'READY', count: 2, checkedAt: NOW })
+    expect(result).toEqual({ kind: 'READY', count: 2, alreadyHandled: 0, checkedAt: NOW })
   })
 
   it('returns BRIDGE_OFFLINE when transport is not connected', async () => {
@@ -151,5 +152,75 @@ describe('previewDay — an earlier day', () => {
     await previewDay(deps({ transport, dayStartMs: CHOSEN }))
 
     expect(sent.find((m) => m.type === 'COLLECT')).toMatchObject({ sincePostedAt: CHOSEN })
+  })
+})
+
+describe('previewDay — the number the operator approves against', () => {
+  it('leaves out a post that carries a risk flag under AUTO', async () => {
+    // A post that already has comments cannot have its commenters named from
+    // the list, so the guard flags it and AUTO skips it. Counting it promises
+    // a comment that will never be sent.
+    const candidates = [
+      raw({ postId: '9001', authorId: 'a1', existingCommentAuthors: null }),
+      raw({ postId: '9002', authorId: 'a2', existingCommentAuthors: [] }),
+    ]
+
+    const result = await previewDay(
+      deps({ transport: transportReturning(candidates), policy: 'AUTO' }),
+    )
+
+    expect(result).toMatchObject({ kind: 'READY', count: 1 })
+  })
+
+  it('counts nothing under MANUAL, where every post waits for a person', async () => {
+    const candidates = [raw({ postId: '9003', authorId: 'a3', existingCommentAuthors: [] })]
+
+    const result = await previewDay(
+      deps({ transport: transportReturning(candidates), policy: 'MANUAL' }),
+    )
+
+    expect(result).toMatchObject({ kind: 'READY', count: 0 })
+  })
+
+  it('counts the clean post but not the flagged one under SEMI', async () => {
+    const candidates = [
+      raw({ postId: '9004', authorId: 'a4', existingCommentAuthors: null }),
+      raw({ postId: '9005', authorId: 'a5', existingCommentAuthors: [] }),
+    ]
+
+    const result = await previewDay(
+      deps({ transport: transportReturning(candidates), policy: 'SEMI' }),
+    )
+
+    expect(result).toMatchObject({ kind: 'READY', count: 1 })
+  })
+})
+
+describe('previewDay — telling the buckets apart', () => {
+  it('separates what will be commented from what already has one', async () => {
+    const candidates = [
+      // Already answered: the list gives a comment count but never the names.
+      raw({ postId: '9101', authorId: 'a1', existingCommentAuthors: null }),
+      raw({ postId: '9102', authorId: 'a2', existingCommentAuthors: null }),
+      // Proven empty, so it is a target.
+      raw({ postId: '9103', authorId: 'a3', existingCommentAuthors: [] }),
+    ]
+
+    const result = await previewDay(deps({ transport: transportReturning(candidates) }))
+
+    expect(result).toMatchObject({ kind: 'READY', count: 1, alreadyHandled: 2 })
+  })
+
+  it('counts a later post by the same author as neither', async () => {
+    // It is not a target, and nobody has answered it. Folding it into either
+    // number would make the two stop describing what they are named after.
+    const candidates = [
+      raw({ postId: '9201', authorId: 'same', postedAt: NOW - 7_200_000, existingCommentAuthors: [] }),
+      raw({ postId: '9202', authorId: 'same', postedAt: NOW - 3_600_000, existingCommentAuthors: [] }),
+    ]
+
+    const result = await previewDay(deps({ transport: transportReturning(candidates) }))
+
+    expect(result).toMatchObject({ kind: 'READY', count: 1, alreadyHandled: 0 })
   })
 })

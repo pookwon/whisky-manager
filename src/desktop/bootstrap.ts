@@ -219,6 +219,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
           nowMs: systemClock.now(),
           newRequestId: () => randomUUID(),
           operatorAccounts,
+          policy: automationSetting?.policy ?? 'AUTO',
         }).then((result) => {
           startupPreview = result
         }).catch((error) => {
@@ -264,6 +265,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         nowMs: systemClock.now(),
         newRequestId: () => randomUUID(),
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
+        policy: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.policy ?? 'AUTO',
         dayStartMs,
       }),
     lastBridgeConnectedAt: () => lastBridgeConnectedAt,
