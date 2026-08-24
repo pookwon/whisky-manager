@@ -59,14 +59,17 @@
   "main": "dist/desktop/main.js",
   "build": {
     "appId": "com.examplecafe.whisky-manager",
-    "productName": "카페 관리",
+    "productName": "Whisky Manager",
     "asar": true,
     "asarUnpack": ["**/*.node"],
     "files": ["dist/**/*", "drizzle/**/*", "package.json", "!**/*.map"],
     "directories": { "output": "release" },
     "mac": {
       "category": "public.app-category.business",
-      "target": ["dmg"]
+      "target": ["dmg"],
+      "extendInfo": {
+        "CFBundleDisplayName": "카페 관리"
+      }
     },
     "win": {
       "icon": "assets/whisky-manager.ico",

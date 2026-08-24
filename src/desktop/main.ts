@@ -10,6 +10,16 @@ import { systemClock } from './runtime.js'
 
 const BRIDGE_PORT = 39_217
 
+/**
+ * Where the data lives is fixed, not derived. Electron takes this directory
+ * from the app's name, which is a display choice — the bundle was renamed once
+ * already, and had this been left alone that rename would have stranded every
+ * template, token and execution record in a directory nobody would think to
+ * look in. The development run and the installed build also have to meet in
+ * the same database, and this is what makes them.
+ */
+app.setPath('userData', join(app.getPath('appData'), 'whisky-manager'))
+
 let context: AppContext | null = null
 let tray: Tray | null = null
 let window: BrowserWindow | null = null
