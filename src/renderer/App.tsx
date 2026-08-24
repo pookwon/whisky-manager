@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AUTOMATIONS } from '../shared/automations/catalog.js'
+import { getBridgeStatusKey, getBridgeStatusTone } from './format.js'
 import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
 import { Approvals } from './views/Approvals.js'
@@ -37,6 +38,12 @@ export function App(): React.JSX.Element {
     loadCafeImage().catch(console.error)
   }, [loadCafeImage])
 
+  /**
+   * Before the first poll answers there is nothing to report, and OFFLINE is the
+   * honest reading: no extension has been seen yet.
+   */
+  const bridgeStatus = dashboard?.bridgeStatus ?? 'OFFLINE'
+
   /** Read from the dashboard, which every route polls, so the badge stays live. */
   const awaitingFor = (automationId: string): number =>
     dashboard?.automations.find((a) => a.id === automationId)?.awaitingApproval ?? 0
@@ -65,10 +72,8 @@ export function App(): React.JSX.Element {
               className="mt-1 flex items-center gap-1.5 text-[0.6875rem]"
               style={{ color: 'var(--ink-muted)' }}
             >
-              <span
-                className={`inline-block h-1.5 w-1.5 rounded-full ${dashboard?.bridgeConnected === true ? 'bar-ok' : 'bar-alarm'}`}
-              />
-              {t(dashboard?.bridgeConnected === true ? 'status.connected' : 'status.disconnected')}
+              <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${getBridgeStatusTone(bridgeStatus)}`} />
+              {t(getBridgeStatusKey(bridgeStatus))}
             </div>
           </div>
         </div>

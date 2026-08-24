@@ -25,7 +25,14 @@ let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
 let progress: SessionProgress | null
 
-function build(nowMs = MON_10_00) {
+interface BridgeOverrides {
+  /** Whether the socket is up right now. */
+  readonly connected?: boolean
+  /** When the bridge was last seen up, or null if it never was. */
+  readonly lastSeenConnectedAt?: number | null
+}
+
+function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -57,12 +64,15 @@ function build(nowMs = MON_10_00) {
   const api = createRendererApi({
     repos,
     settings,
-    bridge: { isConnected: () => true, request: () => Promise.reject(new Error('not used in this test')) },
+    bridge: {
+      isConnected: () => bridge.connected ?? true,
+      request: () => Promise.reject(new Error('not used in this test')),
+    },
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
     lastOutcomeAt: () => null,
     getStartupPreview: () => null,
-    lastBridgeConnectedAt: () => null,
+    lastBridgeConnectedAt: () => bridge.lastSeenConnectedAt ?? null,
     nextSessionAt: () => null,
     sessionProgress: () => progress,
     previewDay: () => Promise.resolve({ kind: 'READY' as const, count: 0, checkedAt: 0 }),
@@ -113,7 +123,6 @@ describe('getDashboard', () => {
     const { api } = build()
 
     expect(await api.getDashboard()).toEqual({
-      bridgeConnected: true,
       loopRunning: false,
       awaitingApproval: 0,
       executedToday: 0,
@@ -137,6 +146,13 @@ describe('getDashboard', () => {
       withinActiveHours: true,
       averageActionGapMs: 16_500,
     })
+  })
+
+  it('carries one answer about the bridge, not two that can disagree', async () => {
+    // A raw boolean alongside the status is what split the window in half: the
+    // sidebar read the boolean and flashed "끊김" on every service worker cycle
+    // while the dashboard, reading the status, correctly said "연결 대기 중".
+    expect(await build().api.getDashboard()).not.toHaveProperty('bridgeConnected')
   })
 
   it('reports whether the operating window is open, so the screen need not work it out', async () => {
@@ -361,5 +377,42 @@ describe('automation control', () => {
     const { api, settings } = build()
     settings.set('pairingToken', 'token-abc')
     expect(await api.getPairingToken()).toBe('token-abc')
+  })
+})
+
+describe('bridge status', () => {
+  const GRACE_MS = 90 * 1000
+
+  it('reports a live socket as connected', async () => {
+    const { api } = build(MON_10_00, { connected: true })
+
+    expect((await api.getDashboard()).bridgeStatus).toBe('CONNECTED')
+  })
+
+  it('holds a dropped socket at reconnecting while the worker cycles', async () => {
+    const { api } = build(MON_10_00, { connected: false, lastSeenConnectedAt: MON_10_00 - 30_000 })
+
+    expect((await api.getDashboard()).bridgeStatus).toBe('RECONNECTING')
+  })
+
+  it('falls to offline once the silence outlasts the grace period', async () => {
+    const { api } = build(MON_10_00, { connected: false, lastSeenConnectedAt: MON_10_00 - GRACE_MS - 1 })
+
+    expect((await api.getDashboard()).bridgeStatus).toBe('OFFLINE')
+  })
+
+  it('reports offline when the bridge has never been up', async () => {
+    const { api } = build(MON_10_00, { connected: false, lastSeenConnectedAt: null })
+
+    expect((await api.getDashboard()).bridgeStatus).toBe('OFFLINE')
+  })
+
+  it('measures the gap from when the bridge was last seen, not from the first time it paired', async () => {
+    // An hour into a healthy session the extension cycles its worker. Measured
+    // from the first pairing that reads as long dead; measured from the last
+    // sighting it is the ordinary two-second gap it actually is.
+    const { api } = build(MON_10_00, { connected: false, lastSeenConnectedAt: MON_10_00 - 2_000 })
+
+    expect((await api.getDashboard()).bridgeStatus).toBe('RECONNECTING')
   })
 })

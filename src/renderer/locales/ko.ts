@@ -22,8 +22,6 @@ export const ko = {
     },
     status: {
       bridge: '확장 연결',
-      connected: '연결됨',
-      disconnected: '끊김',
       bridgeConnected: '연결됨',
       bridgeReconnecting: '연결 대기 중',
       bridgeOffline: '끊김',

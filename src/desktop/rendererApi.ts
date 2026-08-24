@@ -38,7 +38,7 @@ export interface RendererApiDeps {
   readonly lastOutcomeAt: () => number | null
   /** Greeting target count available at startup, or null if not yet counted. */
   readonly getStartupPreview: () => import('./preview.js').StartupPreview | null
-  /** Epoch timestamp when the bridge last connected, or null if never. */
+  /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   readonly lastBridgeConnectedAt: () => number | null
   /** When the next session is scheduled to run, or null if the loop is not running. */
   readonly nextSessionAt: () => number | null
@@ -133,7 +133,6 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         )
 
       return Promise.resolve({
-        bridgeConnected: deps.bridge.isConnected(),
         loopRunning: deps.automation.isRunning(),
         awaitingApproval: sum((automation) => automation.awaitingApproval),
         executedToday: sum((automation) => automation.executedToday),

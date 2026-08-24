@@ -120,6 +120,25 @@ export function formatNextSessionTime(nextSessionAt: number | null): string | nu
 }
 
 /**
+ * The palette role a bridge status wears. Shared rather than spelled out at each
+ * call site, so the sidebar and the dashboard cannot end up telling the operator
+ * two different things about one socket.
+ *
+ * OFFLINE is idle, not alarm: an extension that is not there is an absence, and
+ * the window already reserves its alarm colour for something going wrong.
+ */
+export function getBridgeStatusTone(status: BridgeStatus): 'ok' | 'warn' | 'idle' {
+  switch (status) {
+    case 'CONNECTED':
+      return 'ok'
+    case 'RECONNECTING':
+      return 'warn'
+    case 'OFFLINE':
+      return 'idle'
+  }
+}
+
+/**
  * Returns the i18n key for the bridge status.
  */
 export function getBridgeStatusKey(status: BridgeStatus): string {
