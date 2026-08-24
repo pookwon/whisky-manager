@@ -44,15 +44,21 @@ describe('nextActiveStart', () => {
 
 describe('nextSessionStart', () => {
   it('adds a jittered interval inside the configured range', () => {
+    // Drawn from the profile's own band: a literal outside it would be clamped
+    // and the assertion would then be about the clamp, not the jitter.
+    const drawn = limits.sessionIntervalMinMs
     const clock = new FakeClock(MON_10_00)
-    const random = new SequenceRandom([50 * 60_000])
-    expect(nextSessionStart(MON_10_00, limits, clock, random)).toBe(MON_10_00 + 50 * 60_000)
+    const random = new SequenceRandom([drawn])
+    expect(nextSessionStart(MON_10_00, limits, clock, random)).toBe(MON_10_00 + drawn)
   })
 
   it('stretches the interval by the weekend multiplier on Saturday', () => {
+    const drawn = limits.sessionIntervalMinMs
     const clock = new FakeClock(SAT_10_00)
-    const random = new SequenceRandom([60 * 60_000])
-    expect(nextSessionStart(SAT_10_00, limits, clock, random)).toBe(SAT_10_00 + 90 * 60_000)
+    const random = new SequenceRandom([drawn])
+    expect(nextSessionStart(SAT_10_00, limits, clock, random)).toBe(
+      SAT_10_00 + drawn * limits.weekendIntervalMultiplier,
+    )
   })
 
   it('defers to the next operating window when the interval lands outside it', () => {
@@ -64,7 +70,8 @@ describe('nextSessionStart', () => {
 
 describe('nextActionDelayMs', () => {
   it('draws from the action interval range', () => {
-    expect(nextActionDelayMs(limits, new SequenceRandom([12_000]))).toBe(12_000)
+    const drawn = limits.actionIntervalMinMs + 1_000
+    expect(nextActionDelayMs(limits, new SequenceRandom([drawn]))).toBe(drawn)
   })
 })
 

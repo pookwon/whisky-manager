@@ -145,7 +145,7 @@ describe('getDashboard', () => {
       sessionProgress: null,
       bridgeStatus: 'CONNECTED',
       withinActiveHours: true,
-      averageActionGapMs: 16_500,
+      averageActionGapMs: 40_000,
     })
   })
 

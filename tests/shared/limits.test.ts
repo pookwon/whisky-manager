@@ -6,8 +6,8 @@ const limits = PROFILES.production
 const HOUR = 3_600_000
 
 describe('checkGates by run mode', () => {
-  const atBothCaps = { killed: false, dailyCount: 200, sessionCount: 15 }
-  const atSessionCap = { killed: false, dailyCount: 0, sessionCount: 15 }
+  const atBothCaps = { killed: false, dailyCount: limits.dailyCap, sessionCount: limits.perSessionCap }
+  const atSessionCap = { killed: false, dailyCount: 0, sessionCount: limits.perSessionCap }
 
   it('holds a scheduled session to both caps', () => {
     expect(checkGates(atSessionCap, limits, 'SCHEDULED')).toEqual({
@@ -72,14 +72,19 @@ describe('checkGates', () => {
   })
 
   it('blocks once the per-session cap is reached', () => {
-    expect(checkGates({ killed: false, dailyCount: 0, sessionCount: 15 }, limits)).toEqual({
+    expect(checkGates({ killed: false, dailyCount: 0, sessionCount: limits.perSessionCap }, limits)).toEqual({
       allowed: false,
       reason: 'SESSION_CAP_REACHED',
     })
   })
 
   it('allows one below each cap', () => {
-    expect(checkGates({ killed: false, dailyCount: 199, sessionCount: 14 }, limits)).toEqual({ allowed: true })
+    expect(
+      checkGates(
+        { killed: false, dailyCount: limits.dailyCap - 1, sessionCount: limits.perSessionCap - 1 },
+        limits,
+      ),
+    ).toEqual({ allowed: true })
   })
 
   it('blocks past the daily cap, not only at it', () => {

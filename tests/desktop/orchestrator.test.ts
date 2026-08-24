@@ -226,8 +226,14 @@ describe('runSession — AUTO policy', () => {
 
     await runSession(deps({ transport, sleep: (ms) => { waits.push(ms); return Promise.resolve() } }))
 
-    // Dropping the pacing call would fire both comments back to back.
-    expect(waits).toEqual([10_000, 10_000])
+    // Dropping the pacing call would fire both comments back to back. The
+    // bound comes from the profile so retuning the cadence cannot quietly
+    // turn this into an assertion about a number nobody uses any more.
+    expect(waits).toHaveLength(2)
+    for (const wait of waits) {
+      expect(wait).toBeGreaterThanOrEqual(PROFILES.production.actionIntervalMinMs)
+      expect(wait).toBeLessThanOrEqual(PROFILES.production.actionIntervalMaxMs)
+    }
   })
 
   it('stores the risk flags that drove the decision', async () => {
@@ -377,20 +383,26 @@ describe('runSession — pre-execution re-check', () => {
 })
 
 describe('runSession — caps', () => {
-  it('a scheduled run stops at the per-session cap (15 executions)', async () => {
-    const many = Array.from({ length: 20 }, (_, i) => candidate(`${6000 + i}`))
+  // Small enough to keep the fixtures readable; the point is the cap holding,
+  // not the number the profile happens to carry.
+  const cap = 15
+  const capped = { ...PROFILES.production, perSessionCap: cap }
+  const overCap = cap + 5
+
+  it('a scheduled run stops at the per-session cap', async () => {
+    const many = Array.from({ length: overCap }, (_, i) => candidate(`${6000 + i}`))
     const transport = fakeTransport({ candidates: many })
 
-    const outcome = await runSession(deps({ transport, runMode: 'SCHEDULED' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 15 })
+    const outcome = await runSession(deps({ transport, limits: capped, runMode: 'SCHEDULED' }))
+    expect(outcome).toMatchObject({ opened: true, executed: cap })
   })
 
   it('a manual run bypasses the per-session cap and processes all within daily limit', async () => {
-    const many = Array.from({ length: 20 }, (_, i) => candidate(`${7000 + i}`))
+    const many = Array.from({ length: overCap }, (_, i) => candidate(`${7000 + i}`))
     const transport = fakeTransport({ candidates: many })
 
-    const outcome = await runSession(deps({ transport, runMode: 'MANUAL' }))
-    expect(outcome).toMatchObject({ opened: true, executed: 20 })
+    const outcome = await runSession(deps({ transport, limits: capped, runMode: 'MANUAL' }))
+    expect(outcome).toMatchObject({ opened: true, executed: overCap })
   })
 
   it('a manual run still respects the daily cap', async () => {

@@ -3,9 +3,16 @@ import { PROFILES } from '../../src/shared/profiles.js'
 import { isUnresolved } from '../../src/shared/types.js'
 
 describe('profiles', () => {
-  it('uses the production session interval from the spec', () => {
-    expect(PROFILES.production.sessionIntervalMinMs).toBe(45 * 60_000)
-    expect(PROFILES.production.sessionIntervalMaxMs).toBe(75 * 60_000)
+  it('spaces production sessions about four hours apart', () => {
+    const HOUR = 3_600_000
+    expect(PROFILES.production.sessionIntervalMinMs).toBe(3 * HOUR)
+    expect(PROFILES.production.sessionIntervalMaxMs).toBe(5 * HOUR)
+  })
+
+  it('leaves production a session wide enough for a day it missed', () => {
+    // Four sessions across the 16-hour window against 100~150 greetings a day.
+    const sessionsPerDay = 4
+    expect(PROFILES.production.perSessionCap * sessionsPerDay).toBeGreaterThan(150)
   })
 
   it('uses a shorter debug cadence than production', () => {

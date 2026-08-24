@@ -5,6 +5,8 @@ import { PROFILES } from '../../src/shared/profiles.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
 
 const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
+const MID_INTERVAL_MS =
+  (PROFILES.production.sessionIntervalMinMs + PROFILES.production.sessionIntervalMaxMs) / 2
 
 const idleOutcome: SessionOutcome = {
   opened: true,
@@ -19,7 +21,9 @@ function loopDeps(overrides: Partial<SessionLoopDeps> = {}): SessionLoopDeps {
   return {
     limits: PROFILES.production,
     clock: new FakeClock(MON_10_00),
-    random: new SequenceRandom([50 * 60_000]),
+    // The middle of the profile's own band, so retuning the profile does not
+    // silently push this outside the range and clamp.
+    random: new SequenceRandom([MID_INTERVAL_MS]),
     runSession: () => Promise.resolve(idleOutcome),
     onOutcome: () => {},
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
@@ -49,7 +53,7 @@ describe('createSessionLoop', () => {
     loop.start()
 
     expect(setTimer).toHaveBeenCalledTimes(1)
-    expect(setTimer.mock.calls[0]?.[1]).toBe(50 * 60_000)
+    expect(setTimer.mock.calls[0]?.[1]).toBe(MID_INTERVAL_MS)
     loop.stop()
   })
 
