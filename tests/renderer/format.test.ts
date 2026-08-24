@@ -120,17 +120,20 @@ describe('formatNextSessionTime', () => {
     expect(formatNextSessionTime(null)).toBe(null)
   })
 
-  it('formats next session time as HH:MM', () => {
-    // 10:15 in milliseconds = 10*3600*1000 + 15*60*1000
-    const nextSessionMs = NOW + (15 * MINUTE + 30 * 1000) // 15 min 30 sec later
-    const result = formatNextSessionTime(nextSessionMs)
-    expect(result).toBe('10:15')
+  it('reads on the cafe\'s clock, which is the one the operator is watching', () => {
+    // 2026-08-24 02:16 UTC is 11:16 in Seoul. Shown as 02:16 an operator reads
+    // it as the small hours and concludes the tool is idle for the day.
+    expect(formatNextSessionTime(Date.UTC(2026, 7, 24, 2, 16))).toBe('11:16')
   })
 
-  it('handles session time on next day', () => {
-    const nextSessionMs = NOW + DAY + (14 * HOUR + 30 * MINUTE)
-    const result = formatNextSessionTime(nextSessionMs)
-    expect(result).toBe('00:30')
+  it('formats to the minute, dropping seconds', () => {
+    const nextSessionMs = NOW + (15 * MINUTE + 30 * 1000)
+    expect(formatNextSessionTime(nextSessionMs)).toBe('19:15')
+  })
+
+  it('wraps past midnight in Seoul, not past midnight in UTC', () => {
+    // 15:30 UTC is 00:30 the next day in Seoul.
+    expect(formatNextSessionTime(Date.UTC(2026, 7, 24, 15, 30))).toBe('00:30')
   })
 })
 

@@ -1,3 +1,4 @@
+import { KST_OFFSET_MS } from '../shared/kst.js'
 import type { SessionOutcome, SessionProgress, SessionRefusal } from '../desktop/orchestrator.js'
 import type { BridgeStatus } from '../desktop/ipc.js'
 
@@ -107,15 +108,20 @@ export function isRefusalStale(outcome: SessionOutcome | null, automationEnabled
 }
 
 /**
- * Formats the next session time as HH:MM, or returns null if not scheduled.
- * Assumes nextSessionAt is an absolute timestamp in milliseconds.
+ * The next session as HH:MM on the cafe's clock, or null when none is due.
+ *
+ * KST, never the machine's zone and never UTC. The operator compares this
+ * against the wall clock beside them; nine hours out reads as "idle until
+ * morning" when the next run is a minute away. Shifting the instant and then
+ * reading the UTC fields keeps the arithmetic independent of where the machine
+ * happens to be set.
  */
 export function formatNextSessionTime(nextSessionAt: number | null): string | null {
   if (nextSessionAt === null) return null
 
-  const date = new Date(nextSessionAt)
-  const hours = String(date.getUTCHours()).padStart(2, '0')
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
+  const kst = new Date(nextSessionAt + KST_OFFSET_MS)
+  const hours = String(kst.getUTCHours()).padStart(2, '0')
+  const minutes = String(kst.getUTCMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
 }
 
