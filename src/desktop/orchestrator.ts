@@ -2,7 +2,6 @@ import { containsOperator, type Guard } from '../shared/guards.js'
 import { RATE_WINDOW_MS, checkGates, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
-import { kstDayRange } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../shared/screening.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
@@ -12,6 +11,7 @@ import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
+import { collectDay } from './collection.js'
 import { promoteRetries } from './retries.js'
 import type { ExtensionTransport } from './ws/server.js'
 
@@ -137,34 +137,6 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
     return reply.loggedIn ? 'IN' : 'OUT'
   } catch {
     return 'UNKNOWN'
-  }
-}
-
-async function collect(deps: SessionDeps, sincePostedAt: number) {
-  try {
-    const requestId = deps.newRequestId()
-    const reply = await deps.transport.request(
-      {
-        type: 'COLLECT',
-        requestId,
-        automationId: deps.automationId,
-        source: { cafeId: deps.cafeId, boardId: deps.boardId },
-        sincePostedAt,
-      },
-      TIMEOUTS.collectMs,
-      (interim) => {
-        if (interim.type === 'COLLECT_PROGRESS') {
-          deps.onProgress?.({
-            phase: 'COLLECTING',
-            pagesRead: interim.pagesRead,
-            collected: interim.collected,
-          })
-        }
-      },
-    )
-    return reply.type === 'COLLECTED' ? reply.candidates : null
-  } catch {
-    return null
   }
 }
 
@@ -399,16 +371,17 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
 
   // The whole day, every session. A post passed over earlier has to come back
   // into view, because what disqualified it can change on the cafe's side.
-  const day = kstDayRange(deps.dayStartMs ?? openedAt)
   deps.onProgress?.({ phase: 'COLLECTING' })
-  const collected = await collect(deps, day.startMs)
-  if (collected === null) return { opened: false, reason: 'COLLECT_FAILED' }
-
-  // Collection takes a floor and no ceiling, so an earlier day arrives with
-  // everything since attached. Trimming has to happen before the next line:
-  // the author's earliest post is decided within this set, and a later day's
-  // post left in it would take that place and push the real one out.
-  const raws = collected.filter((raw) => raw.postedAt < day.endMs)
+  const raws = await collectDay({
+    transport: deps.transport,
+    automationId: deps.automationId,
+    source: { cafeId: deps.cafeId, boardId: deps.boardId },
+    newRequestId: deps.newRequestId,
+    dayStartMs: deps.dayStartMs ?? openedAt,
+    onProgress: (pagesRead, collected) =>
+      deps.onProgress?.({ phase: 'COLLECTING', pagesRead, collected }),
+  })
+  if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
 
   // Fixed for the whole walk, and the same context the count shown before this
   // run was reached through.
