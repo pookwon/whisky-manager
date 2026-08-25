@@ -30,7 +30,7 @@ const RISK_LABEL: Record<RiskFlag, string> = {
  */
 export const TEXT = {
   app: {
-    title: '카페 관리',
+    title: '네이버 카페 관리',
     actionFailed: (message: string) => `작업이 실패했습니다: ${message}`,
   },
   nav: {
