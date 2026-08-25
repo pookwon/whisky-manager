@@ -10,6 +10,7 @@ import {
   relativeTime,
   isRefusalStale,
   formatNextSessionTime,
+  warmSummary,
   getBridgeStatusText,
   getBridgeStatusTone,
 } from '../format.js'
@@ -221,6 +222,23 @@ export function Dashboard(): React.JSX.Element {
               {running && dashboard.nextSessionAt !== null && (
                 <div className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
                   {TEXT.time.nextSession(formatNextSessionTime(dashboard.nextSessionAt) ?? '—')}
+                </div>
+              )}
+
+              {/*
+                Shown while the loop runs, because that is exactly when the
+                login is being kept warm. A lapsed one is the reason the next
+                session will refuse, so it is not muted like the rest.
+              */}
+              {running && (
+                <div
+                  className="mt-1 text-sm"
+                  style={{
+                    color:
+                      dashboard.lastWarm?.loggedIn === false ? 'var(--warn)' : 'var(--ink-muted)',
+                  }}
+                >
+                  {warmSummary(dashboard.lastWarm)}
                 </div>
               )}
             </div>

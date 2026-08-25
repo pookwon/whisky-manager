@@ -14,7 +14,7 @@ import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { SessionRequest } from './session.js'
 import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
-import { createSessionWarmer } from './sessionWarmer.js'
+import { createSessionWarmer, type WarmCheck } from './sessionWarmer.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
@@ -76,6 +76,11 @@ export interface AppContext {
   getDayPreview(): StartupPreview | null
   /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   lastBridgeConnectedAt(): number | null
+  /**
+   * The last read taken purely to keep the browser's naver login in use. Null
+   * until one lands, which is also what a stopped automation keeps showing.
+   */
+  lastWarm(): WarmCheck | null
   shutdown(): Promise<void>
 }
 
@@ -187,12 +192,13 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * first session of the day is hours later; this is what covers that gap.
    */
   const warmer = createSessionWarmer({
+    clock: systemClock,
     random: systemRandom,
     warm: async () => {
       // A closed browser cannot be warmed, and saying so every hour would bury
       // the log in a fact the operator already knows.
-      if (!bridge.isConnected()) return
-      await transport.request(
+      if (!bridge.isConnected()) return null
+      const reply = await transport.request(
         {
           type: 'CHECK_LOGIN',
           requestId: randomUUID(),
@@ -203,6 +209,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         },
         TIMEOUTS.loginCheckMs,
       )
+      // Any other reply did not answer the question this was sent to ask, and
+      // reporting it as a sighting would date-stamp something never seen.
+      return reply.type === 'LOGIN_STATE' ? { loggedIn: reply.loggedIn } : null
     },
     onError: (error) => console.warn('[warm]', error),
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
@@ -350,6 +359,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     },
     getDayPreview: () => dayPreview,
     lastBridgeConnectedAt: () => lastBridgeConnectedAt,
+    lastWarm: () => warmer.lastCheck(),
     async shutdown() {
       if (previewMonitorHandle !== null) {
         clearInterval(previewMonitorHandle)

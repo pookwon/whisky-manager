@@ -135,6 +135,9 @@ export const TEXT = {
     daysAgo: (count: number) => `${count}일 전`,
     lastSession: (elapsed: string) => `마지막 세션 · ${elapsed}`,
     nextSession: (time: string) => `다음 세션 · ${time}`,
+    sessionKeptAlive: (time: string) => `네이버 세션 · ${time} 확인`,
+    sessionLapsed: (time: string) => `네이버 세션 · ${time} 로그아웃 상태`,
+    sessionUnchecked: '네이버 세션 · 확인 전',
   },
   approvals: {
     heading: '승인 큐',

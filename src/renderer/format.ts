@@ -1,6 +1,7 @@
 import { KST_OFFSET_MS } from '../shared/kst.js'
 import type { SessionOutcome, SessionProgress, SessionRefusal } from '../desktop/orchestrator.js'
 import type { BridgeStatus } from '../desktop/ipc.js'
+import type { WarmCheck } from '../desktop/sessionWarmer.js'
 import { TEXT } from '../shared/text.js'
 
 const MINUTE = 60_000
@@ -103,7 +104,7 @@ export function isRefusalStale(outcome: SessionOutcome | null, automationEnabled
 }
 
 /**
- * The next session as HH:MM on the cafe's clock, or null when none is due.
+ * An instant as HH:MM on the cafe's clock.
  *
  * KST, never the machine's zone and never UTC. The operator compares this
  * against the wall clock beside them; nine hours out reads as "idle until
@@ -111,13 +112,29 @@ export function isRefusalStale(outcome: SessionOutcome | null, automationEnabled
  * reading the UTC fields keeps the arithmetic independent of where the machine
  * happens to be set.
  */
-export function formatNextSessionTime(nextSessionAt: number | null): string | null {
-  if (nextSessionAt === null) return null
-
-  const kst = new Date(nextSessionAt + KST_OFFSET_MS)
+export function formatKstTime(epochMs: number): string {
+  const kst = new Date(epochMs + KST_OFFSET_MS)
   const hours = String(kst.getUTCHours()).padStart(2, '0')
   const minutes = String(kst.getUTCMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
+}
+
+/**
+ * What the dashboard says about the reads that keep the browser's login in use.
+ *
+ * Silence would be indistinguishable from the feature not existing, so this
+ * always says something while the loop runs — including before the first read
+ * lands, which is a real state and about an hour long.
+ */
+export function warmSummary(lastWarm: WarmCheck | null): string {
+  if (lastWarm === null) return TEXT.time.sessionUnchecked
+  const time = formatKstTime(lastWarm.at)
+  return lastWarm.loggedIn ? TEXT.time.sessionKeptAlive(time) : TEXT.time.sessionLapsed(time)
+}
+
+/** The next session on that same clock, or null when none is due. */
+export function formatNextSessionTime(nextSessionAt: number | null): string | null {
+  return nextSessionAt === null ? null : formatKstTime(nextSessionAt)
 }
 
 /**
