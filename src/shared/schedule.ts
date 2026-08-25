@@ -69,3 +69,19 @@ const COMMENT_LOOKUP_MAX_MS = 1_500
 export function nextCommentLookupDelayMs(random: Random): number {
   return random.intInclusive(COMMENT_LOOKUP_MIN_MS, COMMENT_LOOKUP_MAX_MS)
 }
+
+/**
+ * Gap between the reads that keep the browser's naver login warm. About an
+ * hour: long enough that a day of it is a rounding error next to one session's
+ * traffic, short enough to sit well inside any idle window naver measures.
+ *
+ * A band rather than the hour itself, for the reason every interval here is
+ * drawn: a read landing on the same minute of every hour is the shape of a
+ * machine.
+ */
+const WARM_MIN_MS = 50 * 60_000
+const WARM_MAX_MS = 70 * 60_000
+
+export function nextWarmDelayMs(random: Random): number {
+  return random.intInclusive(WARM_MIN_MS, WARM_MAX_MS)
+}

@@ -7,6 +7,7 @@ import {
   nextCommentLookupDelayMs,
   nextPageFetchDelayMs,
   nextSessionStart,
+  nextWarmDelayMs,
 } from '../../src/shared/schedule.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
 
@@ -115,5 +116,21 @@ describe('nextCommentLookupDelayMs', () => {
     const delay = nextCommentLookupDelayMs(new SequenceRandom([1_250]))
     expect(delay).toBeGreaterThanOrEqual(1_000)
     expect(delay).toBeLessThanOrEqual(1_500)
+  })
+})
+
+describe('nextWarmDelayMs', () => {
+  it('returns the lower bound when random returns its minimum', () => {
+    expect(nextWarmDelayMs(new SequenceRandom([0]))).toBe(50 * 60_000)
+  })
+
+  it('returns the upper bound when random returns its maximum', () => {
+    expect(nextWarmDelayMs(new SequenceRandom([10 * 3_600_000]))).toBe(70 * 60_000)
+  })
+
+  it('draws around the hour rather than on it', () => {
+    const delay = nextWarmDelayMs(new SequenceRandom([3_600_000]))
+    expect(delay).toBeGreaterThanOrEqual(50 * 60_000)
+    expect(delay).toBeLessThanOrEqual(70 * 60_000)
   })
 })

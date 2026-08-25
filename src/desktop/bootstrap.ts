@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { WELCOME_AUTOMATION_ID, assertRuntimesRegistered } from '../shared/automations/catalog.js'
 import { PROFILES } from '../shared/profiles.js'
+import { TIMEOUTS } from '../shared/protocol.js'
 import type { Profile } from '../shared/types.js'
 import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/automationSettingsRepo.js'
 import { openDatabase, type AppDatabase } from './db/client.js'
@@ -13,6 +14,7 @@ import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { SessionRequest } from './session.js'
 import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
+import { createSessionWarmer } from './sessionWarmer.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
@@ -179,6 +181,34 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     }
   }
 
+  /**
+   * The browser holds the login, so the automation is only ever as alive as the
+   * naver session in it. The schedule stops reaching naver at midnight and the
+   * first session of the day is hours later; this is what covers that gap.
+   */
+  const warmer = createSessionWarmer({
+    random: systemRandom,
+    warm: async () => {
+      // A closed browser cannot be warmed, and saying so every hour would bury
+      // the log in a fact the operator already knows.
+      if (!bridge.isConnected()) return
+      await transport.request(
+        {
+          type: 'CHECK_LOGIN',
+          requestId: randomUUID(),
+          source: {
+            cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
+            boardId: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? DEFAULT_BOARD_ID,
+          },
+        },
+        TIMEOUTS.loginCheckMs,
+      )
+    },
+    onError: (error) => console.warn('[warm]', error),
+    setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+    clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
+  })
+
   const loop = createSessionLoop({
     limits: PROFILES[options.profile],
     clock: systemClock,
@@ -191,6 +221,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onError: (error) => console.error('[session]', error),
     onHalt: (reason) => {
       console.warn('[session] halted:', reason)
+      // The loop stopped itself, so its traffic stops with it. Warming a
+      // session the operator has to restore by hand buys nothing.
+      warmer.stop()
       options.onHalt?.(reason)
     },
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
@@ -201,13 +234,16 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     start() {
       killed = false
       loop.start()
+      warmer.start()
     },
     stop() {
       loop.stop()
+      warmer.stop()
     },
     kill() {
       killed = true
       loop.stop()
+      warmer.stop()
     },
     isRunning: () => loop.isRunning(),
     nextRunAt: () => loop.nextRunAt(),
@@ -322,6 +358,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         clearInterval(monitorConnectionHandle)
       }
       loop.stop()
+      warmer.stop()
       await bridge.close()
     },
   }
