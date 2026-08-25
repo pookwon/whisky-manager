@@ -19,7 +19,7 @@ export type StartupPreview =
       pending: number
       checkedAt: number
     }
-  | { kind: 'UNAVAILABLE'; reason: 'BRIDGE_OFFLINE' | 'READ_FAILED' }
+  | { kind: 'UNAVAILABLE'; reason: 'BRIDGE_OFFLINE' | 'READ_FAILED' | 'NOT_CONFIGURED' }
 
 export interface PreviewDeps {
   readonly transport: ExtensionTransport

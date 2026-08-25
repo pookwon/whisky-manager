@@ -5,6 +5,7 @@ import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage } from 'el
 import { PROFILES } from '../shared/profiles.js'
 import { TEXT } from '../shared/text.js'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
+import { readLocalConfig } from './localConfig.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
 import { createRendererApi } from './rendererApi.js'
 import { systemClock } from './runtime.js'
@@ -118,6 +119,9 @@ void app.whenReady().then(async () => {
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
     profile,
     bridgePort: BRIDGE_PORT,
+    // Only an unpackaged run looks for it, and only to spare a developer
+    // re-entering the same board into every fresh database.
+    localConfig: app.isPackaged ? null : readLocalConfig(join(app.getAppPath(), 'config', 'local.json')),
     // The tray label reads isRunning(); a self-halt must repaint it, or the
     // menu keeps claiming the automation is running after a logout.
     onHalt: () => {

@@ -22,11 +22,15 @@ export const SETTING_KEYS = {
   operatorAccounts: 'operatorAccounts',
 } as const
 
-/** The whisky/cognac club's 가입인사 board, per the design spec. */
-export const DEFAULT_CAFE_ID = '10000000'
-export const DEFAULT_BOARD_ID = '5'
-/** The cafe's vanity url, which is how a person reaches it. */
-export const DEFAULT_CAFE_URL_NAME = 'examplecafe'
+/**
+ * Which cafe and which board is the operator's to say, and it is kept out of
+ * the source on purpose. A compiled-in default would point every copy of this
+ * tool at whichever cafe the author happened to run, and the first launch of a
+ * fresh build would reach for a board its operator never chose.
+ */
+export function isConfigured(value: string | null | undefined): value is string {
+  return value !== null && value !== undefined && value.trim() !== ''
+}
 
 const NICKNAME_VARIABLE = '닉네임'
 
@@ -73,8 +77,6 @@ export function createSessionRunner(
 ): (request?: SessionRequest) => Promise<SessionOutcome> {
   const { automationId, repos, settings } = options
 
-  const cafeId = () => settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID
-
   return async function run(request: SessionRequest = {}): Promise<SessionOutcome> {
     const { mode = 'MANUAL', dayStartMs } = request
 
@@ -86,9 +88,15 @@ export function createSessionRunner(
 
     const setting = repos.automationSettings.get(automationId)
     const limits = { ...PROFILES[options.profile], ...(setting?.limits ?? {}) }
-    const cafe = cafeId()
+    const cafe = settings.get(SETTING_KEYS.cafeId)
     // The board belongs to the automation, so a second one can watch its own.
-    const board = setting?.boardId ?? DEFAULT_BOARD_ID
+    const board = setting?.boardId
+
+    // Refusing here beats reaching for naver with a blank id: the operator gets
+    // a reason on the screen rather than a read that fails for reasons of its own.
+    if (!isConfigured(cafe) || !isConfigured(board)) {
+      return { opened: false, reason: 'NOT_CONFIGURED' }
+    }
 
     const renderBody = (candidate: Candidate): RenderOutcome => {
       const template = pickTemplate(repos.templates.listEnabled(automationId), options.random)
@@ -104,8 +112,8 @@ export function createSessionRunner(
 
     const commentAuthors = createCommentAuthorLookup({
       transport: options.transport,
-      cafeId: cafe,
-      boardId: board,
+      cafeId: cafe.trim(),
+      boardId: board.trim(),
       automationId,
       newRequestId: options.newId,
       random: options.random,
@@ -114,8 +122,8 @@ export function createSessionRunner(
 
     const outcome = await runSession({
       automationId,
-      cafeId: cafe,
-      boardId: board,
+      cafeId: cafe.trim(),
+      boardId: board.trim(),
       policy: setting?.policy ?? 'AUTO',
       limits,
       guards: [operatorAlreadyCommentedGuard, firstPostOnlyGuard],

@@ -56,7 +56,7 @@
   },
   "main": "dist/desktop/main.js",
   "build": {
-    "appId": "com.examplecafe.whisky-manager",
+    "appId": "com.whiskymanager.app",
     "productName": "Whisky Manager",
     "asar": true,
     "asarUnpack": ["**/*.node"],

@@ -15,3 +15,6 @@ coverage/
 
 # local pairing token for the diagnostic probe
 .wm-probe-token
+
+# developer's own cafe; the source ships none
+config/local.json

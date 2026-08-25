@@ -297,18 +297,18 @@ describe('templates', () => {
 })
 
 describe('settings', () => {
-  it('returns defaults before anything is configured', async () => {
+  it('shows empty boxes before anything is configured, not a cafe nobody chose', async () => {
     const { api } = build()
 
     expect(await api.getCommonSettings()).toEqual({
-      cafeId: '10000000',
-      cafeUrlName: 'examplecafe',
+      cafeId: '',
+      cafeUrlName: '',
       operatorAccounts: [],
     })
     expect(await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).toEqual({
       policy: 'AUTO',
       enabled: false,
-      boardId: '5',
+      boardId: '',
     })
   })
 
@@ -358,7 +358,9 @@ describe('settings', () => {
     await api.setBoardId(WELCOME_AUTOMATION_ID, '77')
 
     expect((await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).boardId).toBe('77')
-    expect((await api.getAutomationSettings('other-automation')).boardId).toBe('5')
+    // Blank, not somebody else's board: an automation nobody has pointed at a
+    // board has no board.
+    expect((await api.getAutomationSettings('other-automation')).boardId).toBe('')
   })
 
   it('drops blank operator accounts', async () => {

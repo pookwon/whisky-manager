@@ -79,6 +79,7 @@ export const TEXT = {
      */
     refused: {
       FUTURE_DAY: '아직 오지 않은 날짜입니다',
+      NOT_CONFIGURED: '카페와 게시판을 먼저 설정해야 합니다',
       KILLED: '전면 정지 상태입니다. 시작을 눌러야 재개합니다',
       DISABLED: '자동화가 꺼져 있습니다',
       NO_TEMPLATE: '등록된 문구가 없습니다',
@@ -126,6 +127,7 @@ export const TEXT = {
     unavailable: {
       BRIDGE_OFFLINE: '확인하지 못했습니다 (확장 미연결)',
       READ_FAILED: '확인하지 못했습니다 (읽기 실패)',
+      NOT_CONFIGURED: '카페와 게시판을 먼저 설정해야 합니다',
     },
   },
   time: {

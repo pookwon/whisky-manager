@@ -73,9 +73,8 @@ export interface CafeClient {
  * nothing, or a post older than the floor). A warning makes long fetches visible
  * without stopping them, which would hide a broken stop condition.
  *
- * A day's greetings measured about 155 posts, which is four pages at
- * `MEMO_PAGE_SIZE`. Twenty pages is a thousand posts: far past any real day, and
- * therefore a stop condition that is not stopping.
+ * Twenty pages is a thousand posts at `MEMO_PAGE_SIZE` — far past any day a
+ * greeting board sees, and therefore a stop condition that is not stopping.
  */
 const PAGES_WARNING_THRESHOLD = 20
 

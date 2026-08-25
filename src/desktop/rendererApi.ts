@@ -9,9 +9,6 @@ import { getCafeImage as fetchCafeImage } from './cafeImage.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
 import {
-  DEFAULT_BOARD_ID,
-  DEFAULT_CAFE_ID,
-  DEFAULT_CAFE_URL_NAME,
   SETTING_KEYS,
   parseOperatorAccounts,
 } from './session.js'
@@ -212,8 +209,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     getCommonSettings(): Promise<CommonSettingsView> {
       return Promise.resolve({
-        cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
-        cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
+        // Blank means unset, which is what the settings screen must show: an
+        // empty box the operator fills, not someone else's cafe already in it.
+        cafeId: settings.get(SETTING_KEYS.cafeId) ?? '',
+        cafeUrlName: settings.get(SETTING_KEYS.cafeUrlName) ?? '',
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       })
     },
@@ -223,14 +222,14 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve({
         policy: current?.policy ?? 'AUTO',
         enabled: current?.enabled ?? false,
-        boardId: current?.boardId ?? DEFAULT_BOARD_ID,
+        boardId: current?.boardId ?? '',
       })
     },
 
     getCafeImage() {
       return fetchCafeImage(
         { transport: deps.bridge, settings, clock: deps.clock, newId: deps.newId },
-        settings.get(SETTING_KEYS.cafeUrlName) ?? DEFAULT_CAFE_URL_NAME,
+        settings.get(SETTING_KEYS.cafeUrlName) ?? '',
       )
     },
 
