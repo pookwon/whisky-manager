@@ -46,6 +46,8 @@ export interface RendererApiDeps {
   readonly nextSessionAt: () => number | null
   /** What the session in flight is doing, or null when none is running. */
   readonly sessionProgress: () => import('./orchestrator.js').SessionProgress | null
+  /** The last read taken to keep the browser's naver login in use, or null. */
+  readonly lastWarm: () => import('./sessionWarmer.js').WarmCheck | null
   /** Counts what a run on that day would answer. Reaches the cafe. */
   readonly previewDay: (dayStartMs: number) => Promise<import('./preview.js').StartupPreview>
   readonly clock: Clock
@@ -151,6 +153,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         lastOutcomeAt: deps.lastOutcomeAt(),
         nextSessionAt: deps.nextSessionAt(),
         sessionProgress: deps.sessionProgress(),
+        lastWarm: deps.lastWarm(),
         bridgeStatus: calculateBridgeStatus(),
         withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
         averageActionGapMs: Math.round(

@@ -8,6 +8,7 @@ import {
   formatNextSessionTime,
   getBridgeStatusText,
   getBridgeStatusTone,
+  warmSummary,
 } from '../../src/renderer/format.js'
 
 const NOW = Date.UTC(2026, 7, 24, 10, 0, 0)
@@ -218,5 +219,23 @@ describe('progressSummary', () => {
     const backlog = progressSummary({ phase: 'BACKLOG', done: 0, total: 4, nickname: null })
     const working = progressSummary({ phase: 'WORKING', done: 0, total: 4, nickname: null })
     expect(backlog).not.toBe(working)
+  })
+})
+
+describe('warmSummary', () => {
+  const KST_13_42 = Date.UTC(2026, 7, 25, 4, 42)
+
+  it('says so plainly before the first check lands', () => {
+    // About an hour long after a start, and silence there is what sends an
+    // operator looking for a feature that is already running.
+    expect(warmSummary(null)).toBe('네이버 세션 · 확인 전')
+  })
+
+  it('reads the check on the cafe clock, not the machine one', () => {
+    expect(warmSummary({ at: KST_13_42, loggedIn: true })).toBe('네이버 세션 · 13:42 확인')
+  })
+
+  it('says the login lapsed rather than just when it last looked', () => {
+    expect(warmSummary({ at: KST_13_42, loggedIn: false })).toBe('네이버 세션 · 13:42 로그아웃 상태')
   })
 })

@@ -1,6 +1,7 @@
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
 import type { StartupPreview } from './preview.js'
+import type { WarmCheck } from './sessionWarmer.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -68,6 +69,13 @@ export interface DashboardSnapshot {
    * present state, unlike `lastOutcome`, and takes the banner over while it lasts.
    */
   readonly sessionProgress: SessionProgress | null
+  /**
+   * The last time the tool touched naver purely to keep the browser's login in
+   * use, and what it found. Null before the first one lands. Without this the
+   * warming has no surface at all: it succeeds silently, and an operator
+   * looking for it finds nothing.
+   */
+  readonly lastWarm: WarmCheck | null
   /**
    * Socket is connected, waiting for reconnection, or truly offline.
    * Distinguishes normal brief disconnections from real failures.

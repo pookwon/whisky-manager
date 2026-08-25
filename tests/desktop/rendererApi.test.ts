@@ -13,6 +13,7 @@ import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
+import type { WarmCheck } from '../../src/desktop/sessionWarmer.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import { FakeClock } from '../fakes.js'
 
@@ -24,6 +25,7 @@ let db: AppDatabase
 let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
 let progress: SessionProgress | null
+let lastWarm: WarmCheck | null
 
 interface BridgeOverrides {
   /** Whether the socket is up right now. */
@@ -42,6 +44,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
   const settings = createSettingsRepo(db)
   control = { running: false, killed: false, ranOnce: 0 }
   progress = null
+  lastWarm = null
   const automation: AutomationControl = {
     start: () => {
       control.running = true
@@ -75,6 +78,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     getDayPreview: () => null,
     lastBridgeConnectedAt: () => bridge.lastSeenConnectedAt ?? null,
     nextSessionAt: () => null,
+    lastWarm: () => lastWarm,
     sessionProgress: () => progress,
     previewDay: () =>
       Promise.resolve({ kind: 'READY' as const, count: 0, alreadyHandled: 0, pending: 0, checkedAt: 0 }),
@@ -145,10 +149,18 @@ describe('getDashboard', () => {
       lastOutcomeAt: null,
       nextSessionAt: null,
       sessionProgress: null,
+      lastWarm: null,
       bridgeStatus: 'CONNECTED',
       withinActiveHours: true,
       averageActionGapMs: 40_000,
     })
+  })
+
+  it('carries the last naver session check to the screen', async () => {
+    const { api } = build()
+    lastWarm = { at: MON_10_00, loggedIn: true }
+
+    expect((await api.getDashboard()).lastWarm).toEqual({ at: MON_10_00, loggedIn: true })
   })
 
   it('carries one answer about the bridge, not two that can disagree', async () => {

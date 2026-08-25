@@ -1,16 +1,27 @@
-import type { Random } from '../shared/ports.js'
+import type { Clock, Random } from '../shared/ports.js'
 import { nextWarmDelayMs } from '../shared/schedule.js'
 
 export type TimerHandle = number
 
+/** A read that actually landed, and what it found. */
+export interface WarmCheck {
+  /** When the answer came back. */
+  readonly at: number
+  /** Whether the browser was still logged in when it did. */
+  readonly loggedIn: boolean
+}
+
 export interface SessionWarmerDeps {
+  readonly clock: Clock
   readonly random: Random
   /**
-   * One authenticated read of the board. What it answers does not matter here
-   * — the request itself is the point, because it is what tells naver the
-   * browser's login is still in use.
+   * One authenticated read of the board. The request itself is the point — it
+   * is what tells naver the browser's login is still in use — but the answer is
+   * worth keeping, because it is the only evidence the operator has that any of
+   * this is happening. Null means there was nothing to read through, which is
+   * not the same as a login that lapsed.
    */
-  readonly warm: () => Promise<void>
+  readonly warm: () => Promise<{ readonly loggedIn: boolean } | null>
   readonly onError?: (error: unknown) => void
   readonly setTimer: (fn: () => void, ms: number) => TimerHandle
   readonly clearTimer: (handle: TimerHandle) => void
@@ -20,6 +31,8 @@ export interface SessionWarmer {
   start(): void
   stop(): void
   isRunning(): boolean
+  /** The last read that landed, or null before the first one. */
+  lastCheck(): WarmCheck | null
 }
 
 /**
@@ -37,6 +50,7 @@ export interface SessionWarmer {
 export function createSessionWarmer(deps: SessionWarmerDeps): SessionWarmer {
   let timer: TimerHandle | null = null
   let running = false
+  let lastCheck: WarmCheck | null = null
 
   function schedule(): void {
     timer = deps.setTimer(() => void read(), nextWarmDelayMs(deps.random))
@@ -45,7 +59,10 @@ export function createSessionWarmer(deps: SessionWarmerDeps): SessionWarmer {
   async function read(): Promise<void> {
     timer = null
     try {
-      await deps.warm()
+      const found = await deps.warm()
+      // A closed browser or a failed read is not evidence the login lapsed, so
+      // neither one is allowed to overwrite the last real sighting.
+      if (found !== null) lastCheck = { at: deps.clock.now(), loggedIn: found.loggedIn }
     } catch (error) {
       // One failed read must not end the schedule. A dropped bridge or a closed
       // browser is when the next read matters most, and reporting is all this
@@ -77,6 +94,10 @@ export function createSessionWarmer(deps: SessionWarmerDeps): SessionWarmer {
 
     isRunning() {
       return running
+    },
+
+    lastCheck() {
+      return lastCheck
     },
   }
 }

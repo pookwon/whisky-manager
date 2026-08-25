@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createSessionWarmer, type SessionWarmerDeps } from '../../src/desktop/sessionWarmer.js'
-import { SequenceRandom } from '../fakes.js'
+import { FakeClock, SequenceRandom } from '../fakes.js'
 
 const HOUR_MS = 3_600_000
+const TUE_13_00 = Date.UTC(2026, 7, 25, 13, 0, 0)
 
 /** Lets a test fire the warmer's timer instead of waiting out a real hour. */
 function manualTimer() {
@@ -23,9 +24,10 @@ function manualTimer() {
 
 function warmerDeps(overrides: Partial<SessionWarmerDeps> = {}): SessionWarmerDeps {
   return {
+    clock: new FakeClock(TUE_13_00),
     // The middle of the band, so retuning it does not silently clamp here.
     random: new SequenceRandom([HOUR_MS]),
-    warm: () => Promise.resolve(),
+    warm: () => Promise.resolve({ loggedIn: true }),
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
     ...overrides,
@@ -47,7 +49,7 @@ describe('createSessionWarmer', () => {
 
   it('waits out the drawn delay before the first read', () => {
     const timer = manualTimer()
-    const warm = vi.fn(() => Promise.resolve())
+    const warm = vi.fn(() => Promise.resolve({ loggedIn: true }))
     const warmer = createSessionWarmer(warmerDeps({ ...timer, warm }))
 
     warmer.start()
@@ -62,7 +64,7 @@ describe('createSessionWarmer', () => {
 
   it('reads and schedules the next read when the timer fires', async () => {
     const timer = manualTimer()
-    const warm = vi.fn(() => Promise.resolve())
+    const warm = vi.fn(() => Promise.resolve({ loggedIn: true }))
     const warmer = createSessionWarmer(warmerDeps({ ...timer, warm }))
 
     warmer.start()
@@ -117,7 +119,7 @@ describe('createSessionWarmer', () => {
     const warmer = createSessionWarmer(
       warmerDeps({
         ...timer,
-        warm: () => new Promise<void>((resolve) => (release = resolve)),
+        warm: () => new Promise<{ loggedIn: boolean } | null>((resolve) => (release = () => resolve(null))),
       }),
     )
 
@@ -143,7 +145,7 @@ describe('createSessionWarmer', () => {
     const warmer = createSessionWarmer(
       warmerDeps({
         ...timer,
-        warm: () => new Promise<void>((resolve) => (release = resolve)),
+        warm: () => new Promise<{ loggedIn: boolean } | null>((resolve) => (release = () => resolve(null))),
       }),
     )
 
@@ -154,5 +156,73 @@ describe('createSessionWarmer', () => {
     await fired
 
     expect(timer.setTimer).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createSessionWarmer last check', () => {
+  it('has nothing to report before the first read', () => {
+    expect(createSessionWarmer(warmerDeps({ setTimer: () => 1 })).lastCheck()).toBeNull()
+  })
+
+  it('records what the read found and when it landed', async () => {
+    const timer = manualTimer()
+    const warmer = createSessionWarmer(
+      warmerDeps({ ...timer, warm: () => Promise.resolve({ loggedIn: true }) }),
+    )
+
+    warmer.start()
+    await timer.fire()
+
+    expect(warmer.lastCheck()).toEqual({ at: TUE_13_00, loggedIn: true })
+    warmer.stop()
+  })
+
+  it('records a lapsed login rather than hiding it', async () => {
+    const timer = manualTimer()
+    const warmer = createSessionWarmer(
+      warmerDeps({ ...timer, warm: () => Promise.resolve({ loggedIn: false }) }),
+    )
+
+    warmer.start()
+    await timer.fire()
+
+    expect(warmer.lastCheck()?.loggedIn).toBe(false)
+    warmer.stop()
+  })
+
+  it('leaves the last check standing when there was nothing to read', async () => {
+    const timer = manualTimer()
+    const results: ({ loggedIn: boolean } | null)[] = [{ loggedIn: true }, null]
+    const warmer = createSessionWarmer(
+      warmerDeps({ ...timer, warm: () => Promise.resolve(results.shift() ?? null) }),
+    )
+
+    warmer.start()
+    await timer.fire()
+    await timer.fire()
+
+    // A closed browser is not evidence the login lapsed, so the last real
+    // sighting is what the operator keeps seeing.
+    expect(warmer.lastCheck()).toEqual({ at: TUE_13_00, loggedIn: true })
+    warmer.stop()
+  })
+
+  it('leaves the last check standing when the read fails', async () => {
+    const timer = manualTimer()
+    let fail = false
+    const warmer = createSessionWarmer(
+      warmerDeps({
+        ...timer,
+        warm: () => (fail ? Promise.reject(new Error('bridge down')) : Promise.resolve({ loggedIn: true })),
+      }),
+    )
+
+    warmer.start()
+    await timer.fire()
+    fail = true
+    await timer.fire()
+
+    expect(warmer.lastCheck()).toEqual({ at: TUE_13_00, loggedIn: true })
+    warmer.stop()
   })
 })
