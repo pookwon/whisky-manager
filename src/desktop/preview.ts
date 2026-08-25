@@ -1,9 +1,9 @@
 import type { Guard } from '../shared/guards.js'
-import { TIMEOUTS, type RawCandidate } from '../shared/protocol.js'
-import { kstDayRange } from '../shared/kst.js'
+import type { RawCandidate } from '../shared/protocol.js'
 import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../shared/screening.js'
 import type { RenderOutcome } from '../shared/templates.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor } from '../shared/types.js'
+import { collectDay } from './collection.js'
 import type { ExtensionTransport } from './ws/server.js'
 import type { CommentAuthorLookup } from './commentAuthors.js'
 
@@ -55,31 +55,6 @@ export interface PreviewDeps {
   readonly onNarrow?: (progress: StartupPreview) => void
 }
 
-async function collect(
-  transport: ExtensionTransport,
-  automationId: string,
-  cafeId: string,
-  boardId: string,
-  newRequestId: () => string,
-  sincePostedAt: number,
-): Promise<RawCandidate[] | null> {
-  try {
-    const reply = await transport.request(
-      {
-        type: 'COLLECT',
-        requestId: newRequestId(),
-        automationId,
-        source: { cafeId, boardId },
-        sincePostedAt,
-      },
-      TIMEOUTS.collectMs,
-    )
-    return reply.type === 'COLLECTED' ? reply.candidates : null
-  } catch {
-    return null
-  }
-}
-
 /**
  * How many greetings a run would answer, without answering any of them.
  *
@@ -108,20 +83,16 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
     return { kind: 'UNAVAILABLE', reason: 'BRIDGE_OFFLINE' }
   }
 
-  const day = kstDayRange(deps.dayStartMs ?? deps.nowMs)
-  const collected = await collect(
-    deps.transport,
-    deps.automationId,
-    deps.cafeId,
-    deps.boardId,
-    deps.newRequestId,
-    day.startMs,
-  )
-  if (collected === null) {
+  const raws = await collectDay({
+    transport: deps.transport,
+    automationId: deps.automationId,
+    source: { cafeId: deps.cafeId, boardId: deps.boardId },
+    newRequestId: deps.newRequestId,
+    dayStartMs: deps.dayStartMs ?? deps.nowMs,
+  })
+  if (raws === null) {
     return { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
   }
-
-  const raws = collected.filter((raw) => raw.postedAt < day.endMs)
 
   const screening: ScreeningContext = {
     automationId: deps.automationId,
