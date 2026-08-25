@@ -30,6 +30,7 @@ export interface OutcomeSummary {
  */
 const REFUSAL_TONE: Record<SessionRefusal, Tone> = {
   FUTURE_DAY: 'warn',
+  NOT_CONFIGURED: 'warn',
   KILLED: 'warn',
   DISABLED: 'idle',
   NO_TEMPLATE: 'warn',

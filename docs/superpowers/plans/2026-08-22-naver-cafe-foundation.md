@@ -698,7 +698,7 @@ export function checkGates(ctx: GateContext, limits: Limits): GateVerdict {
 
 /**
  * The brake watches age, not volume. A large backlog that arrived overnight is
- * normal at 100~150 signups a day; a backlog holding days-old posts means
+ * normal at a busy board; a backlog holding days-old posts means
  * something is broken.
  */
 export function hasStaleBacklog(

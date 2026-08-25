@@ -12,9 +12,10 @@ import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { SessionRequest } from './session.js'
-import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, DEFAULT_CAFE_ID, DEFAULT_BOARD_ID } from './session.js'
+import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, isConfigured } from './session.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { createSessionWarmer, type WarmCheck } from './sessionWarmer.js'
+import type { LocalConfig } from './localConfig.js'
 import { generateToken } from './ws/pairing.js'
 import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
@@ -31,6 +32,12 @@ export interface AppContextOptions {
   readonly bridgePort: number
   /** Fired when the loop stops itself; the shell should show the new state. */
   readonly onHalt?: (reason: 'NOT_LOGGED_IN' | 'LOGIN_CHECK_FAILED') => void
+  /**
+   * A developer's own cafe, read from a file the repository does not carry.
+   * Seeds an unset database and nothing else: values already entered are the
+   * operator's and are never overwritten. Packaged builds pass nothing.
+   */
+  readonly localConfig?: LocalConfig | null
 }
 
 export interface AppRepos {
@@ -94,6 +101,16 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     settings.set('pairingToken', token)
   }
 
+  const local = options.localConfig ?? null
+  if (local !== null) {
+    if (local.cafeId !== undefined && settings.get(SETTING_KEYS.cafeId) === undefined) {
+      settings.set(SETTING_KEYS.cafeId, local.cafeId)
+    }
+    if (local.cafeUrlName !== undefined && settings.get(SETTING_KEYS.cafeUrlName) === undefined) {
+      settings.set(SETTING_KEYS.cafeUrlName, local.cafeUrlName)
+    }
+  }
+
   const automationSettings = createAutomationSettingsRepo(db)
   if (automationSettings.get(WELCOME_AUTOMATION_ID) === undefined) {
     // Disabled by default. An install that starts posting before anyone has
@@ -103,7 +120,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       policy: 'AUTO',
       limits: {},
       enabled: false,
-      boardId: null,
+      boardId: local?.boardId ?? null,
     })
   }
 
@@ -137,18 +154,46 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   let previewMonitorHandle: NodeJS.Timeout | null = null
   let lastBridgeConnectedAt: number | null = null
 
+  /**
+   * Read on every use rather than captured at boot: the operator can enter the
+   * cafe long after the app started, and a value frozen at startup would keep
+   * the tool pointed at nothing until the next restart.
+   */
+  const configuredSource = (): { cafeId: string; boardId: string } | null => {
+    const cafeId = settings.get(SETTING_KEYS.cafeId)
+    const boardId = repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId
+    if (!isConfigured(cafeId) || !isConfigured(boardId)) return null
+    return { cafeId: cafeId.trim(), boardId: boardId.trim() }
+  }
+
   // For narrowing the day preview as lookups land
   let dayPreview: StartupPreview | null = null
   let dayPreviewId = 0
-  const commentLookup: CommentAuthorLookup = createCommentAuthorLookup({
-    transport,
-    cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
-    boardId: DEFAULT_BOARD_ID,
-    automationId: WELCOME_AUTOMATION_ID,
-    newRequestId: () => randomUUID(),
-    random: systemRandom,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  })
+  /**
+   * One lookup per cafe-and-board, so the startup count and a later day preview
+   * share what they learned instead of each paying for the same posts. Repointing
+   * the tool builds a new one: answers gathered from another board are not
+   * answers about this one.
+   */
+  let lookupInUse: { readonly key: string; readonly lookup: CommentAuthorLookup } | null = null
+  const commentLookupFor = (source: { cafeId: string; boardId: string }): CommentAuthorLookup => {
+    const key = `${source.cafeId}/${source.boardId}`
+    if (lookupInUse?.key !== key) {
+      lookupInUse = {
+        key,
+        lookup: createCommentAuthorLookup({
+          transport,
+          cafeId: source.cafeId,
+          boardId: source.boardId,
+          automationId: WELCOME_AUTOMATION_ID,
+          newRequestId: () => randomUUID(),
+          random: systemRandom,
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        }),
+      }
+    }
+    return lookupInUse.lookup
+  }
 
   // The one runtime this build ships. Adding a catalogue entry without adding
   // it here fails the boot, which is the point: the seam where a second
@@ -198,15 +243,11 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       // A closed browser cannot be warmed, and saying so every hour would bury
       // the log in a fact the operator already knows.
       if (!bridge.isConnected()) return null
+      // Nothing to keep warm until someone has said which cafe this is.
+      const source = configuredSource()
+      if (source === null) return null
       const reply = await transport.request(
-        {
-          type: 'CHECK_LOGIN',
-          requestId: randomUUID(),
-          source: {
-            cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
-            boardId: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? DEFAULT_BOARD_ID,
-          },
-        },
+        { type: 'CHECK_LOGIN', requestId: randomUUID(), source },
         TIMEOUTS.loginCheckMs,
       )
       // Any other reply did not answer the question this was sent to ask, and
@@ -278,20 +319,27 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
 
         const operatorAccounts = parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts))
         const automationSetting = repos.automationSettings.get(WELCOME_AUTOMATION_ID)
-        const boardId = automationSetting?.boardId ?? DEFAULT_BOARD_ID
+        const source = configuredSource()
+
+        // Counting needs a board to count on. Saying so beats a banner that
+        // reports a read failure the operator cannot act on.
+        if (source === null) {
+          startupPreview = { kind: 'UNAVAILABLE', reason: 'NOT_CONFIGURED' }
+          return
+        }
 
         // Run the preview asynchronously; don't block the monitor loop
         const startupId = ++dayPreviewId
         void previewDay({
           transport,
-          cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
-          boardId,
+          cafeId: source.cafeId,
+          boardId: source.boardId,
           automationId: WELCOME_AUTOMATION_ID,
           nowMs: systemClock.now(),
           newRequestId: () => randomUUID(),
           operatorAccounts,
           policy: automationSetting?.policy ?? 'AUTO',
-          lookup: commentLookup,
+          lookup: commentLookupFor(source),
           onNarrow: (progress) => {
             // Only update dayPreview if this is still the current preview
             if (dayPreviewId === startupId) {
@@ -338,18 +386,22 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     sessionProgress: () => sessionProgress,
     getStartupPreview: () => startupPreview,
     previewDay: (dayStartMs?) => {
+      const source = configuredSource()
+      if (source === null) {
+        return Promise.resolve<StartupPreview>({ kind: 'UNAVAILABLE', reason: 'NOT_CONFIGURED' })
+      }
       const id = ++dayPreviewId
       return previewDay({
         transport,
-        cafeId: settings.get(SETTING_KEYS.cafeId) ?? DEFAULT_CAFE_ID,
-        boardId: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? DEFAULT_BOARD_ID,
+        cafeId: source.cafeId,
+        boardId: source.boardId,
         automationId: WELCOME_AUTOMATION_ID,
         nowMs: systemClock.now(),
         newRequestId: () => randomUUID(),
         operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
         policy: repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.policy ?? 'AUTO',
         ...(dayStartMs !== undefined ? { dayStartMs } : {}),
-        lookup: commentLookup,
+        lookup: commentLookupFor(source),
         onNarrow: (progress) => {
           if (dayPreviewId === id) {
             dayPreview = progress

@@ -6,9 +6,9 @@ const HOUR = 3_600_000
 
 const SHARED = {
   // Drawn per hour rather than per day because that is the stretch steady
-  // operation is judged over. A hundred and fifty covers the busiest hour the
-  // board sees — today's signups arrived sixty-four inside five minutes — and
-  // keeps a catch-up run from emptying a backlog in one sitting.
+  // operation is judged over. The figure has to cover a board's busiest hour —
+  // signups arrive in bursts, not evenly — while keeping a catch-up run from
+  // emptying a backlog in one sitting.
   hourlyCap: 150,
   activeHourStart: 8,
   activeHourEnd: 24,

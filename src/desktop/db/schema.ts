@@ -58,7 +58,7 @@ export const automationSettings = sqliteTable('automation_settings', {
   policy: text('policy').notNull(),
   limitsJson: text('limits_json').notNull().default('{}'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  // Nullable: the reader falls back to DEFAULT_BOARD_ID. Adding NOT NULL to an
+  // Nullable: a board nobody has named yet, which the session refuses on. Adding NOT NULL to an
   // existing SQLite table means rewriting it, which buys nothing here.
   boardId: text('board_id'),
 })

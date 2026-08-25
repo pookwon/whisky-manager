@@ -18,8 +18,8 @@ import { kstDayStartMs } from '../../src/shared/kst.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
 const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
-const CAFE = '10000000'
-const BOARD = '5'
+const CAFE = 'cafe-under-test'
+const BOARD = 'board-under-test'
 
 function candidate(postId: string, nickname: string | null = '신입회원'): RawCandidate {
   return {
@@ -99,6 +99,9 @@ function buildWithOptions(candidates: RawCandidate[], options: TransportOptions)
     dedupe: createSqliteDedupeStore(db, () => `exec-${++counter}`),
   }
   const settings = createSettingsRepo(db)
+  // The tool under test is a configured one; the tests that care about an
+  // unconfigured one strip this back themselves.
+  settings.set(SETTING_KEYS.cafeId, CAFE)
   const run = createSessionRunner({
     automationId: WELCOME_AUTOMATION_ID,
     profile: 'production',
@@ -118,13 +121,13 @@ function build(candidates: RawCandidate[]) {
   return buildWithOptions(candidates, {})
 }
 
-function enable(repos: ReturnType<typeof build>['repos']): void {
+function enable(repos: ReturnType<typeof build>['repos'], boardId: string | null = BOARD): void {
   repos.automationSettings.upsert({
     automationId: WELCOME_AUTOMATION_ID,
     policy: 'AUTO',
     limits: {},
     enabled: true,
-    boardId: null,
+    boardId,
   })
 }
 
@@ -158,7 +161,7 @@ describe('createSessionRunner — the day to work', () => {
       policy: 'AUTO',
       limits: {},
       enabled: true,
-      boardId: null,
+      boardId: BOARD,
     })
     repos.templates.add({
       id: 't1',
@@ -197,7 +200,37 @@ describe('createSessionRunner', () => {
     expect(boards).toEqual(['77'])
   })
 
-  it('falls back to the default board when the automation has none', async () => {
+  it('refuses rather than guessing a board the automation does not name', async () => {
+    const { run, repos, boards } = buildWithOptions([], {})
+    enable(repos, null)
+    repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '{닉네임}님 환영합니다',
+      createdAt: MON_10_00 - 1000,
+    })
+    // No board is not a board to fall back to. A default here would be one
+    // cafe's board compiled into every copy of the tool.
+    expect(await run()).toEqual({ opened: false, reason: 'NOT_CONFIGURED' })
+    expect(boards).toEqual([])
+  })
+
+  it('refuses when no cafe has been entered', async () => {
+    const { run, repos, settings, boards } = buildWithOptions([], {})
+    enable(repos)
+    settings.set(SETTING_KEYS.cafeId, '')
+    repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '{닉네임}님 환영합니다',
+      createdAt: MON_10_00 - 1000,
+    })
+
+    expect(await run()).toEqual({ opened: false, reason: 'NOT_CONFIGURED' })
+    expect(boards).toEqual([])
+  })
+
+  it('refuses on a blank cafe id rather than asking naver for one', async () => {
     const { run, repos, settings, boards } = buildWithOptions([], {})
     enable(repos)
     repos.templates.add({
@@ -206,11 +239,10 @@ describe('createSessionRunner', () => {
       body: '{닉네임}님 환영합니다',
       createdAt: MON_10_00 - 1000,
     })
-    settings.set(SETTING_KEYS.cafeId, CAFE)
+    settings.set(SETTING_KEYS.cafeId, '   ')
 
-    await run()
-
-    expect(boards).toEqual([BOARD])
+    expect(await run()).toEqual({ opened: false, reason: 'NOT_CONFIGURED' })
+    expect(boards).toEqual([])
   })
 
   it('refuses while the automation is disabled', async () => {
@@ -220,7 +252,7 @@ describe('createSessionRunner', () => {
       policy: 'AUTO',
       limits: {},
       enabled: false,
-      boardId: null,
+      boardId: BOARD,
     })
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
 
@@ -272,7 +304,7 @@ describe('createSessionRunner', () => {
       policy: 'MANUAL',
       limits: {},
       enabled: true,
-      boardId: null,
+      boardId: BOARD,
     })
 
     expect(await run()).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
@@ -285,7 +317,7 @@ describe('createSessionRunner', () => {
       policy: 'AUTO',
       limits: { perSessionCap: 1 },
       enabled: true,
-      boardId: null,
+      boardId: BOARD,
     })
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
 

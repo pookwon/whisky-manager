@@ -107,7 +107,7 @@ export interface AwaitingItem {
 /** Settings that belong to the app, not to any one automation. */
 export interface CommonSettingsView {
   readonly cafeId: string
-  /** Vanity url segment, e.g. `examplecafe`; what a person opens the cafe by. */
+  /** Vanity url segment — the part after `cafe.naver.com/`; how a person reaches it. */
   readonly cafeUrlName: string
   readonly operatorAccounts: string[]
 }

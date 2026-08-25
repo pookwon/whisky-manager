@@ -2,7 +2,7 @@
 
 네이버 카페 관리 자동화 도구. 1차 목표는 가입인사 전용 게시판에 올라온 신규 글에 자동으로 환영 댓글을 다는 것이며, 자동화 작업을 플러그인처럼 추가할 수 있는 구조로 만든다.
 
-대상 카페: [예시 카페](https://cafe.naver.com/examplecafe) (`clubId=10000000`, 가입인사 게시판 `menuid=5`, 일일 가입자 100~150명)
+**대상 카페는 소스에 없다.** 카페 ID, 게시판 ID, 카페 주소는 전부 앱 설정에서 입력한다. 설정하기 전에는 세션이 열리지 않고 이유를 화면에 표시한다.
 
 ## 구성
 
@@ -25,11 +25,8 @@
 | [설계 스펙](docs/superpowers/specs/2026-08-22-naver-cafe-automation-design.md) | 아키텍처, 자동화 모델, 승인 정책, 안전장치, 데이터 모델 |
 | [기술 스택](docs/tech-stack.md) | 채택 버전과 근거, 기각한 대안, 버전 정책 |
 | [Chrome 확장 수동 설치 안내](docs/chrome-extension-manual-installation.md) | 비개발자용 확장 설치·앱 연결·문제 해결 안내 |
-| [구현 계획 A — 기반](docs/superpowers/plans/2026-08-22-naver-cafe-foundation.md) | Phase 0~2. 13개 태스크, TDD 사이클 |
-| [구현 계획 C1 — 데스크톱 헤드리스](docs/superpowers/plans/2026-08-22-desktop-headless.md) | Phase 4 전반. 세션 루프, 승인·재시도, Electron 셸 |
-| [구현 계획 C2 — 렌더러](docs/superpowers/plans/2026-08-22-desktop-renderer.md) | Phase 4 후반. 대시보드, 승인 큐, 문구, 설정 |
 
-계획 B(가입인사 모듈)와 C(UI·배포)는 아직 작성하지 않았다. 이유는 아래 참조.
+구현 계획서는 `docs/superpowers/plans/`에 있다.
 
 ## 핵심 규칙
 
@@ -41,22 +38,25 @@
 | `SEMI` | 즉시 실행 | 승인 큐로 |
 | `MANUAL` | 승인 큐로 | 승인 큐로 |
 
-**세션 모델** — 사람은 균등 간격으로 댓글을 달지 않는다. 앉은 김에 몰아서 하고 한참 쉰다.
+**세션 모델** — 사람은 균등 간격으로 댓글을 달지 않는다. 앉은 김에 몰아서 하고 한참 쉰다. 실제 수치는 [`src/shared/profiles.ts`](src/shared/profiles.ts)가 갖는다.
 
-| 프로파일 | 세션 주기 | 세션 내 간격 | 세션당 상한 |
-|---|---|---|---|
-| `production` | 45~75분 | 8~25초 | 15건 |
-| `debug` | 2~4분 | 3~8초 | 5건 |
+**안전장치** — 승인 정책과 독립적으로 항상 적용되며 승인으로 우회되지 않는다. 나이 기준 백로그 브레이크, 원자적 중복 선점, 킬 스위치, 긴급 회수.
 
-운영 시간대 08:00~24:00, 시간당 상한 150건(직전 60분 기준), 주말 세션 주기 1.5배. `debug`는 개발 빌드에서만 선택 가능하다.
+## 설정
 
-**안전장치** — 승인 정책과 독립적으로 항상 적용되며 승인으로 우회되지 않는다. 워터마크(설치 시점 이후 글만), 나이 기준 백로그 브레이크(24시간), 원자적 중복 선점, 킬 스위치, 긴급 회수.
+앱을 처음 켜면 아무것도 설정되어 있지 않다. **공통 설정에서 카페 ID와 카페 주소를, 자동화 설정에서 게시판 ID를 입력해야** 세션이 열린다. 입력 전에는 대시보드가 `카페와 게시판을 먼저 설정해야 합니다`로 거절한다.
+
+개발 중에는 데이터베이스를 새로 만들 때마다 같은 값을 다시 넣게 되므로, `config/local.json`에 적어 두면 **패키징하지 않은 실행에 한해** 빈 설정을 채운다. 이 파일은 저장소에 올라가지 않는다.
+
+```bash
+cp config/local.example.json config/local.json
+```
 
 ## 개발
 
 ```bash
 pnpm install
-pnpm test          # 520 tests
+pnpm test
 pnpm typecheck
 pnpm lint
 pnpm build:all     # 데스크톱 + 렌더러 + 확장
@@ -78,20 +78,3 @@ git push origin v0.1.1
 서명 인증서가 없는 빌드는 테스트용 산출물입니다. 실제 배포 전에는 macOS 공증·서명, Windows 코드 서명, Chrome 웹스토어 비공개 등록을 별도로 구성해야 합니다.
 
 Windows MSI는 Windows 환경에서만 만들 수 있습니다. 로컬 Windows에서는 `pnpm package:app:win`을 실행하고, 일반 Release에서는 태그 푸시 후 GitHub Actions의 Windows runner가 `Whisky-Manager-<version>.msi`를 생성합니다.
-
-## 진행 상태
-
-- [x] 설계 스펙 확정
-- [x] 구현 계획 A (Phase 0~2)
-- [x] Phase 0 단일 패키지 스캐폴딩
-- [x] Phase 1 정책 엔진
-- [x] Phase 2 프로토콜·페어링·DB
-- [ ] Phase 3 가입인사 모듈 — **선행 작업 필요**
-- [x] Phase 4 데스크톱 앱
-- [ ] Phase 5 배포
-
-### Phase 3 선행 작업
-
-가입인사 모듈은 네이버 카페의 JSON 응답 스키마를 모르는 상태에서 작성할 수 없다. 추측으로 파서를 쓰면 설계 원칙 위반이다.
-
-운영 계정으로 로그인한 크롬에서 가입인사 게시판을 열고 **DevTools Network 탭의 목록 조회 요청과 댓글 작성 요청**을 캡처해야 한다. `apis.naver.com/cafe-web/cafe2/ArticleListV2dot1.json`이 실재하는 엔드포인트임은 확인했으나, 정확한 파라미터와 응답 구조는 세션이 있어야 확인된다.

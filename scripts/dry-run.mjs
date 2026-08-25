@@ -17,6 +17,7 @@ import { randomUUID, randomInt } from 'node:crypto'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
+import { readFileSync } from 'node:fs'
 import { kstDayRange, kstDayStartMs } from '../dist/shared/kst.js'
 import { openDatabase } from '../dist/desktop/db/client.js'
 import { createSettingsRepo } from '../dist/desktop/db/settingsRepo.js'
@@ -29,7 +30,23 @@ import { createCommentAuthorLookup } from '../dist/desktop/commentAuthors.js'
 const PORT = 39217
 const PAIR_TIMEOUT_MS = 900_000
 const REPLY_TIMEOUT_MS = 60_000
-const SOURCE = { cafeId: '10000000', boardId: '5' }
+/**
+ * Which cafe to rehearse against. Kept out of the source for the same reason
+ * the app keeps it out: a board compiled in here is one person's board in
+ * everyone's checkout. See `config/local.example.json`.
+ */
+const LOCAL_CONFIG = new URL('../config/local.json', import.meta.url)
+let SOURCE
+try {
+  const local = JSON.parse(readFileSync(LOCAL_CONFIG, 'utf8'))
+  SOURCE = { cafeId: local.cafeId, boardId: local.boardId }
+} catch {
+  SOURCE = { cafeId: '', boardId: '' }
+}
+if (!SOURCE.cafeId || !SOURCE.boardId) {
+  console.error('config/local.json에 cafeId와 boardId를 채워야 합니다 (config/local.example.json 참고)')
+  process.exit(1)
+}
 const DAY_MS = 86_400_000
 
 /**

@@ -63,6 +63,7 @@ export type RenderOutcome =
 
 export type SessionRefusal =
   | 'FUTURE_DAY'
+  | 'NOT_CONFIGURED'
   | 'KILLED'
   | 'DISABLED'
   | 'NO_TEMPLATE'

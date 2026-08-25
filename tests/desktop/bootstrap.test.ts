@@ -34,8 +34,18 @@ const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(
 let dir: string
 let ctx: AppContext
 
+/**
+ * A context that has been pointed at a cafe, which is what every test but the
+ * unconfigured one is about. The values are arbitrary: no test reaches naver.
+ */
 function options(path: string) {
-  return { databasePath: path, migrationsFolder: MIGRATIONS, profile: 'debug' as const, bridgePort: 0 }
+  return {
+    databasePath: path,
+    migrationsFolder: MIGRATIONS,
+    profile: 'debug' as const,
+    bridgePort: 0,
+    localConfig: { cafeId: 'cafe-under-test', boardId: 'board-under-test' },
+  }
 }
 
 beforeEach(async () => {
@@ -67,6 +77,38 @@ describe('createAppContext', () => {
     })
   })
 
+  it('refuses to run until someone has said which cafe this is', async () => {
+    const bare = mkdtempSync(join(tmpdir(), 'wm-boot-bare-'))
+    const unconfigured = await createAppContext({
+      databasePath: join(bare, 'app.db'),
+      migrationsFolder: MIGRATIONS,
+      profile: 'debug' as const,
+      bridgePort: 0,
+    })
+    try {
+      unconfigured.repos.automationSettings.upsert({
+        automationId: WELCOME_AUTOMATION_ID,
+        policy: 'AUTO',
+        limits: {},
+        enabled: true,
+        boardId: null,
+      })
+      unconfigured.repos.templates.add({
+        id: 't1',
+        automationId: WELCOME_AUTOMATION_ID,
+        body: '{닉네임}님 환영합니다',
+        createdAt: 1,
+      })
+
+      await unconfigured.automation.runOnce()
+
+      expect(unconfigured.lastOutcome()).toEqual({ opened: false, reason: 'NOT_CONFIGURED' })
+    } finally {
+      await unconfigured.shutdown()
+      rmSync(bare, { recursive: true, force: true })
+    }
+  })
+
   it('does not start the loop on its own', () => {
     expect(ctx.automation.isRunning()).toBe(false)
   })
@@ -84,7 +126,7 @@ describe('createAppContext', () => {
       policy: 'AUTO',
       limits: {},
       enabled: true,
-      boardId: null,
+      boardId: 'board-under-test',
     })
 
     await ctx.automation.runOnce()
@@ -97,7 +139,7 @@ describe('createAppContext', () => {
       policy: 'AUTO',
       limits: {},
       enabled: true,
-      boardId: null,
+      boardId: 'board-under-test',
     })
     ctx.repos.templates.add({
       id: 't1',
