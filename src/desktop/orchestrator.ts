@@ -1,12 +1,12 @@
-import { containsOperator, evaluateGuards, type Guard } from '../shared/guards.js'
+import { containsOperator, type Guard } from '../shared/guards.js'
 import { RATE_WINDOW_MS, checkGates, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
-import { comparePostId } from '../shared/postId.js'
-import { decide } from '../shared/policy.js'
-import { TIMEOUTS, type ExtensionMessage, type PostRef, type RawCandidate } from '../shared/protocol.js'
+import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
 import { kstDayRange } from '../shared/kst.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
+import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../shared/screening.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
+import type { RenderOutcome } from '../shared/templates.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits, RunMode } from '../shared/types.js'
 import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
@@ -56,10 +56,6 @@ export interface SessionDeps {
   /** Reports what the session is doing. Nothing about a run depends on anyone listening. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
-
-export type RenderOutcome =
-  | { ok: true; templateId: string; body: string }
-  | { ok: false; missing: string[] }
 
 export type SessionRefusal =
   | 'FUTURE_DAY'
@@ -126,29 +122,6 @@ function sentWithinTheHour(deps: SessionDeps, nowMs: number): number {
   return deps.repo.countExecutedSince(deps.automationId, nowMs - RATE_WINDOW_MS)
 }
 
-/**
- * The earliest post each author made in this collection, by post id.
- *
- * Computed rather than read off the incoming order. Collection does sort oldest
- * first, but that exists so a session stopped by its cap leaves the newest
- * behind — a separate promise that must not quietly become this rule's
- * foundation. Posts with no readable author are left out: they cannot be
- * grouped, and `firstPostOnlyGuard` hands them to the policy instead.
- */
-export function firstPostIdByAuthor(raws: readonly RawCandidate[]): ReadonlyMap<string, string> {
-  const earliest = new Map<string, RawCandidate>()
-  for (const raw of raws) {
-    if (raw.authorId === null) continue
-    const held = earliest.get(raw.authorId)
-    if (held === undefined || isEarlier(raw, held)) earliest.set(raw.authorId, raw)
-  }
-  return new Map([...earliest].map(([authorId, raw]) => [authorId, raw.postId]))
-}
-
-/** Ties break on post id so the choice never depends on collection order. */
-function isEarlier(a: RawCandidate, b: RawCandidate): boolean {
-  return a.postedAt === b.postedAt ? comparePostId(a.postId, b.postId) < 0 : a.postedAt < b.postedAt
-}
 
 async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> {
   try {
@@ -437,7 +410,17 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   // post left in it would take that place and push the real one out.
   const raws = collected.filter((raw) => raw.postedAt < day.endMs)
 
-  const firstPosts = firstPostIdByAuthor(raws)
+  // Fixed for the whole walk, and the same context the count shown before this
+  // run was reached through.
+  const screening: ScreeningContext = {
+    automationId: deps.automationId,
+    source: { cafeId: deps.cafeId, boardId: deps.boardId },
+    policy: deps.policy,
+    guards: deps.guards,
+    operatorAccounts: deps.operatorAccounts,
+    firstPosts: firstPostIdByAuthor(raws),
+    renderBody: deps.renderBody,
+  }
 
   for (const [index, raw] of raws.entries()) {
     deps.onProgress?.({
@@ -474,38 +457,11 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     })
     if (executionId === null) continue
 
-    const candidate: Candidate = {
-      automationId: deps.automationId,
-      cafeId: deps.cafeId,
-      boardId: deps.boardId,
-      postId: raw.postId,
-      title: raw.title,
-      bodyText: raw.bodyText,
-      authorNickname: raw.authorNickname,
-      authorId: raw.authorId,
-      postedAt: raw.postedAt,
-    }
-
-    // Render before deciding so a failed substitution can raise a risk flag
-    // and let the policy handle it, instead of being discovered too late.
-    const rendered = deps.renderBody(candidate)
-
     const existingCommentAuthors = await deps.commentAuthors.resolve(raw.postId, raw.commentCount)
-    const guardEvaluation = evaluateGuards(deps.guards, candidate, {
+    const { candidate, evaluation, disposition, rendered } = screenCandidate(raw, screening, {
       nowMs: now,
-      operatorAccounts: deps.operatorAccounts,
       existingCommentAuthors,
-      isFirstPostByAuthor: raw.authorId !== null && firstPosts.get(raw.authorId) === raw.postId,
     })
-
-    const evaluation = rendered.ok
-      ? guardEvaluation
-      : {
-          skip: guardEvaluation.skip,
-          flags: [...guardEvaluation.flags, 'VARIABLE_EXTRACTION_FAILED' as const],
-        }
-
-    const disposition = decide(deps.policy, evaluation)
     const status = initialStatus(disposition)
 
     if (status === 'SKIPPED') {

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { previewDay, type StartupPreview } from '../../src/desktop/preview.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { kstDayStartMs } from '../../src/shared/kst.js'
+import { WELCOME_GUARDS } from '../../src/shared/automations/welcome-comment/guards.js'
+import type { RenderOutcome } from '../../src/shared/templates.js'
 import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
-import type { CommentAuthor } from '../../src/shared/types.js'
+import type { Candidate, CommentAuthor } from '../../src/shared/types.js'
 
 const CAFE = '10000000'
 /** 2026-08-23 12:00 KST. */
@@ -55,6 +57,9 @@ function mockLookup(results: Record<string, CommentAuthor[]>): CommentAuthorLook
   }
 }
 
+/** Renders cleanly, so the cases below stay about guards and policy. */
+const rendersFine = (): RenderOutcome => ({ ok: true, templateId: 't1', body: '환영합니다' })
+
 const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => ({
   cafeId: CAFE,
   boardId: '5',
@@ -64,6 +69,8 @@ const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => ({
   transport: transportReturning([]),
   operatorAccounts: [],
   policy: 'AUTO' as const,
+  guards: WELCOME_GUARDS,
+  renderBody: rendersFine,
   ...over,
 })
 
@@ -205,6 +212,63 @@ describe('previewDay — the number the operator approves against', () => {
     )
 
     expect(result).toMatchObject({ kind: 'READY', count: 1 })
+  })
+})
+
+describe('previewDay — the comment it counts against', () => {
+  /** Fails for a post whose nickname could not be read, as the real one does. */
+  const needsNickname = (target: Candidate): RenderOutcome =>
+    target.authorNickname === null
+      ? { ok: false, missing: ['닉네임'] }
+      : { ok: true, templateId: 't1', body: `${target.authorNickname}님 환영합니다` }
+
+  it('counts nothing when no wording is registered', () => {
+    // The run refuses outright with NO_TEMPLATE and posts nothing. A count that
+    // skipped rendering reported the whole day as targets.
+    const candidates = [
+      raw({ postId: '9301', authorId: 'a1' }),
+      raw({ postId: '9302', authorId: 'a2' }),
+    ]
+
+    return expect(
+      previewDay(
+        deps({
+          transport: transportReturning(candidates),
+          renderBody: () => ({ ok: false, missing: ['template'] }),
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: 'READY', count: 0 })
+  })
+
+  it('leaves out a post whose variable cannot be filled', async () => {
+    // A failed substitution is a risk flag, and under AUTO a flagged post is
+    // skipped. Counting it promises a comment that never goes out.
+    const candidates = [
+      raw({ postId: '9401', authorId: 'a1', authorNickname: null }),
+      raw({ postId: '9402', authorId: 'a2', authorNickname: '가입자둘' }),
+    ]
+
+    const result = await previewDay(
+      deps({ transport: transportReturning(candidates), renderBody: needsNickname }),
+    )
+
+    expect(result).toMatchObject({ kind: 'READY', count: 1 })
+  })
+
+  it('counts an unrenderable post as neither target nor answered under SEMI', async () => {
+    // SEMI sends the flagged post to a person instead. It is not going out, so
+    // it is not a target — and nobody has answered it either.
+    const candidates = [raw({ postId: '9501', authorId: 'a1', authorNickname: null })]
+
+    const result = await previewDay(
+      deps({
+        transport: transportReturning(candidates),
+        policy: 'SEMI',
+        renderBody: needsNickname,
+      }),
+    )
+
+    expect(result).toMatchObject({ kind: 'READY', count: 0, alreadyHandled: 0 })
   })
 })
 

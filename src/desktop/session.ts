@@ -1,19 +1,13 @@
-import { operatorAlreadyCommentedGuard } from '../shared/guards.js'
-import { firstPostOnlyGuard } from '../shared/automations/welcome-comment/firstPost.js'
+import { WELCOME_GUARDS } from '../shared/automations/welcome-comment/guards.js'
 import type { Clock, Random } from '../shared/ports.js'
 import { PROFILES } from '../shared/profiles.js'
-import { pickTemplate, renderTemplate } from '../shared/templates.js'
+import type { RenderOutcome } from '../shared/templates.js'
 import { kstDayStartMs } from '../shared/kst.js'
 import type { Candidate, Profile, RunMode } from '../shared/types.js'
 import type { AppRepos } from './bootstrap.js'
 import { createCommentAuthorLookup } from './commentAuthors.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
-import {
-  runSession,
-  type RenderOutcome,
-  type SessionOutcome,
-  type SessionProgress,
-} from './orchestrator.js'
+import { runSession, type SessionOutcome, type SessionProgress } from './orchestrator.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export const SETTING_KEYS = {
@@ -32,8 +26,6 @@ export function isConfigured(value: string | null | undefined): value is string 
   return value !== null && value !== undefined && value.trim() !== ''
 }
 
-const NICKNAME_VARIABLE = '닉네임'
-
 export interface SessionRunnerOptions {
   readonly automationId: string
   readonly profile: Profile
@@ -45,6 +37,13 @@ export interface SessionRunnerOptions {
   readonly isKilled: () => boolean
   readonly sleep: (ms: number) => Promise<void>
   readonly newId: () => string
+  /**
+   * Renders the comment to post. Supplied by the caller rather than built here
+   * so the count shown to the operator beforehand is screened through a
+   * renderer wired from the same templates, and the two cannot answer about
+   * different comments.
+   */
+  readonly renderBody: (candidate: Candidate) => RenderOutcome
   /** Reports what the run is doing. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
@@ -98,18 +97,6 @@ export function createSessionRunner(
       return { opened: false, reason: 'NOT_CONFIGURED' }
     }
 
-    const renderBody = (candidate: Candidate): RenderOutcome => {
-      const template = pickTemplate(repos.templates.listEnabled(automationId), options.random)
-      if (template === null) return { ok: false, missing: ['template'] }
-
-      const result = renderTemplate(template.body, {
-        [NICKNAME_VARIABLE]: candidate.authorNickname ?? '',
-      })
-      return result.ok
-        ? { ok: true, templateId: template.id, body: result.text }
-        : { ok: false, missing: result.missing }
-    }
-
     const commentAuthors = createCommentAuthorLookup({
       transport: options.transport,
       cafeId: cafe.trim(),
@@ -126,14 +113,14 @@ export function createSessionRunner(
       boardId: board.trim(),
       policy: setting?.policy ?? 'AUTO',
       limits,
-      guards: [operatorAlreadyCommentedGuard, firstPostOnlyGuard],
+      guards: WELCOME_GUARDS,
       operatorAccounts: parseOperatorAccounts(settings.get(SETTING_KEYS.operatorAccounts)),
       clock: options.clock,
       random: options.random,
       transport: options.transport,
       dedupe: repos.dedupe,
       repo: repos.executions,
-      renderBody,
+      renderBody: options.renderBody,
       isEnabled: () => setting?.enabled ?? false,
       hasTemplate: () => repos.templates.listEnabled(automationId).length > 0,
       isKilled: options.isKilled,
