@@ -10,7 +10,7 @@ describe('profiles', () => {
   })
 
   it('leaves production a session wide enough for a day it missed', () => {
-    // Four sessions across the 16-hour window against 100~150 greetings a day.
+    // Four sessions across the 14-hour window against 100~150 greetings a day.
     const sessionsPerDay = 4
     expect(PROFILES.production.perSessionCap * sessionsPerDay).toBeGreaterThan(150)
   })

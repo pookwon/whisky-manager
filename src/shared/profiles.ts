@@ -10,7 +10,9 @@ const SHARED = {
   // signups arrive in bursts, not evenly — while keeping a catch-up run from
   // emptying a backlog in one sitting.
   hourlyCap: 150,
-  activeHourStart: 8,
+  // Signups barely arrive before mid-morning, and a greeting posted to an
+  // empty board is one nobody is there to read.
+  activeHourStart: 10,
   activeHourEnd: 24,
   weekendIntervalMultiplier: 1.5,
   backlogMaxAgeMs: 24 * HOUR,

@@ -28,19 +28,24 @@ describe('isWithinActiveHours', () => {
   })
 
   it('accepts the exact opening hour', () => {
+    const at10 = Date.UTC(2026, 7, 24, 10, 0, 0)
+    expect(isWithinActiveHours(at10, limits, new FakeClock(at10))).toBe(true)
+  })
+
+  it('rejects the hour the window used to open on', () => {
     const at8 = Date.UTC(2026, 7, 24, 8, 0, 0)
-    expect(isWithinActiveHours(at8, limits, new FakeClock(at8))).toBe(true)
+    expect(isWithinActiveHours(at8, limits, new FakeClock(at8))).toBe(false)
   })
 })
 
 describe('nextActiveStart', () => {
-  it('returns today 08:00 when the window has not opened yet', () => {
-    expect(nextActiveStart(MON_03_00, limits, new FakeClock(MON_03_00))).toBe(Date.UTC(2026, 7, 24, 8, 0, 0))
+  it('returns today 10:00 when the window has not opened yet', () => {
+    expect(nextActiveStart(MON_03_00, limits, new FakeClock(MON_03_00))).toBe(Date.UTC(2026, 7, 24, 10, 0, 0))
   })
 
-  it('returns tomorrow 08:00 when the window has already closed', () => {
+  it('returns tomorrow 10:00 when the window has already closed', () => {
     const after = Date.UTC(2026, 7, 25, 1, 0, 0)
-    expect(nextActiveStart(after, limits, new FakeClock(after))).toBe(Date.UTC(2026, 7, 25, 8, 0, 0))
+    expect(nextActiveStart(after, limits, new FakeClock(after))).toBe(Date.UTC(2026, 7, 25, 10, 0, 0))
   })
 })
 
@@ -66,7 +71,7 @@ describe('nextSessionStart', () => {
   it('defers to the next operating window when the interval lands outside it', () => {
     const clock = new FakeClock(MON_23_30)
     const random = new SequenceRandom([60 * 60_000])
-    expect(nextSessionStart(MON_23_30, limits, clock, random)).toBe(Date.UTC(2026, 7, 25, 8, 0, 0))
+    expect(nextSessionStart(MON_23_30, limits, clock, random)).toBe(Date.UTC(2026, 7, 25, 10, 0, 0))
   })
 })
 
