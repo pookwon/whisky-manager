@@ -1,7 +1,13 @@
 import { randomInt } from 'node:crypto'
 import type { Clock, Random } from '../shared/ports.js'
 
-/** Local-time clock. The operating window is expressed in the operator's day. */
+/**
+ * Local-time clock. The operating window is expressed in the operator's day,
+ * which is the cafe's day so long as the machine keeps the cafe's timezone.
+ * That is the assumption the whole schedule rests on: the day a session is
+ * allowed to run in and the day it collects are the same day only while it
+ * holds. See `nextSessionStart` for what pulls apart when it does not.
+ */
 export const systemClock: Clock = {
   now() {
     return Date.now()

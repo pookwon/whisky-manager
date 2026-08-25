@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionOutcome } from '../../src/desktop/orchestrator.js'
 import { createSessionLoop, type SessionLoopDeps } from '../../src/desktop/sessionLoop.js'
+import { KST_OFFSET_MS } from '../../src/shared/kst.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
 
-const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
+// Monday morning KST, on the calendar the operator's machine keeps. Early
+// enough in the day that the run which closes it never claims these slots —
+// what these tests are about is the loop, not the boundary.
+const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0) - KST_OFFSET_MS
 const MID_INTERVAL_MS =
   (PROFILES.production.sessionIntervalMinMs + PROFILES.production.sessionIntervalMaxMs) / 2
 
@@ -19,7 +23,7 @@ const idleOutcome: SessionOutcome = {
 function loopDeps(overrides: Partial<SessionLoopDeps> = {}): SessionLoopDeps {
   return {
     limits: PROFILES.production,
-    clock: new FakeClock(MON_10_00),
+    clock: new FakeClock(MON_10_00, KST_OFFSET_MS),
     // The middle of the profile's own band, so retuning the profile does not
     // silently push this outside the range and clamp.
     random: new SequenceRandom([MID_INTERVAL_MS]),
@@ -271,7 +275,7 @@ describe('createSessionLoop', () => {
   })
 
   it('returns the scheduled time from nextRunAt after start', () => {
-    const clock = new FakeClock(MON_10_00)
+    const clock = new FakeClock(MON_10_00, KST_OFFSET_MS)
     const loop = createSessionLoop(loopDeps({ clock, setTimer: () => 1 }))
 
     loop.start()
@@ -291,7 +295,7 @@ describe('createSessionLoop', () => {
 
   it('updates nextRunAt after a session completes and reschedules', async () => {
     const fired: Array<() => void> = []
-    const clock = new FakeClock(MON_10_00)
+    const clock = new FakeClock(MON_10_00, KST_OFFSET_MS)
     const setTimer = vi.fn((fn: () => void, _ms: number) => {
       fired.push(fn)
       return 1
