@@ -109,8 +109,19 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
     const at = nextSessionStart(now, deps.limits, deps.clock, deps.random)
     nextScheduledAt = at
     timer = deps.setTimer(() => {
+      // The handle is spent the moment it fires, and the session it starts
+      // outlives it by the better part of an hour. Letting go of it here is
+      // what tells stop() there is nothing left to cancel, and what lets the
+      // session below tell a schedule it still owns from one that a restart
+      // has already replaced.
+      timer = null
       void runOnceInternal({ mode: 'SCHEDULED' }).finally(() => {
-        if (running) schedule()
+        // Stopping mid-session means stopped: the operator's switch outranks a
+        // session that was already under way. A restart inside that same
+        // session has already laid the next beat, and the session must not add
+        // a second one on top — two live timers run the loop twice as often as
+        // asked, and stopping only ever clears the newer of them.
+        if (running && timer === null) schedule()
       })
     }, Math.max(0, at - now))
   }

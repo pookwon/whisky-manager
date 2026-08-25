@@ -123,6 +123,43 @@ describe('createSessionLoop', () => {
     expect(setTimer).toHaveBeenCalledTimes(1)
   })
 
+  it('does not double its cadence when restarted during a session', async () => {
+    const fired: Array<() => void> = []
+    const setTimer = vi.fn((fn: () => void, _ms: number) => {
+      fired.push(fn)
+      return fired.length
+    })
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const loop = createSessionLoop(
+      loopDeps({
+        setTimer,
+        runSession: async () => {
+          await held
+          return idleOutcome
+        },
+      }),
+    )
+
+    loop.start()
+    fired[0]?.()
+    // The tray switch is one click, and a production session runs for the
+    // better part of an hour, so off and on again inside one is a click apart
+    // rather than a rare accident.
+    loop.stop()
+    loop.start()
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // The restart owns the schedule now. A session that was already under way
+    // must not leave a second timer behind it, or the loop runs twice as often
+    // as asked and stopping only ever clears the newer of the two.
+    expect(setTimer).toHaveBeenCalledTimes(2)
+    loop.stop()
+  })
+
   it('halts immediately when the operator is logged out', async () => {
     const halts: string[] = []
     const loop = createSessionLoop(
