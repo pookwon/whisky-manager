@@ -23,6 +23,11 @@ import type {
 } from './ipc.js'
 
 const PAIRING_TOKEN_KEY = 'pairingToken'
+/**
+ * Written once, by the bridge, on an extension's first accepted handshake.
+ * Its presence is the record that this install has been paired at all.
+ */
+const BOUND_EXTENSION_ID_KEY = 'boundExtensionId'
 
 export interface RendererApiDeps {
   readonly repos: AppRepos
@@ -47,6 +52,14 @@ export interface RendererApiDeps {
   readonly lastWarm: () => import('./sessionWarmer.js').WarmCheck | null
   /** Counts what a run on that day would answer. Reaches the cafe. */
   readonly previewDay: (dayStartMs: number) => Promise<import('./preview.js').StartupPreview>
+  /**
+   * Opens the extension folder, the clipboard and Chrome for the first-run
+   * guide. Injected because every part of it belongs to the shell, which this
+   * module is deliberately free of.
+   */
+  readonly openExtensionSetup: () => import('./extensionSetup.js').ExtensionSetupResult
+  /** Writes to the system clipboard, which is the shell's to own. */
+  readonly copyToClipboard: (text: string) => void
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -152,6 +165,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         sessionProgress: deps.sessionProgress(),
         lastWarm: deps.lastWarm(),
         bridgeStatus: calculateBridgeStatus(),
+        extensionEverPaired: settings.get(BOUND_EXTENSION_ID_KEY) !== undefined,
         withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
         averageActionGapMs: Math.round(
           (deps.limits.actionIntervalMinMs + deps.limits.actionIntervalMaxMs) / 2,
@@ -262,6 +276,18 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     getPairingToken() {
       return Promise.resolve(settings.get(PAIRING_TOKEN_KEY) ?? '')
+    },
+
+    openExtensionSetup() {
+      // Synchronous work behind an async surface: copying a handful of small
+      // files and starting a process is over before the next frame, and an
+      // await here would only make the caller look like it could be cancelled.
+      return Promise.resolve(deps.openExtensionSetup())
+    },
+
+    copyToClipboard(text) {
+      deps.copyToClipboard(text)
+      return Promise.resolve()
     },
 
     startAutomation() {

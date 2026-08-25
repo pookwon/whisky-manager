@@ -189,6 +189,65 @@ export const TEXT = {
     save: '저장',
   },
   /**
+   * The walkthrough an operator meets once, before anything works at all.
+   *
+   * Keyed by step rather than written out as a list, so the order the renderer
+   * walks, the illustration each step carries and this wording are checked
+   * against one another by the compiler. A step named in one place and missing
+   * from another does not reach the screen half-drawn.
+   */
+  extensionSetup: {
+    /** The sidebar's call to action while no extension has ever paired. */
+    connect: '확장 연결하기',
+    connectHint: 'Chrome 확장을 아직 연결하지 않았습니다',
+    heading: 'Chrome 확장 연결',
+    subheading: '순서를 먼저 훑어보세요. 확인을 누르면 필요한 것이 한 번에 열립니다.',
+    position: (step: number, total: number) => `${step} / ${total}`,
+    steps: {
+      folder: {
+        title: '확장 폴더는 앱이 만들어 둡니다',
+        body: '따로 내려받거나 압축을 풀 것이 없습니다. 확인을 누르면 manifest.json이 들어 있는 폴더가 열립니다.',
+        note: 'Chrome은 폴더 위치로 확장을 구분합니다. 옮기거나 이름을 바꾸지 마세요.',
+      },
+      devMode: {
+        title: '개발자 모드를 켭니다',
+        body: 'Chrome 주소창에 chrome://extensions 를 붙여넣고 Enter, 오른쪽 위 개발자 모드 스위치를 켭니다.',
+        note: '웹스토어를 거치지 않는 설치에 Chrome이 요구하는 절차입니다. 오류가 아닙니다.',
+      },
+      load: {
+        title: '폴더를 불러옵니다',
+        body: '왼쪽 위 “압축해제된 확장 프로그램을 로드”를 누르고 열려 있는 확장 폴더를 선택합니다.',
+        note: '폴더를 확장 화면 위로 끌어다 놓아도 됩니다.',
+      },
+      token: {
+        title: '페어링 토큰을 붙여넣습니다',
+        body: 'Whisky Manager Bridge 카드의 “세부정보” → “확장 프로그램 옵션”을 열고, 토큰을 붙여넣은 뒤 저장합니다.',
+        note: '이 컴퓨터의 앱과 확장을 잇는 비밀번호입니다. 다른 사람에게 보내지 마세요.',
+      },
+      launch: {
+        title: '이제 확인을 누르세요',
+        body: '확장 폴더가 열리고, chrome://extensions 주소가 복사되고, Chrome이 켜집니다.',
+        note: '연결되면 왼쪽 위 상태가 ‘연결됨’으로 바뀝니다.',
+      },
+    },
+    back: '이전',
+    next: '다음',
+    confirm: '확인',
+    close: '닫기',
+    copy: '복사',
+    copied: '복사했습니다',
+    /** Shown after the press, while the operator works in Chrome. */
+    done: {
+      heading: '열었습니다',
+      folder: '확장 폴더',
+      token: '페어링 토큰',
+      urlCopied: (url: string) =>
+        `${url} 주소를 복사했습니다. Chrome 새 탭 주소창에 붙여넣고 Enter를 누르세요.`,
+      chromeMissing: 'Chrome을 찾지 못했습니다. Chrome을 직접 실행한 뒤 주소창에 붙여넣으세요.',
+      remaining: '개발자 모드를 켜고, 열린 폴더를 불러온 뒤, 위 토큰을 확장 옵션에 붙여넣고 저장하면 끝입니다.',
+    },
+  },
+  /**
    * The tray is the only surface an operator sees when the window is closed,
    * so its wording is part of the same voice rather than something main.ts
    * spells out on its own.
@@ -208,3 +267,10 @@ export const TEXT = {
  * this file — and an automation whose name was never written here cannot compile.
  */
 export type AutomationLabelKey = keyof typeof TEXT.automation
+
+/**
+ * The steps of the extension walkthrough. Exported so the renderer's ordering
+ * and its illustrations are indexed by the same names this file spells, rather
+ * than by a second list that can quietly fall out of step with it.
+ */
+export type ExtensionSetupStepKey = keyof typeof TEXT.extensionSetup.steps

@@ -241,3 +241,27 @@ body {
   color: var(--ink-muted);
   border: 1px solid var(--line);
 }
+
+/*
+ * The one modal in the app: the first-run walkthrough. A native `dialog` rather
+ * than a hand-rolled overlay, because `showModal()` already makes the window
+ * behind it inert and answers Esc, and nothing here is better than the browser
+ * at trapping focus.
+ */
+.modal {
+  width: min(40rem, calc(100vw - 3rem));
+  /* Tailwind's preflight zeroes every margin, including the `auto` a browser
+     relies on to centre a modal dialog. Without this it sits in the corner. */
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+}
+
+.modal::backdrop {
+  background: oklch(0% 0 0 / 0.45);
+}
