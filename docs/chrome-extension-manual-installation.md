@@ -6,14 +6,31 @@
 
 - Chrome 브라우저
 - Whisky Manager 데스크톱 앱
-- [Whisky Manager v0.1.1 Release](https://github.com/pookwon/whisky-manager/releases/tag/v0.1.1)
 
-Chrome 확장은 Chrome 웹스토어에서 설치하는 것이 아니라, Release 페이지의 `Chrome-Extension.zip` 파일을 내려받아 설치합니다.
+Chrome 확장은 Chrome 웹스토어에서 설치하지 않습니다. 확장 파일은 데스크톱 앱 안에 들어 있고, 앱이 직접 꺼내 줍니다.
 
-## 1. 확장 파일 내려받기
+## 앱 안에서 시작하기 (권장)
 
-1. Release 페이지를 엽니다.
-2. 아래쪽 **Assets**에서 `Whisky-Manager-0.1.1-Chrome-Extension.zip`을 클릭합니다.
+한 번도 연결한 적이 없는 앱은 왼쪽 위 카페 이름 아래에 **확장 연결하기** 버튼을 보여 줍니다.
+
+1. **확장 연결하기**를 누릅니다.
+2. 5단계 안내를 순서대로 훑어봅니다.
+3. 마지막에 **확인**을 누르면 세 가지가 한 번에 열립니다.
+   - 확장 폴더가 파일 탐색기에 열립니다 (`manifest.json`이 선택된 상태로).
+   - `chrome://extensions` 주소가 클립보드에 복사됩니다.
+   - Chrome이 새 탭과 함께 켜집니다.
+4. 새 탭 주소창에 붙여넣고 Enter를 누른 뒤, 아래 **2. Chrome에 확장 등록하기**의 2~4번을 그대로 따라 합니다.
+
+> Chrome은 명령줄로 넘긴 `chrome://` 주소를 무시합니다. 그래서 앱은 확장 화면을 직접 띄우는 대신 주소를 클립보드에 넣어 주고, 붙여넣기 한 번만 남깁니다.
+
+> 확장 폴더는 앱 데이터 폴더 안에 있습니다 — Windows는 `%APPDATA%\whisky-manager\chrome-extension`, macOS는 `~/Library/Application Support/whisky-manager/chrome-extension`. Chrome은 폴더 위치로 확장을 구분하므로 **옮기거나 이름을 바꾸지 마세요.**
+
+## 1. 확장 파일 내려받기 (앱을 쓸 수 없을 때만)
+
+앱의 **확장 연결하기**를 쓸 수 있다면 이 단계는 건너뜁니다. Release 파일로 직접 설치해야 할 때만 필요합니다.
+
+1. [Release 페이지](https://github.com/pookwon/whisky-manager/releases)를 엽니다.
+2. 아래쪽 **Assets**에서 `Whisky-Manager-<버전>-Chrome-Extension.zip`을 클릭합니다.
 3. 다운로드한 ZIP 파일을 찾기 쉬운 곳(예: `문서\Whisky Manager\`)에 저장합니다.
 4. ZIP 파일을 마우스 오른쪽 버튼으로 클릭하고 **압축 풀기**를 선택합니다.
 
@@ -26,15 +43,17 @@ Chrome 확장은 Chrome 웹스토어에서 설치하는 것이 아니라, Releas
 1. Chrome 주소창에 `chrome://extensions`를 입력하고 Enter를 누릅니다.
 2. 오른쪽 위의 **개발자 모드** 스위치를 켭니다.
 3. 왼쪽 위에 나타난 **압축해제된 확장 프로그램을 로드**를 클릭합니다.
-4. 1단계에서 압축을 푼 폴더를 선택하고 **선택**을 클릭합니다.
+4. 앱이 열어 준 확장 폴더(또는 1단계에서 압축을 푼 폴더)를 선택하고 **선택**을 클릭합니다.
+
+폴더를 `chrome://extensions` 화면 위로 끌어다 놓아도 같습니다.
 
 설치가 끝나면 확장 목록에 **Whisky Manager Bridge**가 나타납니다. 개발자 모드를 켜야 하는 것은 수동 설치 방식의 Chrome 정책상 필요한 절차이며, 오류가 아닙니다.
 
 ## 3. 데스크톱 앱과 연결하기
 
 1. Whisky Manager 데스크톱 앱을 실행합니다.
-2. 앱의 **설정** 화면을 엽니다.
-3. **확장 페어링 토큰** 아래에 표시된 긴 문자열을 복사합니다.
+2. **확장 연결하기** 안내를 쓴 경우, 마지막 화면의 **페어링 토큰** 옆 **복사**를 누릅니다. 안내를 닫았다면 **카페 · 계정 설정** 화면의 **확장 페어링 토큰**에서 같은 값을 볼 수 있습니다.
+3. 복사한 긴 문자열을 준비합니다.
 4. Chrome의 `chrome://extensions` 화면에서 **Whisky Manager Bridge** 카드의 **세부정보**를 클릭합니다.
 5. 아래쪽의 **확장 프로그램 옵션**을 클릭합니다.
 6. 앱에서 복사한 토큰을 입력란에 붙여넣고 **저장**을 클릭합니다.
@@ -68,4 +87,6 @@ Chrome 확장은 Chrome 웹스토어에서 설치하는 것이 아니라, Releas
 
 ### 확장을 다시 설치해야 하는 경우
 
-기존 Whisky Manager Bridge를 `chrome://extensions`에서 제거한 뒤, 새 ZIP을 압축 해제하여 다시 **압축해제된 확장 프로그램을 로드**합니다. 다시 설치하면 확장 옵션에서 페어링 토큰을 한 번 더 저장해야 합니다.
+기존 Whisky Manager Bridge를 `chrome://extensions`에서 제거한 뒤, 같은 확장 폴더를 다시 **압축해제된 확장 프로그램을 로드**합니다. 다시 설치하면 확장 옵션에서 페어링 토큰을 한 번 더 저장해야 합니다.
+
+앱을 새 버전으로 바꾼 뒤에는 `chrome://extensions`에서 Whisky Manager Bridge 카드의 새로고침 아이콘을 눌러 주세요. 확장 폴더 위치는 그대로이고 내용만 새 버전으로 바뀝니다.

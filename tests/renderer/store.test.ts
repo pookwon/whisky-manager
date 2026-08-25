@@ -22,6 +22,8 @@ const wm = {
   setOperatorAccounts: vi.fn(),
   setCafe: vi.fn(),
   getPairingToken: vi.fn(),
+  openExtensionSetup: vi.fn(),
+  copyToClipboard: vi.fn(),
   startAutomation: vi.fn(),
   stopAutomation: vi.fn(),
   killSwitch: vi.fn(),
@@ -50,6 +52,7 @@ const snapshot: DashboardSnapshot = {
   withinActiveHours: true,
   averageActionGapMs: 16_500,
   bridgeStatus: 'OFFLINE',
+  extensionEverPaired: false,
 }
 
 const commonSettings: CommonSettingsView = {

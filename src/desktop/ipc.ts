@@ -1,5 +1,6 @@
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
+import type { ExtensionSetupResult } from './extensionSetup.js'
 import type { StartupPreview } from './preview.js'
 import type { WarmCheck } from './sessionWarmer.js'
 
@@ -23,6 +24,8 @@ export const IPC_CHANNELS = {
   setOperatorAccounts: 'wm:setOperatorAccounts',
   setCafe: 'wm:setCafe',
   getPairingToken: 'wm:getPairingToken',
+  openExtensionSetup: 'wm:openExtensionSetup',
+  copyToClipboard: 'wm:copyToClipboard',
   startAutomation: 'wm:startAutomation',
   stopAutomation: 'wm:stopAutomation',
   killSwitch: 'wm:killSwitch',
@@ -81,6 +84,13 @@ export interface DashboardSnapshot {
    * Distinguishes normal brief disconnections from real failures.
    */
   readonly bridgeStatus: BridgeStatus
+  /**
+   * Whether an extension has ever completed the handshake on this machine.
+   * Unlike `bridgeStatus` this never goes back to false, which is what makes it
+   * the right question for "has this install been set up yet?" — a closed
+   * browser must not put the first-run guide back in front of the operator.
+   */
+  readonly extensionEverPaired: boolean
   /**
    * Whether the operating window is open right now. The app decides it so the
    * renderer never works out the hours a second time and disagrees.
@@ -144,6 +154,19 @@ export interface RendererApi {
   setOperatorAccounts(accounts: string[]): Promise<void>
   setCafe(cafeId: string, cafeUrlName: string): Promise<void>
   getPairingToken(): Promise<string>
+  /**
+   * Opens everything the operator needs to install the extension: the folder
+   * holding it, the extensions address on the clipboard, and Chrome. Rejects
+   * when the extension is missing from this build; a missing Chrome is
+   * reported in the result rather than thrown, because the rest still helps.
+   */
+  openExtensionSetup(): Promise<ExtensionSetupResult>
+  /**
+   * Puts text on the system clipboard. The renderer is served from `file://`,
+   * where the browser clipboard API is not something to rely on, and the token
+   * has to reach Chrome's options page by some route the operator trusts.
+   */
+  copyToClipboard(text: string): Promise<void>
   startAutomation(): Promise<void>
   stopAutomation(): Promise<void>
   killSwitch(): Promise<void>

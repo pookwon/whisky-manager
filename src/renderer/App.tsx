@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { AUTOMATIONS } from '../shared/automations/catalog.js'
 import { TEXT } from '../shared/text.js'
 import { getBridgeStatusText, getBridgeStatusTone } from './format.js'
@@ -8,6 +8,7 @@ import { Approvals } from './views/Approvals.js'
 import { AutomationSettings } from './views/AutomationSettings.js'
 import { CommonSettings } from './views/CommonSettings.js'
 import { Dashboard } from './views/Dashboard.js'
+import { ExtensionSetupDialog } from './views/ExtensionSetupDialog.js'
 import { Templates } from './views/Templates.js'
 
 const REFRESH_MS = 5_000
@@ -20,6 +21,7 @@ export function App(): React.JSX.Element {
   const dashboard = useApp((s) => s.dashboard)
   const cafeImage = useApp((s) => s.cafeImage)
   const error = useApp((s) => s.error)
+  const [setupOpen, setSetupOpen] = useState(false)
 
   useEffect(() => {
     // A failed background poll is logged, not surfaced: the next tick retries
@@ -43,6 +45,13 @@ export function App(): React.JSX.Element {
    */
   const bridgeStatus = dashboard?.bridgeStatus ?? 'OFFLINE'
 
+  /**
+   * No extension has ever paired on this machine. Read as `=== false` rather
+   * than negated so the state before the first poll — dashboard still null —
+   * counts as "not known yet" instead of "not set up".
+   */
+  const needsSetup = dashboard?.extensionEverPaired === false
+
   /** Read from the dashboard, which every route polls, so the badge stays live. */
   const awaitingFor = (automationId: string): number =>
     dashboard?.automations.find((a) => a.id === automationId)?.awaitingApproval ?? 0
@@ -53,28 +62,45 @@ export function App(): React.JSX.Element {
         className="flex w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r p-3"
         style={{ borderColor: 'var(--line)', background: 'var(--surface-sunken)' }}
       >
-        <div
-          className="mb-4 flex items-center gap-2.5 border-b px-3 pb-4 pt-2"
-          style={{ borderColor: 'var(--line)' }}
-        >
-          {cafeImage !== null && (
-            <img
-              src={cafeImage}
-              alt=""
-              className="h-8 w-8 shrink-0 rounded-full object-cover"
-              style={{ border: '1px solid var(--line)' }}
-            />
-          )}
-          <div>
-            <div className="text-[0.9375rem] font-bold tracking-tight">{TEXT.app.title}</div>
-            <div
-              className="mt-1 flex items-center gap-1.5 text-[0.6875rem]"
-              style={{ color: 'var(--ink-muted)' }}
-            >
-              <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${getBridgeStatusTone(bridgeStatus)}`} />
-              {getBridgeStatusText(bridgeStatus)}
+        <div className="mb-4 border-b px-3 pb-4 pt-2" style={{ borderColor: 'var(--line)' }}>
+          <div className="flex items-center gap-2.5">
+            {cafeImage !== null && (
+              <img
+                src={cafeImage}
+                alt=""
+                className="h-8 w-8 shrink-0 rounded-full object-cover"
+                style={{ border: '1px solid var(--line)' }}
+              />
+            )}
+            <div>
+              <div className="text-[0.9375rem] font-bold tracking-tight">{TEXT.app.title}</div>
+              <div
+                className="mt-1 flex items-center gap-1.5 text-[0.6875rem]"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${getBridgeStatusTone(bridgeStatus)}`} />
+                {getBridgeStatusText(bridgeStatus)}
+              </div>
             </div>
           </div>
+
+          {/* Only on an install that has never paired, and only once the first
+              poll has answered — offered before then it would flash on every
+              start, including for an operator who set this up months ago. */}
+          {needsSetup && (
+            <>
+              <p className="mt-3 text-[0.6875rem] leading-snug" style={{ color: 'var(--ink-muted)' }}>
+                {TEXT.extensionSetup.connectHint}
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary mt-2 w-full"
+                onClick={() => setSetupOpen(true)}
+              >
+                {TEXT.extensionSetup.connect}
+              </button>
+            </>
+          )}
         </div>
 
         <button
@@ -147,6 +173,8 @@ export function App(): React.JSX.Element {
           <AutomationSettings automationId={route.id} />
         )}
       </main>
+
+      {setupOpen && <ExtensionSetupDialog onClose={() => setSetupOpen(false)} />}
     </div>
   )
 }

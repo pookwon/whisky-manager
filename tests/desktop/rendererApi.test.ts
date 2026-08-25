@@ -24,6 +24,7 @@ let dir: string
 let db: AppDatabase
 let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
+let shell: { setupOpened: number; copied: string[] }
 let progress: SessionProgress | null
 let lastWarm: WarmCheck | null
 
@@ -43,6 +44,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
   }
   const settings = createSettingsRepo(db)
   control = { running: false, killed: false, ranOnce: 0 }
+  shell = { setupOpened: 0, copied: [] }
   progress = null
   lastWarm = null
   const automation: AutomationControl = {
@@ -82,6 +84,13 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     sessionProgress: () => progress,
     previewDay: () =>
       Promise.resolve({ kind: 'READY' as const, count: 0, alreadyHandled: 0, pending: 0, checkedAt: 0 }),
+    openExtensionSetup: () => {
+      shell.setupOpened += 1
+      return { extensionDir: '/staged/chrome-extension', chromeOpened: true }
+    },
+    copyToClipboard: (text) => {
+      shell.copied.push(text)
+    },
     clock: new FakeClock(nowMs),
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
@@ -151,6 +160,7 @@ describe('getDashboard', () => {
       sessionProgress: null,
       lastWarm: null,
       bridgeStatus: 'CONNECTED',
+      extensionEverPaired: false,
       withinActiveHours: true,
       averageActionGapMs: 40_000,
     })
@@ -394,6 +404,43 @@ describe('automation control', () => {
     const { api, settings } = build()
     settings.set('pairingToken', 'token-abc')
     expect(await api.getPairingToken()).toBe('token-abc')
+  })
+
+  it('hands the setup press to the shell and reports what it opened', async () => {
+    const { api } = build()
+
+    expect(await api.openExtensionSetup()).toEqual({
+      extensionDir: '/staged/chrome-extension',
+      chromeOpened: true,
+    })
+    expect(shell.setupOpened).toBe(1)
+  })
+
+  it('copies through the shell rather than the renderer', async () => {
+    const { api } = build()
+    await api.copyToClipboard('token-abc')
+    expect(shell.copied).toEqual(['token-abc'])
+  })
+})
+
+/**
+ * The first-run guide is offered on this alone, so it has to mean "never set
+ * up" and nothing else. A browser that is merely closed is not a fresh install.
+ */
+describe('extension ever paired', () => {
+  it('is false on an install no extension has ever reached', async () => {
+    const { api } = build()
+
+    expect((await api.getDashboard()).extensionEverPaired).toBe(false)
+  })
+
+  it('stays true once an extension has been bound, with the socket down', async () => {
+    const { api, settings } = build(MON_10_00, { connected: false, lastSeenConnectedAt: null })
+    settings.set('boundExtensionId', 'abcdefghijklmnopabcdefghijklmnop')
+
+    const dashboard = await api.getDashboard()
+    expect(dashboard.bridgeStatus).toBe('OFFLINE')
+    expect(dashboard.extensionEverPaired).toBe(true)
   })
 })
 

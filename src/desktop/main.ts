@@ -1,16 +1,27 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage } from 'electron'
+import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { PROFILES } from '../shared/profiles.js'
 import { TEXT } from '../shared/text.js'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
-import { readLocalConfig } from './localConfig.js'
+import { openChrome, systemChromeHost } from './chromeLauncher.js'
+import { stageExtension } from './extensionBundle.js'
+import { runExtensionSetup, type ExtensionSetupResult } from './extensionSetup.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
+import { readLocalConfig } from './localConfig.js'
 import { createRendererApi } from './rendererApi.js'
 import { systemClock } from './runtime.js'
 
 const BRIDGE_PORT = 39_217
+
+/**
+ * Where the extension is unpacked to, beside the database rather than inside
+ * the app bundle. Chrome cannot read an unpacked extension out of `app.asar`,
+ * and it identifies one by its path — so this has to be a real directory, and
+ * the same real directory on every run.
+ */
+const STAGED_EXTENSION_DIRNAME = 'chrome-extension'
 
 /**
  * Where the data lives is fixed, not derived. Electron takes this directory
@@ -72,6 +83,27 @@ function refreshTray(ctx: AppContext): void {
       { label: TEXT.tray.quit, role: 'quit' },
     ]),
   )
+}
+
+/**
+ * The first-run guide's one press, wired to the shell it needs. The steps
+ * themselves live in `extensionSetup`; what is here is only which Electron and
+ * OS facility each of them is.
+ */
+function openExtensionSetup(): ExtensionSetupResult {
+  return runExtensionSetup({
+    stage: () =>
+      stageExtension(
+        join(app.getAppPath(), 'dist/extension'),
+        join(app.getPath('userData'), STAGED_EXTENSION_DIRNAME),
+      ),
+    // The manifest rather than the folder: this opens the folder with that file
+    // picked out inside it, which is exactly the "manifest.json이 바로 보이는
+    // 폴더" the operator is told to hand to Chrome.
+    reveal: (directory) => shell.showItemInFolder(join(directory, 'manifest.json')),
+    copyText: (text) => clipboard.writeText(text),
+    openChrome: () => openChrome(systemChromeHost),
+  })
 }
 
 /**
@@ -148,6 +180,8 @@ void app.whenReady().then(async () => {
       sessionProgress: () => appContext.sessionProgress(),
       lastWarm: () => appContext.lastWarm(),
       previewDay: (dayStartMs) => appContext.previewDay(dayStartMs),
+      openExtensionSetup,
+      copyToClipboard: (text) => clipboard.writeText(text),
       clock: systemClock,
       limits: PROFILES[profile],
       newId: () => crypto.randomUUID(),
