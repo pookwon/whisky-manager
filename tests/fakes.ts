@@ -2,9 +2,16 @@ import type { Clock, Random, TimeParts } from '../src/shared/ports.js'
 
 const DAY_MS = 86_400_000
 
-/** Fake clock anchored to UTC so tests never depend on the host timezone. */
+/**
+ * Fake clock reading a fixed offset from UTC, so tests never depend on the host
+ * timezone. The offset defaults to none; pass `KST_OFFSET_MS` where a test needs
+ * the calendar the operator's machine actually keeps.
+ */
 export class FakeClock implements Clock {
-  constructor(private current: number) {}
+  constructor(
+    private current: number,
+    private readonly offsetMs = 0,
+  ) {}
 
   now(): number {
     return this.current
@@ -15,13 +22,13 @@ export class FakeClock implements Clock {
   }
 
   parts(epochMs: number): TimeParts {
-    const d = new Date(epochMs)
+    const d = new Date(epochMs + this.offsetMs)
     return { hour: d.getUTCHours(), minute: d.getUTCMinutes(), dayOfWeek: d.getUTCDay() }
   }
 
   atHour(epochMs: number, hour: number): number {
-    const d = new Date(epochMs)
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, 0, 0, 0)
+    const d = new Date(epochMs + this.offsetMs)
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, 0, 0, 0) - this.offsetMs
   }
 
   addDays(epochMs: number, days: number): number {

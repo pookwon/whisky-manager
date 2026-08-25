@@ -10,7 +10,10 @@ const SHARED = {
   // signups arrive in bursts, not evenly — while keeping a catch-up run from
   // emptying a backlog in one sitting.
   hourlyCap: 150,
-  activeHourStart: 8,
+  // Signups barely arrive before mid-morning, and a greeting posted to an
+  // empty board is one nobody is there to read. The window closes at midnight,
+  // where the day it belongs to ends.
+  activeHourStart: 10,
   activeHourEnd: 24,
   weekendIntervalMultiplier: 1.5,
   backlogMaxAgeMs: 24 * HOUR,
@@ -20,9 +23,10 @@ const SHARED = {
 
 export const PROFILES: Record<Profile, Limits> = {
   /**
-   * Four sessions across the operating window, each able to clear well over a
-   * day's greetings on its own. The intervals are bands rather than fixed
-   * numbers because a tool that knocks on the exact same minute reads as one.
+   * Four sessions across the operating window, plus the run that closes the
+   * day, each able to clear well over a day's greetings on its own. The
+   * intervals are bands rather than fixed numbers because a tool that knocks on
+   * the exact same minute reads as one.
    */
   production: {
     ...SHARED,
