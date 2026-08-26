@@ -22,6 +22,39 @@ export function nextActiveStart(epochMs: number, limits: Limits, clock: Clock): 
   return clock.atHour(clock.addDays(epochMs, 1), limits.activeHourStart)
 }
 
+/**
+ * How far into the window the session that was waiting for it may land.
+ *
+ * Never zero. A session aimed at the exact instant the window opens has no
+ * margin: the gate that admits it reads the clock a second time when it runs,
+ * and anything that puts that read on the earlier side of the boundary — a
+ * timer that fires before its due instant, a clock nudged back between the two
+ * reads — refuses the session the schedule itself aimed at the opening, and the
+ * refusal costs the whole interval to the next one.
+ *
+ * A band rather than a fixed offset, for the reason every interval here is
+ * drawn: the first session of the day is the most predictable one there is, and
+ * arriving on the same second every morning is the shape of a machine.
+ */
+const OPENING_SPREAD_MIN_MS = 60_000
+const OPENING_SPREAD_MAX_MS = 15 * 60_000
+
+/**
+ * When the session that waited out a closed window should open: shortly after
+ * the window does, rather than on the instant it does.
+ */
+function nextOpeningStart(
+  epochMs: number,
+  limits: Limits,
+  clock: Clock,
+  random: Random,
+): number {
+  return (
+    nextActiveStart(epochMs, limits, clock) +
+    random.intInclusive(OPENING_SPREAD_MIN_MS, OPENING_SPREAD_MAX_MS)
+  )
+}
+
 function isWeekend(epochMs: number, clock: Clock): boolean {
   const { dayOfWeek } = clock.parts(epochMs)
   return dayOfWeek === SATURDAY || dayOfWeek === SUNDAY
@@ -67,7 +100,7 @@ export function nextSessionStart(
 
   const drawn = isWithinActiveHours(candidate, limits, clock)
     ? candidate
-    : nextActiveStart(candidate, limits, clock)
+    : nextOpeningStart(candidate, limits, clock, random)
 
   const closing = nextDayClosing(previousSessionEndMs)
   return drawn + longestSessionMs(limits) > closing ? closing : drawn

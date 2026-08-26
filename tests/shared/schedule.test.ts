@@ -89,10 +89,36 @@ describe('nextSessionStart', () => {
 
   it('defers to the next operating window when the interval lands outside it', () => {
     // Just past the closing run, so the day it would settle is already spoken
-    // for and the draw has nowhere to go but tomorrow morning.
+    // for and the draw has nowhere to go but tomorrow morning. Two draws: the
+    // interval, then how far into the window the opening session lands.
     const at = kst(25, 0, 30)
-    const random = new SequenceRandom([HOUR])
-    expect(nextSessionStart(at, limits, clockAt(at), random)).toBe(kst(25, 10))
+    const random = new SequenceRandom([HOUR, 5 * 60_000])
+    expect(nextSessionStart(at, limits, clockAt(at), random)).toBe(kst(25, 10, 5))
+  })
+
+  it('never opens the day on the instant the window opens', () => {
+    // The boundary has no margin. The gate reads the clock again when the
+    // session runs, and a read a hair early refuses a session the schedule
+    // itself aimed at the opening — at the price of the whole interval to the
+    // next one.
+    const at = kst(25, 0, 30)
+    const boundary = nextActiveStart(kst(25, 4), limits, clockAt(at))
+    for (const jitter of [0, 1, 30_000, 60_000, 9 * 60_000, HOUR]) {
+      const random = new SequenceRandom([HOUR, jitter])
+      expect(nextSessionStart(at, limits, clockAt(at), random)).toBeGreaterThan(boundary)
+    }
+  })
+
+  it('keeps the opening session inside the window it waited for', () => {
+    const at = kst(25, 0, 30)
+    for (const jitter of [0, 60_000, 9 * 60_000, HOUR]) {
+      const random = new SequenceRandom([HOUR, jitter])
+      const opening = nextSessionStart(at, limits, clockAt(at), random)
+      expect(isWithinActiveHours(opening, limits, clockAt(opening))).toBe(true)
+      // Late enough to have margin, early enough that the morning is not spent
+      // waiting for it.
+      expect(opening - nextActiveStart(kst(25, 4), limits, clockAt(at))).toBeLessThanOrEqual(15 * 60_000)
+    }
   })
 
   it('closes the day rather than deferring past it', () => {
@@ -160,8 +186,8 @@ describe('nextSessionStart', () => {
     // Handed back the instant it just ran, the schedule has to look past it:
     // repeating it would fire the same boundary twice.
     const closing = nextDayClosing(MON_22_00)
-    const random = new SequenceRandom([limits.sessionIntervalMinMs])
-    expect(nextSessionStart(closing, limits, clockAt(closing), random)).toBe(kst(25, 10))
+    const random = new SequenceRandom([limits.sessionIntervalMinMs, 3 * 60_000])
+    expect(nextSessionStart(closing, limits, clockAt(closing), random)).toBe(kst(25, 10, 3))
   })
 })
 
