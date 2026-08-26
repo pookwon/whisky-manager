@@ -148,6 +148,7 @@ void app.whenReady().then(async () => {
   const profile = app.isPackaged ? 'production' : 'debug'
   context = await createAppContext({
     databasePath: join(app.getPath('userData'), 'whisky-manager.db'),
+    refusalLogPath: join(app.getPath('userData'), 'refused-sessions.log'),
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
     profile,
     bridgePort: BRIDGE_PORT,

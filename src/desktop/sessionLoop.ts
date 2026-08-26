@@ -6,12 +6,26 @@ import type { SessionOutcome } from './orchestrator.js'
 
 export type TimerHandle = number
 
+/**
+ * What the schedule aimed at, and what the clock read when the timer fired.
+ *
+ * The two are supposed to be the same instant, give or take the milliseconds a
+ * timer is allowed. They travel with the outcome because a session refused for
+ * being outside the window it was aimed at the opening of cannot be explained
+ * from either one alone.
+ */
+export interface WakeRecord {
+  readonly scheduledFor: number
+  readonly wokeAt: number
+}
+
 export interface SessionLoopDeps {
   readonly limits: Limits
   readonly clock: Clock
   readonly random: Random
   readonly runSession: (request?: SessionRequest) => Promise<SessionOutcome>
-  readonly onOutcome: (outcome: SessionOutcome) => void
+  /** `wake` is null for a run nothing scheduled — an operator's, say. */
+  readonly onOutcome: (outcome: SessionOutcome, wake: WakeRecord | null) => void
   readonly onError?: (error: unknown) => void
   /** Called when the loop stops itself. The operator has to intervene. */
   readonly onHalt?: (reason: 'NOT_LOGGED_IN' | 'LOGIN_CHECK_FAILED') => void
@@ -88,13 +102,13 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
    */
   let inFlight: Promise<void> | null = null
 
-  function runOnceInternal(request: SessionRequest): Promise<void> {
+  function runOnceInternal(request: SessionRequest, wake: WakeRecord | null = null): Promise<void> {
     if (inFlight !== null) return inFlight
     inFlight = (async () => {
       try {
         const outcome = await deps.runSession(request)
         reactTo(outcome)
-        deps.onOutcome(outcome)
+        deps.onOutcome(outcome, wake)
       } catch (error) {
         deps.onError?.(error)
       } finally {
@@ -115,7 +129,8 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
       // session below tell a schedule it still owns from one that a restart
       // has already replaced.
       timer = null
-      void runOnceInternal({ mode: 'SCHEDULED' }).finally(() => {
+      const wake: WakeRecord = { scheduledFor: at, wokeAt: deps.clock.now() }
+      void runOnceInternal({ mode: 'SCHEDULED' }, wake).finally(() => {
         // Stopping mid-session means stopped: the operator's switch outranks a
         // session that was already under way. A restart inside that same
         // session has already laid the next beat, and the session must not add

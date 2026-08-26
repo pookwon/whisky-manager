@@ -27,6 +27,7 @@ import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
 import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAuthors.js'
 import { createCollectGate } from './collectGate.js'
+import { appendRefusal } from './refusalLog.js'
 
 // Re-exported so the many main-process callers keep their existing import.
 export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
@@ -34,6 +35,11 @@ export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 export interface AppContextOptions {
   readonly databasePath: string
   readonly migrationsFolder: string
+  /**
+   * Where refused sessions are written down. Omitted means they are not: a
+   * dev run or a test has the outcome in front of it already.
+   */
+  readonly refusalLogPath?: string
   readonly profile: Profile
   readonly bridgePort: number
   /** Fired when the loop stops itself; the shell should show the new state. */
@@ -289,9 +295,18 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     clock: systemClock,
     random: systemRandom,
     runSession: runSessionReportingProgress,
-    onOutcome: (outcome) => {
+    onOutcome: (outcome, wake) => {
       lastOutcome = outcome
       lastOutcomeAt = systemClock.now()
+      // A refusal is the one outcome that leaves nothing behind: no executions
+      // to read afterwards, and the outcome itself only lives until a restart.
+      if (!outcome.opened && options.refusalLogPath !== undefined) {
+        appendRefusal(options.refusalLogPath, {
+          reason: outcome.reason,
+          judgedAt: lastOutcomeAt,
+          wake,
+        })
+      }
     },
     onError: (error) => console.error('[session]', error),
     onHalt: (reason) => {

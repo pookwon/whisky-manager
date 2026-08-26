@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionOutcome } from '../../src/desktop/orchestrator.js'
-import { createSessionLoop, type SessionLoopDeps } from '../../src/desktop/sessionLoop.js'
+import { createSessionLoop, type SessionLoopDeps, type WakeRecord } from '../../src/desktop/sessionLoop.js'
 import { KST_OFFSET_MS } from '../../src/shared/kst.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
@@ -316,6 +316,45 @@ describe('createSessionLoop', () => {
     expect(secondNext).toBeGreaterThan(firstNext!)
 
     loop.stop()
+  })
+})
+
+describe('createSessionLoop — what it woke for', () => {
+  it('hands the outcome handler the instant it aimed at and the one it woke on', async () => {
+    // The pair that has to agree. A session refused for being outside the
+    // window it was aimed at the opening of is only explicable from these two.
+    const seen: Array<WakeRecord | null> = []
+    const fired: Array<() => void> = []
+    const clock = new FakeClock(MON_10_00, KST_OFFSET_MS)
+    const setTimer = vi.fn((fn: () => void, _ms: number) => {
+      fired.push(fn)
+      return 1
+    })
+    const loop = createSessionLoop(
+      loopDeps({ clock, setTimer, onOutcome: (_outcome, wake) => seen.push(wake) }),
+    )
+
+    loop.start()
+    const scheduled = loop.nextRunAt()
+    expect(scheduled).not.toBeNull()
+
+    clock.set(scheduled! - 2) // woke two milliseconds early
+    fired[0]?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(seen[0]).toEqual({ scheduledFor: scheduled, wokeAt: scheduled! - 2 })
+    loop.stop()
+  })
+
+  it('reports no wake for a run the operator asked for', async () => {
+    const seen: Array<WakeRecord | null> = []
+    const loop = createSessionLoop(
+      loopDeps({ setTimer: () => 1, onOutcome: (_outcome, wake) => seen.push(wake) }),
+    )
+
+    await loop.runOnce()
+
+    expect(seen[0]).toBe(null)
   })
 })
 
