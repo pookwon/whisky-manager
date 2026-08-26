@@ -18,3 +18,6 @@ coverage/
 
 # developer's own cafe; the source ships none
 config/local.json
+
+# macOS drops these into any folder Finder has looked at
+.DS_Store
