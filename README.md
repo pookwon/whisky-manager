@@ -25,6 +25,7 @@
 | [설계 스펙](docs/superpowers/specs/2026-08-22-naver-cafe-automation-design.md) | 아키텍처, 자동화 모델, 승인 정책, 안전장치, 데이터 모델 |
 | [기술 스택](docs/tech-stack.md) | 채택 버전과 근거, 기각한 대안, 버전 정책 |
 | [Chrome 확장 수동 설치 안내](docs/chrome-extension-manual-installation.md) | 비개발자용 확장 설치·앱 연결·문제 해결 안내 |
+| [설정 전달 설계](docs/superpowers/specs/2026-08-27-config-export-import-design.md) | 설정 export/import — 담는 것과 담지 않는 것, 거절 사유 |
 
 구현 계획서는 `docs/superpowers/plans/`에 있다.
 
@@ -51,6 +52,8 @@
 ```bash
 cp config/local.example.json config/local.json
 ```
+
+**다른 기계로 옮길 때는 설정 파일을 쓴다.** `카페 · 계정 설정` 화면의 `내보내기`가 카페·운영진 계정·승인 정책·게시판·문구를 JSON 파일 하나로 저장하고, 운영자 PC에서 `가져오기`로 그 파일을 엽니다. 페어링 토큰과 실행 이력은 기계마다 달라야 하므로 담기지 않고, 자동화는 언제나 꺼진 상태로 들어옵니다 — 확장을 연결하고 설정을 확인한 뒤 직접 켜야 합니다.
 
 ## 개발
 

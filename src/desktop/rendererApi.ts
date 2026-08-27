@@ -1,4 +1,5 @@
 import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
+import { parseConfigBundle, serializeConfigBundle } from '../shared/configBundle.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { kstDayRange } from '../shared/kst.js'
@@ -6,6 +7,7 @@ import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
+import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
 import {
@@ -19,6 +21,8 @@ import type {
   BridgeStatus,
   CommonSettingsView,
   DashboardSnapshot,
+  ExportConfigResult,
+  ImportConfigResult,
   RendererApi,
 } from './ipc.js'
 
@@ -28,6 +32,27 @@ const PAIRING_TOKEN_KEY = 'pairingToken'
  * Its presence is the record that this install has been paired at all.
  */
 const BOUND_EXTENSION_ID_KEY = 'boundExtensionId'
+
+/**
+ * What an exported settings file is called before the operator renames it.
+ * Names the app rather than the cafe: the file is handed around, and a cafe
+ * id in the filename is one more place it has to be kept right.
+ */
+const EXPORT_FILENAME = 'whisky-manager-settings.json'
+
+/**
+ * Picking and touching files, which belongs to the shell. Injected for the
+ * same reason the extension setup is: this module stays free of Electron and
+ * of `node:fs`, and every branch below is reachable from a test.
+ */
+export interface ConfigFilePorts {
+  /** Absolute path to write to, or null when the operator closed the dialog. */
+  chooseSavePath(defaultName: string): Promise<string | null>
+  /** Absolute path to read, or null when the operator closed the dialog. */
+  chooseOpenPath(): Promise<string | null>
+  writeText(path: string, text: string): void
+  readText(path: string): string
+}
 
 export interface RendererApiDeps {
   readonly repos: AppRepos
@@ -60,6 +85,10 @@ export interface RendererApiDeps {
   readonly openExtensionSetup: () => import('./extensionSetup.js').ExtensionSetupResult
   /** Writes to the system clipboard, which is the shell's to own. */
   readonly copyToClipboard: (text: string) => void
+  /** Choosing and touching settings files, which is also the shell's. */
+  readonly configFile: ConfigFilePorts
+  /** Runs a set of writes as one unit, so an import cannot half-apply. */
+  readonly transaction: (run: () => void) => void
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
@@ -73,6 +102,15 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   const { repos, settings } = deps
 
   const setting = (automationId: string) => repos.automationSettings.get(automationId)
+
+  const transfer: ConfigTransferDeps = {
+    settings,
+    templates: repos.templates,
+    automationSettings: repos.automationSettings,
+    transaction: deps.transaction,
+    now: () => deps.clock.now(),
+    newId: deps.newId,
+  }
 
   /**
    * Calculates bridge status based on connection state and time since last connection.
@@ -321,6 +359,27 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           console.error('[session] run-once failed to start:', error)
         })
       return Promise.resolve()
+    },
+
+    async exportConfig(): Promise<ExportConfigResult> {
+      const path = await deps.configFile.chooseSavePath(EXPORT_FILENAME)
+      // Closing the dialog is an answer, not a failure. Reporting it as one
+      // would put an error on screen for someone who changed their mind.
+      if (path === null) return { kind: 'CANCELLED' }
+      deps.configFile.writeText(path, serializeConfigBundle(buildBundle(transfer)))
+      return { kind: 'SAVED', path }
+    },
+
+    async importConfig(): Promise<ImportConfigResult> {
+      const path = await deps.configFile.chooseOpenPath()
+      if (path === null) return { kind: 'CANCELLED' }
+      // A read that fails — a file removed between picking and opening, a
+      // permission the operator does not have — throws, and the renderer's
+      // error banner is the right place for it. A file that reads but is not
+      // ours is not an error at all: it has a reason worth naming.
+      const parsed = parseConfigBundle(deps.configFile.readText(path))
+      if (!parsed.ok) return { kind: 'REJECTED', problem: parsed.problem }
+      return { kind: 'IMPORTED', ...applyBundle(transfer, parsed.bundle) }
     },
   }
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
+import { ConfigTransfer } from './ConfigTransfer.js'
 
 export function CommonSettings(): React.JSX.Element {
   const settings = useApp((s) => s.commonSettings)
@@ -145,6 +146,8 @@ export function CommonSettings(): React.JSX.Element {
           {TEXT.settings.pairingHint}
         </span>
       </section>
+
+      <ConfigTransfer />
     </div>
   )
 }

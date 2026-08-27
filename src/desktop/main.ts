@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
@@ -107,6 +107,32 @@ function openExtensionSetup(): ExtensionSetupResult {
 }
 
 /**
+ * The settings file, in the shell's terms. The dialogs are modal to the window
+ * so a file picker cannot end up behind it with the app looking frozen; when
+ * there is no window yet there is also nobody who pressed the button.
+ */
+const configFile = {
+  async chooseSavePath(defaultName: string): Promise<string | null> {
+    const result = await dialog.showSaveDialog({
+      title: TEXT.configTransfer.saveTitle,
+      defaultPath: defaultName,
+      filters: [{ name: TEXT.configTransfer.fileKind, extensions: ['json'] }],
+    })
+    return result.canceled || result.filePath === '' ? null : result.filePath
+  },
+  async chooseOpenPath(): Promise<string | null> {
+    const result = await dialog.showOpenDialog({
+      title: TEXT.configTransfer.openTitle,
+      properties: ['openFile'],
+      filters: [{ name: TEXT.configTransfer.fileKind, extensions: ['json'] }],
+    })
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  },
+  writeText: (path: string, text: string): void => writeFileSync(path, text, 'utf8'),
+  readText: (path: string): string => readFileSync(path, 'utf8'),
+}
+
+/**
  * The renderer talks to one plain object; this only forwards channels. Keeping
  * the logic out of here is what makes the whole surface unit-testable.
  */
@@ -183,6 +209,12 @@ void app.whenReady().then(async () => {
       previewDay: (dayStartMs) => appContext.previewDay(dayStartMs),
       openExtensionSetup,
       copyToClipboard: (text) => clipboard.writeText(text),
+      configFile,
+      transaction: (run) => {
+        appContext.db.transaction(() => {
+          run()
+        })
+      },
       clock: systemClock,
       limits: PROFILES[profile],
       newId: () => crypto.randomUUID(),

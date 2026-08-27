@@ -1,4 +1,6 @@
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
+import type { BundleProblem } from '../shared/configBundle.js'
+import type { ImportSummary } from './configTransfer.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
 import type { ExtensionSetupResult } from './extensionSetup.js'
 import type { StartupPreview } from './preview.js'
@@ -31,6 +33,8 @@ export const IPC_CHANNELS = {
   killSwitch: 'wm:killSwitch',
   runOnce: 'wm:runOnce',
   previewDay: 'wm:previewDay',
+  exportConfig: 'wm:exportConfig',
+  importConfig: 'wm:importConfig',
 } as const
 
 export interface DashboardSnapshot {
@@ -136,6 +140,24 @@ export interface AutomationStatus {
   readonly lastOutcome: SessionOutcome | null
 }
 
+/**
+ * How an export ended. `CANCELLED` is the operator closing the save dialog,
+ * which is an ordinary answer rather than a failure — the screen must not
+ * report an error for it.
+ */
+export type ExportConfigResult =
+  | { readonly kind: 'SAVED'; readonly path: string }
+  | { readonly kind: 'CANCELLED' }
+
+/**
+ * How an import ended. A rejected file is not an exception: the operator picked
+ * the wrong one, and the reason is something the screen can name for them.
+ */
+export type ImportConfigResult =
+  | ({ readonly kind: 'IMPORTED' } & ImportSummary)
+  | { readonly kind: 'CANCELLED' }
+  | { readonly kind: 'REJECTED'; readonly problem: BundleProblem }
+
 export interface RendererApi {
   getDashboard(): Promise<DashboardSnapshot>
   listAwaiting(automationId: string): Promise<AwaitingItem[]>
@@ -184,4 +206,17 @@ export interface RendererApi {
    * cafe, so it belongs behind a deliberate press rather than the poll loop.
    */
   previewDay(dayStartMs: number): Promise<StartupPreview>
+  /**
+   * Writes the current configuration to a file the operator picks. Carries the
+   * cafe, the operator accounts, each automation's policy and board, and every
+   * template — and none of the pairing token, the bound extension, the run
+   * history or the pacing limits.
+   */
+  exportConfig(): Promise<ExportConfigResult>
+  /**
+   * Replaces the current configuration with a file's. Destructive by design:
+   * the templates and settings that were here are gone afterwards, so the
+   * renderer asks before calling this. The automation always lands switched off.
+   */
+  importConfig(): Promise<ImportConfigResult>
 }

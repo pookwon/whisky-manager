@@ -189,6 +189,40 @@ export const TEXT = {
     save: '저장',
   },
   /**
+   * Carrying a configuration from the machine it was worked out on to the one
+   * that will run it. The wording says out loud what the file does not carry,
+   * because an operator who expects the extension to be paired by it would
+   * wait for a connection that never comes.
+   */
+  configTransfer: {
+    heading: '설정 파일',
+    hint: '개발 기계에서 맞춰 둔 설정을 파일 하나로 옮깁니다. 페어링 토큰과 실행 이력은 이 기계의 것이므로 담기지 않습니다.',
+    exportButton: '내보내기',
+    importButton: '가져오기',
+    saveTitle: '설정 내보내기',
+    openTitle: '설정 가져오기',
+    fileKind: '설정 파일',
+    exported: (path: string) => `${path} 에 저장했습니다`,
+    confirmHeading: '확인이 필요합니다',
+    confirmBody: '지금 등록된 카페·운영진 계정·승인 정책·게시판·문구가 파일의 내용으로 통째로 바뀝니다. 되돌릴 수 없습니다.',
+    confirm: '가져오기',
+    cancel: '취소',
+    imported: (templateCount: number) =>
+      `설정을 가져왔습니다. 문구 ${templateCount}건을 등록했습니다.`,
+    importedDisabled: '자동화는 꺼진 상태로 들여왔습니다. 확장을 연결하고 설정을 확인한 뒤 직접 켜세요.',
+    /**
+     * Every reason a file can be turned away, or the build fails. Indexing this
+     * with a `BundleProblem` is what type-checks the set — a reason added to
+     * the union with no line here does not reach the screen as its own name.
+     */
+    rejected: {
+      NOT_JSON: '설정 파일이 아닙니다. 내용을 읽을 수 없습니다',
+      NOT_A_BUNDLE: '이 앱이 만든 설정 파일이 아닙니다',
+      UNSUPPORTED_VERSION: '이 버전이 읽을 수 없는 설정 파일입니다. 앱을 최신 버전으로 올리세요',
+      NO_CAFE: '카페 ID가 비어 있는 파일입니다. 가져와도 세션이 열리지 않습니다',
+    },
+  },
+  /**
    * The walkthrough an operator meets once, before anything works at all.
    *
    * Keyed by step rather than written out as a list, so the order the renderer

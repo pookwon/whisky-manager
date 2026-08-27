@@ -25,6 +25,17 @@ let db: AppDatabase
 let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
 let shell: { setupOpened: number; copied: string[] }
+/**
+ * A filesystem the size of this test. `savePath`/`openPath` stand in for what
+ * the operator picked, and null for a dialog they closed.
+ */
+let files: {
+  savePath: string | null
+  openPath: string | null
+  written: { path: string; text: string }[]
+  contents: Map<string, string>
+  readError: Error | null
+}
 let progress: SessionProgress | null
 let lastWarm: WarmCheck | null
 
@@ -45,6 +56,13 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
   const settings = createSettingsRepo(db)
   control = { running: false, killed: false, ranOnce: 0 }
   shell = { setupOpened: 0, copied: [] }
+  files = {
+    savePath: '/picked/settings.json',
+    openPath: null,
+    written: [],
+    contents: new Map(),
+    readError: null,
+  }
   progress = null
   lastWarm = null
   const automation: AutomationControl = {
@@ -90,6 +108,27 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     },
     copyToClipboard: (text) => {
       shell.copied.push(text)
+    },
+    configFile: {
+      chooseSavePath: () => Promise.resolve(files.savePath),
+      chooseOpenPath: () => Promise.resolve(files.openPath),
+      writeText: (path, text) => {
+        files.written.push({ path, text })
+        files.contents.set(path, text)
+      },
+      readText: (path) => {
+        if (files.readError !== null) throw files.readError
+        const text = files.contents.get(path)
+        if (text === undefined) throw new Error(`no such file: ${path}`)
+        return text
+      },
+    },
+    // The real database, so the nesting inside `replaceAll` is exercised here
+    // rather than assumed.
+    transaction: (run) => {
+      db.transaction(() => {
+        run()
+      })
     },
     clock: new FakeClock(nowMs),
     limits: PROFILES.production,
@@ -478,5 +517,125 @@ describe('bridge status', () => {
     const { api } = build(MON_10_00, { connected: false, lastSeenConnectedAt: MON_10_00 - 2_000 })
 
     expect((await api.getDashboard()).bridgeStatus).toBe('RECONNECTING')
+  })
+})
+
+describe('exportConfig', () => {
+  it('writes the configuration to the chosen path and says where', async () => {
+    const { api, settings } = build()
+    settings.set('cafeId', '10000000')
+    settings.set('cafeUrlName', 'devcafe')
+
+    expect(await api.exportConfig()).toEqual({ kind: 'SAVED', path: '/picked/settings.json' })
+    expect(files.written).toHaveLength(1)
+    expect(JSON.parse(files.written[0]!.text)).toMatchObject({
+      version: 1,
+      common: { cafeId: '10000000', cafeUrlName: 'devcafe' },
+    })
+  })
+
+  it('writes nothing when the operator closes the dialog', async () => {
+    const { api } = build()
+    files.savePath = null
+
+    expect(await api.exportConfig()).toEqual({ kind: 'CANCELLED' })
+    expect(files.written).toEqual([])
+  })
+
+  it('leaves the pairing token out of the file', async () => {
+    const { api, settings } = build()
+    settings.set('cafeId', '10000000')
+    settings.set('pairingToken', 'this-machines-secret')
+
+    await api.exportConfig()
+
+    expect(files.written[0]?.text).not.toContain('this-machines-secret')
+  })
+})
+
+describe('importConfig', () => {
+  const FILE = JSON.stringify({
+    version: 1,
+    exportedAt: 0,
+    common: { cafeId: '31068798', cafeUrlName: 'whiskyclub', operatorAccounts: ['staff1'] },
+    automations: [
+      {
+        id: WELCOME_AUTOMATION_ID,
+        policy: 'SEMI',
+        boardId: '42',
+        enabled: true,
+        templates: [{ body: '환영합니다', enabled: true }],
+      },
+    ],
+  })
+
+  function pick(contents: string): void {
+    files.openPath = '/chosen/settings.json'
+    files.contents.set('/chosen/settings.json', contents)
+  }
+
+  it('applies the file and reports what it changed', async () => {
+    const { api } = build()
+    pick(FILE)
+
+    expect(await api.importConfig()).toEqual({
+      kind: 'IMPORTED',
+      automationCount: 1,
+      templateCount: 1,
+    })
+    expect(await api.getCommonSettings()).toEqual({
+      cafeId: '31068798',
+      cafeUrlName: 'whiskyclub',
+      operatorAccounts: ['staff1'],
+    })
+    expect(await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).toEqual({
+      policy: 'SEMI',
+      // The file said true. An import is not how an install starts posting.
+      enabled: false,
+      boardId: '42',
+    })
+  })
+
+  it('changes nothing when the operator closes the dialog', async () => {
+    const { api, settings } = build()
+    settings.set('cafeId', '10000000')
+    files.openPath = null
+
+    expect(await api.importConfig()).toEqual({ kind: 'CANCELLED' })
+    expect((await api.getCommonSettings()).cafeId).toBe('10000000')
+  })
+
+  it('names why a file was turned away and leaves the settings alone', async () => {
+    const { api, settings } = build()
+    settings.set('cafeId', '10000000')
+    pick('{"not":"ours"}')
+
+    expect(await api.importConfig()).toEqual({ kind: 'REJECTED', problem: 'NOT_A_BUNDLE' })
+    expect((await api.getCommonSettings()).cafeId).toBe('10000000')
+  })
+
+  it('lets a failure to read the file through to the error banner', async () => {
+    const { api } = build()
+    pick(FILE)
+    files.readError = new Error('EACCES')
+
+    await expect(api.importConfig()).rejects.toThrow('EACCES')
+  })
+
+  it('replaces the templates that were here', async () => {
+    const { api, repos } = build()
+    repos.templates.add({
+      id: 'old',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '개발 문구',
+      createdAt: 1,
+    })
+    pick(FILE)
+
+    await api.importConfig()
+
+    expect((await api.listTemplates(WELCOME_AUTOMATION_ID)).map((t) => t.body)).toEqual([
+      '환영합니다',
+    ])
   })
 })
