@@ -107,25 +107,37 @@ function openExtensionSetup(): ExtensionSetupResult {
 }
 
 /**
- * The settings file, in the shell's terms. The dialogs are modal to the window
- * so a file picker cannot end up behind it with the app looking frozen; when
- * there is no window yet there is also nobody who pressed the button.
+ * The settings file, in the shell's terms.
+ *
+ * Both dialogs are parented to the window, which makes them modal to it — a
+ * sheet on macOS, an owned dialog elsewhere. Unparented, a picker can end up
+ * behind the window with the app looking frozen and no way to see why. The
+ * unparented fallback is for the type rather than for a real case: the press
+ * that gets here came from a button inside the window.
  */
+const FILE_FILTERS = [{ name: TEXT.configTransfer.fileKind, extensions: ['json'] }]
+
 const configFile = {
   async chooseSavePath(defaultName: string): Promise<string | null> {
-    const result = await dialog.showSaveDialog({
+    const options = {
       title: TEXT.configTransfer.saveTitle,
       defaultPath: defaultName,
-      filters: [{ name: TEXT.configTransfer.fileKind, extensions: ['json'] }],
-    })
+      filters: FILE_FILTERS,
+    }
+    const result = await (window === null
+      ? dialog.showSaveDialog(options)
+      : dialog.showSaveDialog(window, options))
     return result.canceled || result.filePath === '' ? null : result.filePath
   },
   async chooseOpenPath(): Promise<string | null> {
-    const result = await dialog.showOpenDialog({
+    const options = {
       title: TEXT.configTransfer.openTitle,
-      properties: ['openFile'],
-      filters: [{ name: TEXT.configTransfer.fileKind, extensions: ['json'] }],
-    })
+      properties: ['openFile' as const],
+      filters: FILE_FILTERS,
+    }
+    const result = await (window === null
+      ? dialog.showOpenDialog(options)
+      : dialog.showOpenDialog(window, options))
     return result.canceled ? null : (result.filePaths[0] ?? null)
   },
   writeText: (path: string, text: string): void => writeFileSync(path, text, 'utf8'),
