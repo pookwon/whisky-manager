@@ -127,7 +127,7 @@ const configFile = {
     const result = await (window === null
       ? dialog.showSaveDialog(options)
       : dialog.showSaveDialog(window, options))
-    return result.canceled || result.filePath === '' ? null : result.filePath
+    return result.canceled || !result.filePath ? null : result.filePath
   },
   async chooseOpenPath(): Promise<string | null> {
     const options = {

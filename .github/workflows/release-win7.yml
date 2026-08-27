@@ -1,0 +1,70 @@
+name: Release (Windows 7 legacy)
+
+# Separate on purpose from release.yml's `v*.*.*` trigger. This variant pins
+# Electron 22 and better-sqlite3 9.6.0 — the last combination that runs on
+# Windows 7/8/8.1 — and that pin lives only on the `win7-compat` branch. A tag
+# here must never also match `v*.*.*`, or this branch's downgraded versions
+# would race the real release pipeline for the same tag.
+on:
+  push:
+    tags:
+      - 'win7-*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows (legacy)
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore build tool binaries
+        run: pnpm rebuild esbuild
+      - name: Build and package desktop app
+        run: pnpm package:app:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-legacy
+          path: release/*.msi
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [windows]
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@v4
+      - name: Download desktop artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-windows-legacy
+          path: release-assets
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -d '' assets < <(find release-assets -type f -name '*.msi' -print0)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo 'No release files found' >&2
+            exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
+            --title "Whisky Manager ${GITHUB_REF_NAME} (Windows 7 legacy)" \
+            --notes "Electron 22.3.27 + better-sqlite3 9.6.0 — the last release line either project supports on Windows 7/8/8.1. Built by GitHub's windows-latest runner, which is not Windows 7 itself: this artifact has not been run on real Windows 7 hardware. Test on an actual machine before handing it to anyone."
