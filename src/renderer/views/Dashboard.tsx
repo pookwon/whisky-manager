@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { findAutomation } from '../../shared/automations/catalog.js'
+import { WELCOME_AUTOMATION_ID, findAutomation } from '../../shared/automations/catalog.js'
 import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import type { StartupPreview } from '../../desktop/preview.js'
@@ -9,6 +9,7 @@ import {
   progressSummary,
   relativeTime,
   isRefusalStale,
+  disabledAutomationNames,
   formatNextSessionTime,
   warmSummary,
   getBridgeStatusText,
@@ -121,10 +122,13 @@ export function Dashboard(): React.JSX.Element {
   let outcomeTone = summary.tone
   let outcomeText = summary.text
 
-  // Check if a refusal is stale (e.g., DISABLED when now enabled)
-  // Get the first automation to check if it's enabled (or could check any automation)
-  const firstAutomation = dashboard.automations[0]
-  const automationIsEnabled = firstAutomation?.enabled ?? true
+  // The banner's outcome is the welcome automation's, picked by name where it
+  // is assembled. Its switch has to be picked the same way: reading position 0
+  // pairs one automation's result with another's state the day a second exists.
+  const welcome = dashboard.automations.find(
+    (automation) => automation.id === WELCOME_AUTOMATION_ID,
+  )
+  const automationIsEnabled = welcome?.enabled ?? true
   if (isRefusalStale(dashboard.lastOutcome, automationIsEnabled)) {
     outcomeText = TEXT.outcome.neverWithCurrentConfig
     outcomeTone = 'idle'
@@ -133,11 +137,41 @@ export function Dashboard(): React.JSX.Element {
   // Show startup preview banner only when it's READY and loop is not running
   const showStartupBanner = preview?.kind === 'READY' && !running
 
+  /**
+   * Not hidden while the loop runs: a running loop with a switched-off
+   * automation is exactly the state that reads as broken, because every session
+   * it opens refuses and nothing on this screen says why until the operator has
+   * pressed something and waited.
+   */
+  const disabledNames = disabledAutomationNames(dashboard.automations)
+
   return (
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-lg font-bold tracking-tight">{TEXT.dashboard.heading}</h1>
       </header>
+
+      {disabledNames.length > 0 && (
+        <section className="panel overflow-hidden">
+          <div className="flex">
+            <div className="w-1 shrink-0 bar-warn" />
+            <div className="flex-1 px-5 py-4">
+              <div
+                className="text-[0.6875rem] font-medium uppercase tracking-wider"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                {TEXT.dashboard.disabledHeading}
+              </div>
+              <div className="mt-1 text-lg font-semibold tone-warn">
+                {TEXT.dashboard.disabled(disabledNames.join(', '))}
+              </div>
+              <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                {TEXT.dashboard.disabledHow}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Startup preview banner: shows today's greeting target count when the
           app starts and the bridge connects. Helps the operator decide whether

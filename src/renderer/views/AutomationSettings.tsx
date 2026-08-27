@@ -37,16 +37,27 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
         <h1 className="text-lg font-bold tracking-tight">{TEXT.settings.automationHeading}</h1>
       </header>
 
+      {/* State and press are two things, so they are two elements. A lone
+          button carrying the state read as a button offering the opposite: an
+          operator seeing '정지' on it concluded the automation was running,
+          pressed it twice, and ended up back where they started. */}
       <section className="panel flex items-center justify-between px-5 py-4">
         <span className="text-sm font-medium">{TEXT.settings.enabled}</span>
-        <button
-          type="button"
-          className={settings.enabled ? 'btn btn-primary' : 'btn'}
-          disabled={busy}
-          onClick={() => void act(() => api.setEnabled(automationId, !settings.enabled))}
-        >
-          {settings.enabled ? TEXT.status.running : TEXT.status.stopped}
-        </button>
+        <div className="flex items-center gap-3">
+          <span className={`text-xs font-medium ${settings.enabled ? 'tone-ok' : 'tone-idle'}`}>
+            {settings.enabled ? TEXT.status.running : TEXT.status.stopped}
+          </span>
+          <button
+            type="button"
+            // Switching it on is the inviting press while it is off, the same
+            // way the dashboard offers 시작 rather than 중지 when idle.
+            className={settings.enabled ? 'btn' : 'btn btn-primary'}
+            disabled={busy}
+            onClick={() => void act(() => api.setEnabled(automationId, !settings.enabled))}
+          >
+            {settings.enabled ? TEXT.status.turnOff : TEXT.status.turnOn}
+          </button>
+        </div>
       </section>
 
       <section className="flex flex-col gap-2">

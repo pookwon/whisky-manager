@@ -26,9 +26,9 @@ export interface BundleAutomation {
   /** Empty means the exporting install never named a board. */
   readonly boardId: string
   /**
-   * Whether the exporting install had this automation switched on. Written
-   * down because it is part of what was tested, and deliberately not obeyed on
-   * the way in — see `applyBundle`.
+   * Whether the exporting install had this automation switched on. Obeyed on
+   * the way in: the switch is part of the configuration that was worked out,
+   * not a setting the receiving machine gets to decide for itself.
    */
   readonly enabled: boolean
   readonly templates: readonly BundleTemplate[]

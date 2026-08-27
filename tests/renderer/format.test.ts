@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { TEXT } from '../../src/shared/text.js'
+import { WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import {
   outcomeSummary,
   progressSummary,
   relativeTime,
   isRefusalStale,
+  disabledAutomationNames,
   formatNextSessionTime,
   getBridgeStatusText,
   getBridgeStatusTone,
@@ -237,5 +239,36 @@ describe('warmSummary', () => {
 
   it('says the login lapsed rather than just when it last looked', () => {
     expect(warmSummary({ at: KST_13_42, loggedIn: false })).toBe('네이버 세션 · 13:42 로그아웃 상태')
+  })
+})
+
+describe('disabledAutomationNames', () => {
+  it('says nothing while everything is switched on', () => {
+    expect(disabledAutomationNames([{ id: WELCOME_AUTOMATION_ID, enabled: true }])).toEqual([])
+  })
+
+  it('names the automation that cannot run', () => {
+    expect(disabledAutomationNames([{ id: WELCOME_AUTOMATION_ID, enabled: false }])).toEqual([
+      TEXT.automation.welcomeComment,
+    ])
+  })
+
+  it('names an automation the catalogue does not know rather than leaving a gap', () => {
+    // A row the dashboard is already showing. Dropping it here would leave the
+    // banner counting one thing and the list below it showing another.
+    expect(disabledAutomationNames([{ id: 'from-the-future', enabled: false }])).toEqual([
+      'from-the-future',
+    ])
+  })
+
+  it('reads each automation by its own id, not by where it sits', () => {
+    // The bug this replaces read position 0 for a switch it then paired with
+    // another automation's result.
+    expect(
+      disabledAutomationNames([
+        { id: 'from-the-future', enabled: true },
+        { id: WELCOME_AUTOMATION_ID, enabled: false },
+      ]),
+    ).toEqual([TEXT.automation.welcomeComment])
   })
 })

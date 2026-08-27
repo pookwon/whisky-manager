@@ -37,6 +37,12 @@ export interface ConfigTransferDeps {
 export interface ImportSummary {
   readonly automationCount: number
   readonly templateCount: number
+  /**
+   * How many landed switched on. The screen warns on this rather than assuming:
+   * an import that starts posting must say so, and one that lands mute must say
+   * that too, or a quiet install reads as a broken one.
+   */
+  readonly enabledCount: number
 }
 
 /**
@@ -76,12 +82,13 @@ export function buildBundle(deps: ConfigTransferDeps): ConfigBundle {
 /**
  * Writes a bundle over the current configuration.
  *
- * Two fields the file carries are not obeyed. `enabled` is forced off, because
- * an install that starts posting before anyone has looked at what just landed
- * is the accident a fresh database is already protected from, and an import
- * must not be the way around it. `limits` is never read from a file at all —
- * the exporting machine may have been running the debug profile, whose pacing
- * has no business on an operator's install.
+ * `limits` is the one field a file never reaches: the exporting machine may
+ * have been running the debug profile, whose pacing has no business on an
+ * operator's install. Everything else is obeyed, the switch included — the
+ * operator carried this file over to have the same tool they already set up,
+ * and one that lands mute is read as broken rather than as cautious. What that
+ * means is not left for them to discover: `enabledCount` goes back so the
+ * screen can say, in the same breath, that comments are now able to go out.
  */
 export function applyBundle(deps: ConfigTransferDeps, bundle: ConfigBundle): ImportSummary {
   // A file may name an automation this build has never heard of — a newer
@@ -101,7 +108,7 @@ export function applyBundle(deps: ConfigTransferDeps, bundle: ConfigBundle): Imp
         automationId: automation.id,
         policy: automation.policy,
         limits: deps.automationSettings.get(automation.id)?.limits ?? {},
-        enabled: false,
+        enabled: automation.enabled,
         boardId: automation.boardId === '' ? null : automation.boardId,
       })
 
@@ -121,5 +128,11 @@ export function applyBundle(deps: ConfigTransferDeps, bundle: ConfigBundle): Imp
     }
   })
 
-  return { automationCount: known.length, templateCount }
+  return {
+    automationCount: known.length,
+    templateCount,
+    // Counted off `known`: an entry this build has no runtime for is switched
+    // on in the file and off in reality, and must not be promised either way.
+    enabledCount: known.filter((automation) => automation.enabled).length,
+  }
 }

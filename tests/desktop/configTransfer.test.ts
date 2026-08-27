@@ -179,16 +179,28 @@ describe('applyBundle', () => {
     expect(deps.settings.get('boundExtensionId')).toBe('abcdefghijklmnop')
   })
 
-  it('lands switched off however the file left it', () => {
+  it('lands switched on when the file says so', () => {
     const deps = build()
     seedConfigured(deps)
 
     applyBundle(deps, bundle())
 
     const setting = deps.automationSettings.get(WELCOME_AUTOMATION_ID)
-    expect(setting?.enabled).toBe(false)
+    expect(setting?.enabled).toBe(true)
     expect(setting?.policy).toBe('SEMI')
     expect(setting?.boardId).toBe('42')
+  })
+
+  it('lands switched off when the file says so', () => {
+    // The install being written over has it on, so obeying the file here means
+    // turning something off rather than leaving it alone.
+    const deps = build()
+    seedConfigured(deps)
+    const file = bundle()
+
+    applyBundle(deps, { ...file, automations: [{ ...file.automations[0]!, enabled: false }] })
+
+    expect(deps.automationSettings.get(WELCOME_AUTOMATION_ID)?.enabled).toBe(false)
   })
 
   it('does not reach the pacing limits already on this install', () => {
@@ -216,7 +228,7 @@ describe('applyBundle', () => {
       '첫 번째',
       '두 번째',
     ])
-    expect(summary).toEqual({ automationCount: 1, templateCount: 2 })
+    expect(summary).toEqual({ automationCount: 1, templateCount: 2, enabledCount: 1 })
   })
 
   it('preserves whether each imported template is switched on', () => {
@@ -261,6 +273,9 @@ describe('applyBundle', () => {
     })
 
     expect(summary.automationCount).toBe(1)
+    // The unknown entry says it was switched on, and it is not counted: the
+    // sentence after an import must not promise something nothing runs.
+    expect(summary.enabledCount).toBe(1)
     expect(deps.automationSettings.get('from-the-future')).toBeUndefined()
   })
 
@@ -287,7 +302,7 @@ describe('applyBundle', () => {
 })
 
 describe('round trip', () => {
-  it('reproduces the configuration on the far side, minus the switch', () => {
+  it('reproduces the configuration on the far side', () => {
     const source = build()
     seedConfigured(source)
     const exported = buildBundle(source)
@@ -311,7 +326,7 @@ describe('round trip', () => {
 
       applyBundle(target, exported)
 
-      expect(buildBundle(target)).toEqual({ ...exported, automations: [{ ...exported.automations[0]!, enabled: false }] })
+      expect(buildBundle(target)).toEqual(exported)
     } finally {
       rmSync(targetDir, { recursive: true, force: true })
     }

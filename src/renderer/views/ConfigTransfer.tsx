@@ -11,7 +11,11 @@ import { useApp } from '../store.js'
  */
 type Notice =
   | { readonly kind: 'EXPORTED'; readonly path: string }
-  | { readonly kind: 'IMPORTED'; readonly templateCount: number }
+  | {
+      readonly kind: 'IMPORTED'
+      readonly templateCount: number
+      readonly enabledCount: number
+    }
   | { readonly kind: 'REJECTED'; readonly problem: BundleProblem }
 
 export function ConfigTransfer(): React.JSX.Element {
@@ -37,7 +41,11 @@ export function ConfigTransfer(): React.JSX.Element {
     void act(async () => {
       const result = await api.importConfig()
       if (result.kind === 'IMPORTED') {
-        setNotice({ kind: 'IMPORTED', templateCount: result.templateCount })
+        setNotice({
+          kind: 'IMPORTED',
+          templateCount: result.templateCount,
+          enabledCount: result.enabledCount,
+        })
       } else if (result.kind === 'REJECTED') {
         setNotice({ kind: 'REJECTED', problem: result.problem })
       }
@@ -116,11 +124,18 @@ export function ConfigTransfer(): React.JSX.Element {
           {notice.kind === 'IMPORTED' && (
             <>
               <div>{TEXT.configTransfer.imported(notice.templateCount)}</div>
-              {/* The one thing the file asked for and did not get. Saying it
-                  here is what keeps a quiet install from reading as a broken one. */}
-              <div className="mt-1" style={{ color: 'var(--ink-muted)' }}>
-                {TEXT.configTransfer.importedDisabled}
-              </div>
+              {/* Whether comments can now go out is the one thing an operator
+                  must not have to work out from a quiet screen, so it is said
+                  either way rather than only when the answer is awkward. */}
+              {notice.enabledCount > 0 ? (
+                <div className="mt-1 tone-warn">
+                  {TEXT.configTransfer.importedEnabled(notice.enabledCount)}
+                </div>
+              ) : (
+                <div className="mt-1" style={{ color: 'var(--ink-muted)' }}>
+                  {TEXT.configTransfer.importedAllOff}
+                </div>
+              )}
             </>
           )}
         </div>

@@ -582,6 +582,7 @@ describe('importConfig', () => {
       kind: 'IMPORTED',
       automationCount: 1,
       templateCount: 1,
+      enabledCount: 1,
     })
     expect(await api.getCommonSettings()).toEqual({
       cafeId: '31068798',
@@ -590,8 +591,7 @@ describe('importConfig', () => {
     })
     expect(await api.getAutomationSettings(WELCOME_AUTOMATION_ID)).toEqual({
       policy: 'SEMI',
-      // The file said true. An import is not how an install starts posting.
-      enabled: false,
+      enabled: true,
       boardId: '42',
     })
   })

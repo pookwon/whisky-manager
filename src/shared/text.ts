@@ -48,6 +48,15 @@ export const TEXT = {
     heading: '대시보드',
     automations: '기능별 상태',
     awaitingShort: (count: number) => `대기 ${count}건`,
+    /**
+     * Said on the dashboard for as long as it is true, not once after an
+     * import. A switched-off automation refuses every session and every forced
+     * run, and the refusal only shows up after the operator has already pressed
+     * something and waited.
+     */
+    disabledHeading: '꺼져 있음',
+    disabled: (names: string) => `${names} 자동화가 꺼져 있습니다`,
+    disabledHow: '시작을 눌러도, 지금 한 번 실행을 눌러도 아무것도 하지 않습니다. 자동화 설정에서 켜세요.',
   },
   status: {
     bridgeConnected: '연결됨',
@@ -55,6 +64,13 @@ export const TEXT = {
     bridgeOffline: '끊김',
     running: '동작 중',
     stopped: '정지',
+    /**
+     * The two above name a state, these two name a press. Keeping them apart is
+     * the point: a button reading '정지' is read as one that stops something,
+     * which is the opposite of what a switch showing its own state means.
+     */
+    turnOn: '켜기',
+    turnOff: '끄기',
     start: '시작',
     stop: '중지',
     kill: '전면 정지',
@@ -204,12 +220,18 @@ export const TEXT = {
     fileKind: '설정 파일',
     exported: (path: string) => `${path} 에 저장했습니다`,
     confirmHeading: '확인이 필요합니다',
-    confirmBody: '지금 등록된 카페·운영진 계정·승인 정책·게시판·문구가 파일의 내용으로 통째로 바뀝니다. 되돌릴 수 없습니다.',
+    confirmBody: '지금 등록된 카페·운영진 계정·승인 정책·게시판·문구·자동화 켜짐 상태가 파일의 내용으로 통째로 바뀝니다. 파일이 켜진 채였다면 그대로 켜집니다. 되돌릴 수 없습니다.',
     confirm: '가져오기',
     cancel: '취소',
     imported: (templateCount: number) =>
       `설정을 가져왔습니다. 문구 ${templateCount}건을 등록했습니다.`,
-    importedDisabled: '자동화는 꺼진 상태로 들여왔습니다. 확장을 연결하고 설정을 확인한 뒤 직접 켜세요.',
+    /**
+     * The file carries the switch, so the sentence after an import has to say
+     * which way it landed — one of these two always shows.
+     */
+    importedEnabled: (count: number) =>
+      `자동화 ${count}건이 켜진 채로 들어왔습니다. 확장이 연결되어 있으면 다음 세션부터 댓글이 나갑니다.`,
+    importedAllOff: '자동화는 꺼진 채로 들어왔습니다. 자동화 설정에서 켜야 돌기 시작합니다.',
     /**
      * Every reason a file can be turned away, or the build fails. Indexing this
      * with a `BundleProblem` is what type-checks the set — a reason added to

@@ -1,8 +1,9 @@
 import { KST_OFFSET_MS } from '../shared/kst.js'
 import type { SessionOutcome, SessionProgress, SessionRefusal } from '../desktop/orchestrator.js'
-import type { BridgeStatus } from '../desktop/ipc.js'
+import type { AutomationStatus, BridgeStatus } from '../desktop/ipc.js'
 import type { WarmCheck } from '../desktop/sessionWarmer.js'
 import { TEXT } from '../shared/text.js'
+import { findAutomation } from '../shared/automations/catalog.js'
 
 const MINUTE = 60_000
 const HOUR = 3_600_000
@@ -91,6 +92,24 @@ export function progressSummary(progress: SessionProgress): string {
   return nickname === null
     ? TEXT.progress.working(position, total)
     : TEXT.progress.workingOn(position, total, nickname)
+}
+
+/**
+ * What is switched off, named, for the banner that says nothing can run.
+ *
+ * Empty means everything is on and the banner does not belong on the screen.
+ * An id the catalogue does not know still gets named — as itself — because an
+ * automation that cannot run and cannot be named is the worst of both.
+ */
+export function disabledAutomationNames(
+  automations: readonly Pick<AutomationStatus, 'id' | 'enabled'>[],
+): string[] {
+  return automations
+    .filter((automation) => !automation.enabled)
+    .map((automation) => {
+      const descriptor = findAutomation(automation.id)
+      return descriptor === undefined ? automation.id : TEXT.automation[descriptor.labelKey]
+    })
 }
 
 /**
