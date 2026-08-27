@@ -233,7 +233,10 @@ void app.whenReady().then(async () => {
     }),
   )
 
-  tray = new Tray(nativeImage.createEmpty())
+  // `@2x` sits beside it under the same name minus the suffix, which is the
+  // naming convention nativeImage uses to pick the sharper asset on a
+  // high-DPI display on its own.
+  tray = new Tray(nativeImage.createFromPath(join(app.getAppPath(), 'assets', 'tray-icon.png')))
   tray.setToolTip(TEXT.app.title)
   refreshTray(context)
   showWindow()

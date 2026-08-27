@@ -60,7 +60,7 @@
     "productName": "Whisky Manager",
     "asar": true,
     "asarUnpack": ["**/*.node"],
-    "files": ["dist/**/*", "drizzle/**/*", "package.json", "!**/*.map"],
+    "files": ["dist/**/*", "drizzle/**/*", "assets/tray-icon*.png", "package.json", "!**/*.map"],
     "directories": { "output": "release" },
     "mac": {
       "category": "public.app-category.business",
