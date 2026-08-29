@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { runExtensionSetup, type ExtensionSetupPorts } from '../../src/desktop/extensionSetup.js'
+import {
+  runExtensionRecovery,
+  runExtensionSetup,
+  type ExtensionSetupPorts,
+} from '../../src/desktop/extensionSetup.js'
 import { CHROME_EXTENSIONS_URL } from '../../src/shared/chrome.js'
 
 function ports(overrides: Partial<ExtensionSetupPorts> = {}): {
@@ -81,5 +85,65 @@ describe('opening everything the first-run guide needs', () => {
 
     expect(() => runExtensionSetup(wired)).toThrow(/확장 파일/)
     expect(order).toEqual([])
+  })
+})
+
+describe('recovering a missing extension', () => {
+  it('stages before resetting, then opens the recovery aids', () => {
+    const { ports: wired, order } = ports()
+
+    expect(
+      runExtensionRecovery({
+        ...wired,
+        resetPairing: () => {
+          order.push('reset')
+          return 'new-token'
+        },
+      }),
+    ).toEqual({
+      extensionDir: '/data/whisky-manager/chrome-extension',
+      chromeOpened: true,
+      pairingToken: 'new-token',
+    })
+    expect(order).toEqual(['stage', 'reveal', 'copy', 'reset', 'chrome'])
+  })
+
+  it('keeps the existing pairing when staging fails', () => {
+    const { ports: wired, order } = ports({
+      stage: () => {
+        throw new Error('확장 파일을 찾지 못했습니다')
+      },
+    })
+
+    expect(() =>
+      runExtensionRecovery({
+        ...wired,
+        resetPairing: () => {
+          order.push('reset')
+          return 'new-token'
+        },
+      }),
+    ).toThrow(/확장 파일/)
+    expect(order).toEqual([])
+  })
+
+  it('keeps the existing pairing when a shell aid fails', () => {
+    const { ports: wired, order } = ports({
+      reveal: () => {
+        order.push('reveal')
+        throw new Error('폴더를 열지 못했습니다')
+      },
+    })
+
+    expect(() =>
+      runExtensionRecovery({
+        ...wired,
+        resetPairing: () => {
+          order.push('reset')
+          return 'new-token'
+        },
+      }),
+    ).toThrow(/폴더/)
+    expect(order).toEqual(['stage', 'reveal'])
   })
 })

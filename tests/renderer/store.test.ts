@@ -23,6 +23,7 @@ const wm = {
   setCafe: vi.fn(),
   getPairingToken: vi.fn(),
   openExtensionSetup: vi.fn(),
+  recoverExtensionSetup: vi.fn(),
   copyToClipboard: vi.fn(),
   startAutomation: vi.fn(),
   stopAutomation: vi.fn(),

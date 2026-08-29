@@ -4,7 +4,11 @@ import { CHROME_EXTENSIONS_URL } from '../../shared/chrome.js'
 import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import { EXTENSION_SETUP_ART } from './extensionSetupArt.js'
-import { EXTENSION_SETUP_STEPS } from './extensionSetupSteps.js'
+import {
+  EXTENSION_SETUP_STEPS,
+  shouldLoadExistingPairingToken,
+  type ExtensionSetupMode,
+} from './extensionSetupSteps.js'
 
 /** Long enough to be read, short enough that the button is a button again. */
 const COPIED_FOR_MS = 1_600
@@ -70,7 +74,13 @@ function CopyRow({ label, value }: { readonly label: string; readonly value: str
  * command line, so the address arrives on the clipboard instead and the last
  * step says so plainly rather than pretending the page will appear.
  */
-export function ExtensionSetupDialog({ onClose }: { readonly onClose: () => void }): React.JSX.Element {
+export function ExtensionSetupDialog({
+  mode,
+  onClose,
+}: {
+  readonly mode: ExtensionSetupMode
+  readonly onClose: () => void
+}): React.JSX.Element {
   const dialog = useRef<HTMLDialogElement>(null)
   const [position, setPosition] = useState(0)
   const [token, setToken] = useState('')
@@ -87,20 +97,29 @@ export function ExtensionSetupDialog({ onClose }: { readonly onClose: () => void
   useEffect(() => {
     // A token that never arrives leaves the field out rather than showing an
     // empty box; the guide still walks, and the settings screen still has it.
+    // Recovery rotates the token only on confirmation, so fetching here would
+    // retain a stale secret in component state even though it stays hidden.
+    if (!shouldLoadExistingPairingToken(mode)) return
     void api.getPairingToken().then(setToken).catch(console.error)
-  }, [])
+  }, [mode])
 
   const total = EXTENSION_SETUP_STEPS.length
   const stepKey = EXTENSION_SETUP_STEPS[position] ?? EXTENSION_SETUP_STEPS[0]
   const step = TEXT.extensionSetup.steps[stepKey]
   const Art = EXTENSION_SETUP_ART[stepKey]
+  const recoveryTokenStep = mode === 'recover' && stepKey === 'token'
 
   const openEverything = (): void => {
     setBusy(true)
     setFailure(null)
-    void api
-      .openExtensionSetup()
-      .then(setResult)
+    const open = mode === 'recover' ? api.recoverExtensionSetup : api.openExtensionSetup
+    void open()
+      .then((opened) => {
+        if ('pairingToken' in opened && typeof opened.pairingToken === 'string') {
+          setToken(opened.pairingToken)
+        }
+        setResult(opened)
+      })
       .catch((error: unknown) => {
         setFailure(error instanceof Error ? error.message : String(error))
       })
@@ -125,10 +144,14 @@ export function ExtensionSetupDialog({ onClose }: { readonly onClose: () => void
         >
           <div>
             <h2 id="extension-setup-heading" className="text-base font-bold tracking-tight">
-              {TEXT.extensionSetup.heading}
+              {mode === 'recover'
+                ? TEXT.extensionSetup.recovery.heading
+                : TEXT.extensionSetup.heading}
             </h2>
             <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              {TEXT.extensionSetup.subheading}
+              {mode === 'recover'
+                ? TEXT.extensionSetup.recovery.subheading
+                : TEXT.extensionSetup.subheading}
             </p>
           </div>
           {result === null && (
@@ -144,10 +167,10 @@ export function ExtensionSetupDialog({ onClose }: { readonly onClose: () => void
               <Art />
               <h3 className="mt-5 text-sm font-bold">{step.title}</h3>
               <p className="mt-1.5 text-sm leading-relaxed" style={{ color: 'var(--ink-muted)' }}>
-                {step.body}
+                {recoveryTokenStep ? TEXT.extensionSetup.recovery.tokenStep.body : step.body}
               </p>
-              {hint(step.note)}
-              {stepKey === 'token' && token !== '' && (
+              {hint(recoveryTokenStep ? TEXT.extensionSetup.recovery.tokenStep.note : step.note)}
+              {mode === 'connect' && stepKey === 'token' && token !== '' && (
                 <div className="mt-4">
                   <CopyRow label={TEXT.extensionSetup.done.token} value={token} />
                 </div>
@@ -207,7 +230,9 @@ export function ExtensionSetupDialog({ onClose }: { readonly onClose: () => void
               </button>
               {position === total - 1 ? (
                 <button type="button" className="btn btn-primary" disabled={busy} onClick={openEverything}>
-                  {TEXT.extensionSetup.confirm}
+                  {mode === 'recover'
+                    ? TEXT.extensionSetup.recovery.confirm
+                    : TEXT.extensionSetup.confirm}
                 </button>
               ) : (
                 <button

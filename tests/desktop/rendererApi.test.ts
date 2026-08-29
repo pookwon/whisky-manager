@@ -24,7 +24,7 @@ let dir: string
 let db: AppDatabase
 let counter = 0
 let control: { running: boolean; killed: boolean; ranOnce: number }
-let shell: { setupOpened: number; copied: string[] }
+let shell: { setupOpened: number; recoveryOpened: number; copied: string[] }
 /**
  * A filesystem the size of this test. `savePath`/`openPath` stand in for what
  * the operator picked, and null for a dialog they closed.
@@ -55,7 +55,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
   }
   const settings = createSettingsRepo(db)
   control = { running: false, killed: false, ranOnce: 0 }
-  shell = { setupOpened: 0, copied: [] }
+  shell = { setupOpened: 0, recoveryOpened: 0, copied: [] }
   files = {
     savePath: '/picked/settings.json',
     openPath: null,
@@ -65,6 +65,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
   }
   progress = null
   lastWarm = null
+  const clock = new FakeClock(nowMs)
   const automation: AutomationControl = {
     start: () => {
       control.running = true
@@ -106,6 +107,15 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
       shell.setupOpened += 1
       return { extensionDir: '/staged/chrome-extension', chromeOpened: true }
     },
+    recoverExtensionSetup: () => {
+      shell.recoveryOpened += 1
+      settings.remove('boundExtensionId')
+      return {
+        extensionDir: '/staged/chrome-extension',
+        chromeOpened: true,
+        pairingToken: 'new-token',
+      }
+    },
     copyToClipboard: (text) => {
       shell.copied.push(text)
     },
@@ -130,11 +140,11 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
         run()
       })
     },
-    clock: new FakeClock(nowMs),
+    clock,
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings }
+  return { api, repos, settings, clock }
 }
 
 async function seedAwaiting(
@@ -455,6 +465,19 @@ describe('automation control', () => {
     expect(shell.setupOpened).toBe(1)
   })
 
+  it('hands recovery to the shell and clears the previous binding', async () => {
+    const { api, settings } = build()
+    settings.set('boundExtensionId', 'old-extension-id')
+
+    expect(await api.recoverExtensionSetup()).toEqual({
+      extensionDir: '/staged/chrome-extension',
+      chromeOpened: true,
+      pairingToken: 'new-token',
+    })
+    expect(shell.recoveryOpened).toBe(1)
+    expect(settings.get('boundExtensionId')).toBeUndefined()
+  })
+
   it('copies through the shell rather than the renderer', async () => {
     const { api } = build()
     await api.copyToClipboard('token-abc')
@@ -478,7 +501,7 @@ describe('extension ever paired', () => {
     settings.set('boundExtensionId', 'abcdefghijklmnopabcdefghijklmnop')
 
     const dashboard = await api.getDashboard()
-    expect(dashboard.bridgeStatus).toBe('OFFLINE')
+    expect(dashboard.bridgeStatus).toBe('RECONNECTING')
     expect(dashboard.extensionEverPaired).toBe(true)
   })
 })
@@ -490,6 +513,19 @@ describe('bridge status', () => {
     const { api } = build(MON_10_00, { connected: true })
 
     expect((await api.getDashboard()).bridgeStatus).toBe('CONNECTED')
+  })
+
+  it('gives a previously paired extension one reconnect cycle after app startup', async () => {
+    const { api, settings, clock } = build(MON_10_00, {
+      connected: false,
+      lastSeenConnectedAt: null,
+    })
+    settings.set('boundExtensionId', 'abcdefghijklmnopabcdefghijklmnop')
+
+    expect((await api.getDashboard()).bridgeStatus).toBe('RECONNECTING')
+
+    clock.set(MON_10_00 + GRACE_MS + 1)
+    expect((await api.getDashboard()).bridgeStatus).toBe('OFFLINE')
   })
 
   it('holds a dropped socket at reconnecting while the worker cycles', async () => {

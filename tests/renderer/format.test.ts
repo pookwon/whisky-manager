@@ -10,6 +10,7 @@ import {
   formatNextSessionTime,
   getBridgeStatusText,
   getBridgeStatusTone,
+  shouldOfferExtensionRecovery,
   warmSummary,
 } from '../../src/renderer/format.js'
 
@@ -17,6 +18,16 @@ const NOW = Date.UTC(2026, 7, 24, 10, 0, 0)
 const MINUTE = 60_000
 const HOUR = 3_600_000
 const DAY = 86_400_000
+
+describe('shouldOfferExtensionRecovery', () => {
+  it('offers recovery only for a previously paired extension that is truly offline', () => {
+    expect(shouldOfferExtensionRecovery('OFFLINE', true)).toBe(true)
+    expect(shouldOfferExtensionRecovery('RECONNECTING', true)).toBe(false)
+    expect(shouldOfferExtensionRecovery('CONNECTED', true)).toBe(false)
+    expect(shouldOfferExtensionRecovery('OFFLINE', false)).toBe(false)
+    expect(shouldOfferExtensionRecovery('OFFLINE', undefined)).toBe(false)
+  })
+})
 
 /**
  * Expectations name a catalogue entry rather than repeating its Korean, so a

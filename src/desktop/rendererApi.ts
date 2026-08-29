@@ -83,6 +83,8 @@ export interface RendererApiDeps {
    * module is deliberately free of.
    */
   readonly openExtensionSetup: () => import('./extensionSetup.js').ExtensionSetupResult
+  /** Opens the recovery aids after atomically making room for a replacement id. */
+  readonly recoverExtensionSetup: () => import('./extensionSetup.js').ExtensionRecoveryResult
   /** Writes to the system clipboard, which is the shell's to own. */
   readonly copyToClipboard: (text: string) => void
   /** Choosing and touching settings files, which is also the shell's. */
@@ -100,6 +102,7 @@ export interface RendererApiDeps {
  */
 export function createRendererApi(deps: RendererApiDeps): RendererApi {
   const { repos, settings } = deps
+  const startedAt = deps.clock.now()
 
   const setting = (automationId: string) => repos.automationSettings.get(automationId)
 
@@ -130,7 +133,14 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     const lastConnected = deps.lastBridgeConnectedAt()
     if (lastConnected === null) {
-      // Never connected
+      // A previously paired extension gets one reconnect cycle after app
+      // startup before a destructive recovery action is offered.
+      if (
+        settings.get(BOUND_EXTENSION_ID_KEY) !== undefined &&
+        deps.clock.now() - startedAt < 90 * 1000
+      ) {
+        return 'RECONNECTING'
+      }
       return 'OFFLINE'
     }
 
@@ -321,6 +331,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       // files and starting a process is over before the next frame, and an
       // await here would only make the caller look like it could be cancelled.
       return Promise.resolve(deps.openExtensionSetup())
+    },
+
+    recoverExtensionSetup() {
+      return Promise.resolve(deps.recoverExtensionSetup())
     },
 
     copyToClipboard(text) {

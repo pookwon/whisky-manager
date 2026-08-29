@@ -7,7 +7,12 @@ import { TEXT } from '../shared/text.js'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
 import { openChrome, systemChromeHost } from './chromeLauncher.js'
 import { stageExtension } from './extensionBundle.js'
-import { runExtensionSetup, type ExtensionSetupResult } from './extensionSetup.js'
+import {
+  runExtensionRecovery,
+  runExtensionSetup,
+  type ExtensionSetupPorts,
+  type ExtensionSetupResult,
+} from './extensionSetup.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
 import { readLocalConfig } from './localConfig.js'
 import { createRendererApi } from './rendererApi.js'
@@ -90,8 +95,8 @@ function refreshTray(ctx: AppContext): void {
  * themselves live in `extensionSetup`; what is here is only which Electron and
  * OS facility each of them is.
  */
-function openExtensionSetup(): ExtensionSetupResult {
-  return runExtensionSetup({
+function extensionSetupPorts(): ExtensionSetupPorts {
+  return {
     stage: () =>
       stageExtension(
         join(app.getAppPath(), 'dist/extension'),
@@ -103,7 +108,11 @@ function openExtensionSetup(): ExtensionSetupResult {
     reveal: (directory) => shell.showItemInFolder(join(directory, 'manifest.json')),
     copyText: (text) => clipboard.writeText(text),
     openChrome: () => openChrome(systemChromeHost),
-  })
+  }
+}
+
+function openExtensionSetup(): ExtensionSetupResult {
+  return runExtensionSetup(extensionSetupPorts())
 }
 
 /**
@@ -220,6 +229,11 @@ void app.whenReady().then(async () => {
       lastWarm: () => appContext.lastWarm(),
       previewDay: (dayStartMs) => appContext.previewDay(dayStartMs),
       openExtensionSetup,
+      recoverExtensionSetup: () =>
+        runExtensionRecovery({
+          ...extensionSetupPorts(),
+          resetPairing: () => appContext.resetExtensionPairing(),
+        }),
       copyToClipboard: (text) => clipboard.writeText(text),
       configFile,
       transaction: (run) => {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { EXTENSION_SETUP_STEPS } from '../../src/renderer/views/extensionSetupSteps.js'
+import {
+  EXTENSION_SETUP_STEPS,
+  shouldLoadExistingPairingToken,
+} from '../../src/renderer/views/extensionSetupSteps.js'
 import { TEXT } from '../../src/shared/text.js'
 
 describe('the extension walkthrough', () => {
@@ -17,5 +20,10 @@ describe('the extension walkthrough', () => {
 
   it('ends on the step the confirmation belongs to', () => {
     expect(EXTENSION_SETUP_STEPS.at(-1)).toBe('launch')
+  })
+
+  it('never exposes the old token during recovery', () => {
+    expect(shouldLoadExistingPairingToken('connect')).toBe(true)
+    expect(shouldLoadExistingPairingToken('recover')).toBe(false)
   })
 })

@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { AUTOMATIONS } from '../shared/automations/catalog.js'
 import { TEXT } from '../shared/text.js'
-import { getBridgeStatusText, getBridgeStatusTone } from './format.js'
+import {
+  getBridgeStatusText,
+  getBridgeStatusTone,
+  shouldOfferExtensionRecovery,
+} from './format.js'
 import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
 import { Approvals } from './views/Approvals.js'
@@ -21,7 +25,7 @@ export function App(): React.JSX.Element {
   const dashboard = useApp((s) => s.dashboard)
   const cafeImage = useApp((s) => s.cafeImage)
   const error = useApp((s) => s.error)
-  const [setupOpen, setSetupOpen] = useState(false)
+  const [setupMode, setSetupMode] = useState<'connect' | 'recover' | null>(null)
 
   useEffect(() => {
     // A failed background poll is logged, not surfaced: the next tick retries
@@ -51,6 +55,10 @@ export function App(): React.JSX.Element {
    * counts as "not known yet" instead of "not set up".
    */
   const needsSetup = dashboard?.extensionEverPaired === false
+  const needsRecovery = shouldOfferExtensionRecovery(
+    bridgeStatus,
+    dashboard?.extensionEverPaired,
+  )
 
   /** Read from the dashboard, which every route polls, so the badge stays live. */
   const awaitingFor = (automationId: string): number =>
@@ -95,9 +103,24 @@ export function App(): React.JSX.Element {
               <button
                 type="button"
                 className="btn btn-primary mt-2 w-full"
-                onClick={() => setSetupOpen(true)}
+                onClick={() => setSetupMode('connect')}
               >
                 {TEXT.extensionSetup.connect}
+              </button>
+            </>
+          )}
+
+          {needsRecovery && (
+            <>
+              <p className="mt-3 text-[0.6875rem] leading-snug" style={{ color: 'var(--ink-muted)' }}>
+                {TEXT.extensionSetup.recoverHint}
+              </p>
+              <button
+                type="button"
+                className="btn mt-2 w-full"
+                onClick={() => setSetupMode('recover')}
+              >
+                {TEXT.extensionSetup.recover}
               </button>
             </>
           )}
@@ -174,7 +197,9 @@ export function App(): React.JSX.Element {
         )}
       </main>
 
-      {setupOpen && <ExtensionSetupDialog onClose={() => setSetupOpen(false)} />}
+      {setupMode !== null && (
+        <ExtensionSetupDialog mode={setupMode} onClose={() => setSetupMode(null)} />
+      )}
     </div>
   )
 }

@@ -78,6 +78,8 @@ export interface AppContext {
   readonly repos: AppRepos
   readonly bridge: BridgeServer
   readonly automation: AutomationControl
+  /** Rotates the pairing token and clears both persistent and live extension trust. */
+  resetExtensionPairing(): string
   /** Result of the most recent session, for the tray and the dashboard. */
   lastOutcome(): SessionOutcome | null
   /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
@@ -426,6 +428,15 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     repos,
     bridge,
     automation,
+    resetExtensionPairing() {
+      const nextToken = generateToken()
+      db.transaction(() => {
+        settings.set('pairingToken', nextToken)
+        settings.remove('boundExtensionId')
+      })
+      bridge.resetPairing(nextToken)
+      return nextToken
+    },
     lastOutcome: () => lastOutcome,
     lastOutcomeAt: () => lastOutcomeAt,
     sessionProgress: () => sessionProgress,

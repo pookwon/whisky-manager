@@ -20,6 +20,18 @@ export function relativeTime(fromMs: number, nowMs: number): string {
 
 export type Tone = 'ok' | 'idle' | 'warn' | 'alarm'
 
+/**
+ * Recovery is for an extension that used to exist and is now genuinely gone.
+ * The reconnecting grace period covers normal MV3 worker sleep, while an
+ * install that never paired belongs to the first-run guide instead.
+ */
+export function shouldOfferExtensionRecovery(
+  bridgeStatus: BridgeStatus,
+  extensionEverPaired: boolean | undefined,
+): boolean {
+  return bridgeStatus === 'OFFLINE' && extensionEverPaired === true
+}
+
 export interface OutcomeSummary {
   readonly tone: Tone
   readonly text: string

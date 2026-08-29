@@ -2,7 +2,7 @@ import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { BundleProblem } from '../shared/configBundle.js'
 import type { ImportSummary } from './configTransfer.js'
 import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
-import type { ExtensionSetupResult } from './extensionSetup.js'
+import type { ExtensionRecoveryResult, ExtensionSetupResult } from './extensionSetup.js'
 import type { StartupPreview } from './preview.js'
 import type { WarmCheck } from './sessionWarmer.js'
 
@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   setCafe: 'wm:setCafe',
   getPairingToken: 'wm:getPairingToken',
   openExtensionSetup: 'wm:openExtensionSetup',
+  recoverExtensionSetup: 'wm:recoverExtensionSetup',
   copyToClipboard: 'wm:copyToClipboard',
   startAutomation: 'wm:startAutomation',
   stopAutomation: 'wm:stopAutomation',
@@ -183,6 +184,11 @@ export interface RendererApi {
    * reported in the result rather than thrown, because the rest still helps.
    */
   openExtensionSetup(): Promise<ExtensionSetupResult>
+  /**
+   * Stages the extension, forgets the missing extension's trusted id, then
+   * opens the same setup aids so the replacement can bind immediately.
+   */
+  recoverExtensionSetup(): Promise<ExtensionRecoveryResult>
   /**
    * Puts text on the system clipboard. The renderer is served from `file://`,
    * where the browser clipboard API is not something to rely on, and the token

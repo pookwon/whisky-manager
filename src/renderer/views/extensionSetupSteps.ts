@@ -1,5 +1,12 @@
 import type { ExtensionSetupStepKey } from '../../shared/text.js'
 
+export type ExtensionSetupMode = 'connect' | 'recover'
+
+/** Recovery rotates the token on confirmation, so its old value must stay hidden. */
+export function shouldLoadExistingPairingToken(mode: ExtensionSetupMode): boolean {
+  return mode === 'connect'
+}
+
 /**
  * The order the operator performs the steps in, which is not the order they
  * happen in: the folder is named first because it is what Chrome will be asked

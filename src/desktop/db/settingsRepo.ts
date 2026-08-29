@@ -5,6 +5,7 @@ import { appSettings } from './schema.js'
 export interface SettingsRepo {
   get(key: string): string | undefined
   set(key: string, value: string): void
+  remove(key: string): void
 }
 
 export function createSettingsRepo(db: AppDatabase): SettingsRepo {
@@ -17,6 +18,9 @@ export function createSettingsRepo(db: AppDatabase): SettingsRepo {
         .values({ key, value })
         .onConflictDoUpdate({ target: appSettings.key, set: { value } })
         .run()
+    },
+    remove(key) {
+      db.delete(appSettings).where(eq(appSettings.key, key)).run()
     },
   }
 }

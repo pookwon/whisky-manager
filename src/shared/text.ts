@@ -256,8 +256,19 @@ export const TEXT = {
     /** The sidebar's call to action while no extension has ever paired. */
     connect: '확장 연결하기',
     connectHint: 'Chrome 확장을 아직 연결하지 않았습니다',
+    recover: '확장 복구하기',
+    recoverHint: '연결이 끊겼습니다. Chrome에서 확장 폴더를 다시 불러오세요',
     heading: 'Chrome 확장 연결',
     subheading: '순서를 먼저 훑어보세요. 확인을 누르면 필요한 것이 한 번에 열립니다.',
+    recovery: {
+      heading: 'Chrome 확장 복구',
+      subheading: '기존 확장 연결을 초기화하고 지금 불러오는 확장으로 교체합니다.',
+      confirm: '초기화하고 열기',
+      tokenStep: {
+        body: '마지막 확인을 누르면 새 토큰이 만들어집니다. 그때 표시되는 토큰을 확장 옵션에 붙여넣고 저장하세요.',
+        note: '이전 토큰은 복구를 시작하면 더 이상 사용할 수 없습니다.',
+      },
+    },
     position: (step: number, total: number) => `${step} / ${total}`,
     steps: {
       folder: {

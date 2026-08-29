@@ -14,6 +14,8 @@ export interface ExtensionTransport {
 
 export interface BridgeServer extends ExtensionTransport {
   readonly port: number
+  /** Rotates trust so only the new token can bind a replacement extension. */
+  resetPairing(token: string): void
   close(): Promise<void>
 }
 
@@ -41,6 +43,15 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
   const pending = new Map<string, Pending>()
   let peer: WebSocket | null = null
   let bound = options.boundExtensionId
+  let expectedToken = options.token
+
+  const rejectPending = (message: string): void => {
+    for (const [, waiting] of pending) {
+      clearTimeout(waiting.timer)
+      waiting.reject(new Error(message))
+    }
+    pending.clear()
+  }
 
   await new Promise<void>((resolve) => wss.once('listening', resolve))
 
@@ -58,7 +69,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 
       if (parsed.type === 'HELLO') {
         const verdict = verifyHello(
-          { token: options.token, boundExtensionId: bound },
+          { token: expectedToken, boundExtensionId: bound },
           { token: parsed.token, origin: req.headers.origin, protocolVersion: parsed.protocolVersion },
         )
         const ack: AppMessage = {
@@ -144,12 +155,24 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       })
     },
 
+    resetPairing(token) {
+      expectedToken = token
+      bound = null
+      rejectPending('bridge pairing reset')
+      peer = null
+      // More than one socket can have completed HELLO before the latest one
+      // became `peer`. Pairing reset revokes all live trust, not just the most
+      // recently selected transport.
+      for (const socket of wss.clients) socket.terminate()
+    },
+
     async close() {
-      for (const [, waiting] of pending) {
-        clearTimeout(waiting.timer)
-        waiting.reject(new Error('bridge server closed'))
-      }
-      pending.clear()
+      rejectPending('bridge server closed')
+      // `WebSocketServer.close()` waits for clients to leave on their own.
+      // The extension is a local long-lived peer, so shutdown has to end every
+      // accepted or half-authorised socket before waiting for the listener.
+      for (const socket of wss.clients) socket.terminate()
+      peer = null
       await new Promise<void>((resolve) => wss.close(() => resolve()))
     },
   }

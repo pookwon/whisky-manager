@@ -70,6 +70,17 @@ describe('createAppContext', () => {
     await again.shutdown()
   })
 
+  it('rotates the token and clears the trusted extension as one recovery operation', async () => {
+    const oldToken = ctx.settings.get('pairingToken')
+    ctx.settings.set('boundExtensionId', 'old-extension-id')
+
+    const nextToken = ctx.resetExtensionPairing()
+
+    expect(nextToken).not.toBe(oldToken)
+    expect(ctx.settings.get('pairingToken')).toBe(nextToken)
+    expect(ctx.settings.get('boundExtensionId')).toBeUndefined()
+  })
+
   it('seeds the welcome automation disabled so nothing posts before review', () => {
     expect(ctx.repos.automationSettings.get(WELCOME_AUTOMATION_ID)).toMatchObject({
       policy: 'AUTO',

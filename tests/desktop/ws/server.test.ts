@@ -8,24 +8,36 @@ const TOKEN = generateToken()
 const ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 
 let server: BridgeServer | undefined
+const firstMessages = new WeakMap<WebSocket, Promise<Record<string, unknown>>>()
 
 afterEach(async () => {
   await server?.close()
   server = undefined
 })
 
-async function connect(token: string): Promise<WebSocket> {
+async function connect(token: string, origin = ORIGIN): Promise<WebSocket> {
   if (server === undefined) throw new Error('server not started')
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: ORIGIN })
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin })
   await new Promise<void>((resolve, reject) => {
     ws.once('open', resolve)
     ws.once('error', reject)
   })
+  firstMessages.set(
+    ws,
+    new Promise((resolve) => {
+      ws.once('message', (data) => resolve(JSON.parse(String(data)) as Record<string, unknown>))
+    }),
+  )
   ws.send(JSON.stringify({ type: 'HELLO', token, extensionId: 'ignored', protocolVersion: PROTOCOL_VERSION }))
   return ws
 }
 
 async function nextMessage(ws: WebSocket): Promise<Record<string, unknown>> {
+  const first = firstMessages.get(ws)
+  if (first !== undefined) {
+    firstMessages.delete(ws)
+    return first
+  }
   return new Promise((resolve) => {
     ws.once('message', (data) => resolve(JSON.parse(String(data)) as Record<string, unknown>))
   })
@@ -48,6 +60,69 @@ describe('createBridgeServer', () => {
     const ack = await nextMessage(ws)
     expect(ack.accepted).toBe(false)
     expect(ack.reason).toBe('BAD_TOKEN')
+    expect(server.isConnected()).toBe(false)
+  })
+
+  it('rotates the token before accepting a replacement extension', async () => {
+    server = await createBridgeServer({
+      token: TOKEN,
+      boundExtensionId: 'oldoldoldoldoldoldoldoldoldoldol',
+    })
+    const replacementOrigin = 'chrome-extension://newnewnewnewnewnewnewnewnewnewne'
+
+    const rejected = await connect(TOKEN, replacementOrigin)
+    expect(await nextMessage(rejected)).toEqual({
+      type: 'HELLO_ACK',
+      accepted: false,
+      reason: 'WRONG_EXTENSION',
+    })
+
+    const nextToken = generateToken()
+    server.resetPairing(nextToken)
+
+    const stale = await connect(TOKEN, replacementOrigin)
+    expect(await nextMessage(stale)).toEqual({
+      type: 'HELLO_ACK',
+      accepted: false,
+      reason: 'BAD_TOKEN',
+    })
+
+    const accepted = await connect(nextToken, replacementOrigin)
+    expect(await nextMessage(accepted)).toEqual({
+      type: 'HELLO_ACK',
+      accepted: true,
+      reason: null,
+    })
+    expect(server.isConnected()).toBe(true)
+    accepted.close()
+  })
+
+  it('rejects an in-flight request immediately when pairing is reset', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const ws = await connect(TOKEN)
+    await nextMessage(ws)
+    const request = server.request(
+      { type: 'CHECK_LOGIN', requestId: 'reset-r1', source: { cafeId: 'c', boardId: 'b' } },
+      5_000,
+    )
+
+    server.resetPairing(generateToken())
+
+    await expect(request).rejects.toThrow(/pairing reset/i)
+  })
+
+  it('closes every authorised socket when pairing is reset', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const first = await connect(TOKEN)
+    await nextMessage(first)
+    const second = await connect(TOKEN)
+    await nextMessage(second)
+    const firstClosed = new Promise<void>((resolve) => first.once('close', () => resolve()))
+    const secondClosed = new Promise<void>((resolve) => second.once('close', () => resolve()))
+
+    server.resetPairing(generateToken())
+
+    await Promise.all([firstClosed, secondClosed])
     expect(server.isConnected()).toBe(false)
   })
 
