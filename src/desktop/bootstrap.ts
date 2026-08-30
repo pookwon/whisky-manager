@@ -29,7 +29,11 @@ import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAu
 import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
 import { appendRefusal } from './refusalLog.js'
-import { openOptionalCollectionContext, type OptionalCollectionContext } from './collectionContext.js'
+import {
+  openOptionalCollectionContext,
+  type CollectionUnavailableCode,
+  type OptionalCollectionContext,
+} from './collectionContext.js'
 
 // Re-exported so the many main-process callers keep their existing import.
 export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
@@ -37,6 +41,8 @@ export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 export interface AppContextOptions {
   readonly databasePath: string
   readonly migrationsFolder: string
+  /** Packaged Drizzle migrations for the optional PostgreSQL collection DB. */
+  readonly collectionMigrationsFolder?: string
   /**
    * Where refused sessions are written down. Omitted means they are not: a
    * dev run or a test has the outcome in front of it already.
@@ -46,6 +52,8 @@ export interface AppContextOptions {
   readonly bridgePort: number
   /** Fired when the loop stops itself; the shell should show the new state. */
   readonly onHalt?: (reason: 'NOT_LOGGED_IN' | 'LOGIN_CHECK_FAILED') => void
+  /** Safe status code only; DATABASE_URL and driver errors never cross this callback. */
+  readonly onCollectionUnavailable?: (code: CollectionUnavailableCode) => void
   /**
    * A developer's own cafe, read from a file the repository does not carry.
    * Seeds an unset database and nothing else: values already entered are the
@@ -112,7 +120,8 @@ export interface AppContext {
 export async function createAppContext(options: AppContextOptions): Promise<AppContext> {
   const db = openDatabase(options.databasePath, { migrationsFolder: options.migrationsFolder })
   const settings = createSettingsRepo(db)
-  const collection = await openOptionalCollectionContext()
+  const collection = await openOptionalCollectionContext(process.env, options.collectionMigrationsFolder)
+  if (collection.kind === 'unavailable') options.onCollectionUnavailable?.(collection.code)
 
   let token = settings.get('pairingToken')
   if (token === undefined) {

@@ -20,7 +20,7 @@ function fetcher(pages: Record<number, CollectedArticlePage>) {
 
 function probeReader(pages: Record<number, CollectedArticlePage>) {
   const reader = fetcher(pages)
-  return { probe: reader.read, collect: reader.read, reads: 0 }
+  return { probe: reader.read, collect: reader.read, observedAt: () => new Date(0), reads: 0 }
 }
 
 function repository(conflict = false): { repo: CollectionRepository; persisted: PersistCollectedPageInput[]; finished: string[] } {
@@ -230,8 +230,34 @@ describe('collection planning and orchestration', () => {
     })
 
     await expect(orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 10, parserVersion: 'v1' })).resolves.toMatchObject({ kind: 'succeeded' })
-    expect(fetched).toEqual([1, 2, 3, 4])
+    // Stable adjacent pages do not overlap, so the conservative continuity
+    // rule re-reads page 3 before accepting page 4.
+    expect(fetched).toEqual([1, 2, 3, 4, 3])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['resume-here'])
+  })
+
+  it('records observation time immediately before the fetch starts', async () => {
+    const { repo, persisted } = repository()
+    let now = 1_000
+    const resultPage = page([post('in', 250), post('old', 190)])
+    const orchestrator = createCollectionOrchestrator({
+      repository: repo,
+      fetcher: {
+        read: async () => {
+          // Simulate network/parse latency after the scheduled reader sampled
+          // its clock. Persistence must retain the earlier instant.
+          now += 5_000
+          return resultPage
+        },
+      },
+      clock: { now: () => now }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      isSessionBusy: () => false, isAbortRequested: () => false,
+    })
+
+    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toMatchObject({ kind: 'succeeded' })
+    // page 1 is probed once and then fetched for collection. The collection
+    // fetch starts at 6000 and completes at 11000.
+    expect(persisted[0]?.observedAt).toEqual(new Date(6_000))
   })
 
   it('skips duplicate tail rows without a rewind read when new posts push the anchor into the next page', async () => {
@@ -257,8 +283,10 @@ describe('collection planning and orchestration', () => {
     const { repo, persisted } = repository()
     const fetched: number[] = []
     const pageOneBefore = page([post('a', 280), post('b', 270)])
-    const pageOneAfterDeletion = page([post('b', 270), post('c', 260)], 100, 499)
-    const pageTwo = page([post('d', 250), post('old', 190)], 100, 499)
+    // One insertion and one deletion leave the total unchanged while moving
+    // the boundary. Rewind must still recover c.
+    const pageOneAfterDeletion = page([post('b', 270), post('c', 260)], 100, 500)
+    const pageTwo = page([post('d', 250), post('old', 190)], 100, 500)
     let pageOneReads = 0
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
@@ -275,7 +303,7 @@ describe('collection planning and orchestration', () => {
     })
 
     await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toEqual({ kind: 'succeeded', pagesStored: 3 })
-    expect(fetched).toEqual([1, 1, 2, 1, 2])
+    expect(fetched).toEqual([1, 1, 2, 1, 2, 1])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['a', 'b', 'c', 'd'])
   })
 

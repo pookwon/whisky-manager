@@ -17,6 +17,7 @@ import { IPC_CHANNELS, type RendererApi } from './ipc.js'
 import { readLocalConfig } from './localConfig.js'
 import { createRendererApi } from './rendererApi.js'
 import { systemClock } from './runtime.js'
+import type { CollectionUnavailableCode } from './collectionContext.js'
 
 const BRIDGE_PORT = 39_217
 
@@ -185,6 +186,18 @@ function reportFatalStartupError(error: unknown): void {
   app.quit()
 }
 
+function reportCollectionUnavailable(code: CollectionUnavailableCode): void {
+  // The code is deliberately safe to expose. Driver messages may contain a
+  // hostname or user name and never reach logs or the renderer.
+  console.error('[collection] unavailable:', code)
+  try {
+    writeFileSync(join(app.getPath('userData'), 'collection-status.log'), `${code}\n`)
+  } catch {
+    // Collection remains unavailable; failure to write its diagnostic must not
+    // take down the existing SQLite-backed greeting automation.
+  }
+}
+
 void app.whenReady().then(async () => {
   // Only the installed build registers itself to start with the machine. A dev
   // run must not leave a login item pointing at a temporary electron binary.
@@ -197,6 +210,7 @@ void app.whenReady().then(async () => {
     databasePath: join(app.getPath('userData'), 'whisky-manager.db'),
     refusalLogPath: join(app.getPath('userData'), 'refused-sessions.log'),
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
+    collectionMigrationsFolder: join(app.getAppPath(), 'drizzle-collection'),
     profile,
     bridgePort: BRIDGE_PORT,
     // Only an unpackaged run looks for it, and only to spare a developer
@@ -207,6 +221,7 @@ void app.whenReady().then(async () => {
     onHalt: () => {
       if (context !== null) refreshTray(context)
     },
+    onCollectionUnavailable: reportCollectionUnavailable,
   })
 
   const appContext = context

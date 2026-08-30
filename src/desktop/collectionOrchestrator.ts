@@ -42,9 +42,15 @@ export function collectionDelayMs(requestOrdinal: number, random: Random): numbe
   return delay
 }
 
-export interface ScheduledReader { probe(page: number): Promise<CollectedArticlePage>; collect(page: number): Promise<CollectedArticlePage>; readonly reads: number }
+export interface ScheduledReader {
+  probe(page: number): Promise<CollectedArticlePage>
+  collect(page: number): Promise<CollectedArticlePage>
+  observedAt(page: CollectedArticlePage): Date
+  readonly reads: number
+}
 function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, maxPages: number, maxProbePages: number): ScheduledReader {
   let reads = 0; let probes = 0
+  const observations = new WeakMap<CollectedArticlePage, Date>()
   const read = async (page: number, phase: 'probe' | 'collection'): Promise<CollectedArticlePage> => {
     if (reads >= maxPages) throw new CollectionPageError('MAX_PAGE_LIMIT')
     if (phase === 'probe' && probes >= maxProbePages) throw new CollectionPageError('PROBE_PAGE_LIMIT')
@@ -54,9 +60,23 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
     await deps.repository.recordPageRequest(runId, phase); reads += 1; if (phase === 'probe') probes += 1
-    const value = await deps.fetcher.read(page); assertPage(value); return value
+    // The observation belongs to the network read, not to however much
+    // continuity checking or PostgreSQL work happens after its response.
+    const observedAt = new Date(deps.clock.now())
+    const value = await deps.fetcher.read(page); assertPage(value)
+    observations.set(value, observedAt)
+    return value
   }
-  return { probe: (page) => read(page, 'probe'), collect: (page) => read(page, 'collection'), get reads() { return reads } }
+  return {
+    probe: (page) => read(page, 'probe'),
+    collect: (page) => read(page, 'collection'),
+    observedAt(page) {
+      const value = observations.get(page)
+      if (value === undefined) throw new CollectionPageError('BOARD_PAGE_OBSERVATION_TIME_MISSING')
+      return value
+    },
+    get reads() { return reads },
+  }
 }
 
 /** Uses only scheduler reads; silent fallback is an invalid upper bound. */
@@ -92,22 +112,18 @@ async function locateAnchor(reader: ScheduledReader, state: Pick<CollectionFeedS
   return null
 }
 
-interface ContinuityAnchor { readonly page: number; readonly postId: string; readonly pageIdentity: string; readonly totalArticleCount: number }
+interface ContinuityAnchor { readonly page: number; readonly postId: string; readonly pageIdentity: string }
 
 /**
  * Stable adjacent pages share no post IDs, so overlap with the previous page
- * cannot be the continuity invariant. An unchanged feed-wide article count
- * means nothing was inserted or deleted since the previous read, so the next
- * page is contiguous without a rewind; additions and deletions that exactly
- * cancel within one inter-page interval escape this shortcut. When the count
- * changed and the previous tail does not surface in the next page, only a
- * rewind read of the previous page can distinguish harmless movement from
- * posts pulled up past the boundary by deletions.
+ * cannot be the continuity invariant. When the previous tail does not surface
+ * in the next page, a rewind is mandatory: insertions and deletions can cancel
+ * out while still moving the boundary, so totalArticleCount is not evidence of
+ * continuity.
  */
 async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnchor, next: CollectedArticlePage, nextPageNumber: number, targetStartMs: number): Promise<{ page: CollectedArticlePage; pageNumber: number; firstOffset: number }> {
   const surfaced = next.items.findIndex((item) => item.postId === previous.postId)
   if (surfaced >= 0) return { page: next, pageNumber: nextPageNumber, firstOffset: surfaced + 1 }
-  if (next.pageInfo.totalArticleCount === previous.totalArticleCount) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
   const rewind = await reader.collect(previous.page)
   if (fallback(rewind, previous.page)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
   if (rewind.pageIdentity === previous.pageIdentity) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
@@ -143,14 +159,14 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
         const inRange = page.items.slice(firstOffset).filter((item) => item.postedAt >= options.run.targetStartMs && item.postedAt < options.run.targetEndMs); firstOffset = 0
         if (inRange.length > 0) {
-          const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: new Date(deps.clock.now()), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange }, parserVersion: options.parserVersion })
+          const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange }, parserVersion: options.parserVersion })
           if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, latestState } }
           state = { stateVersion: stored.nextStateVersion, anchorPostId: stored.anchorPostId, referencePage: pageNumber, pageIdentity: page.pageIdentity, anchorPostedDateKst: null, targetStartMs: options.run.targetStartMs, targetEndMs: options.run.targetEndMs }; pagesStored += 1
         }
         const tail = page.items.at(-1)
         if (tail === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY')
         if (tail.postedAt < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored } }
-        continuity = { page: pageNumber, postId: tail.postId, pageIdentity: page.pageIdentity, totalArticleCount: page.pageInfo.totalArticleCount }
+        continuity = { page: pageNumber, postId: tail.postId, pageIdentity: page.pageIdentity }
         pageNumber += 1
       }
     } catch (error) {
