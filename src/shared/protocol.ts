@@ -1,6 +1,8 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
+import type { CollectedArticlePage } from './cafeArticleList.js'
+import { CAFE_ARTICLE_LIST } from './cafeArticleFixture.js'
 
-export const PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -14,8 +16,20 @@ export const TIMEOUTS = {
   executeMs: 15_000,
   commentCheckMs: 10_000,
   probeMs: 20_000,
+  boardPageMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
+
+export interface CollectBoardPageRequest {
+  readonly type: 'COLLECT_BOARD_PAGE'
+  readonly requestId: string
+  readonly cafeId: typeof CAFE_ARTICLE_LIST.cafeId
+  readonly menuId: typeof CAFE_ARTICLE_LIST.menuId
+  readonly page: number
+  readonly pageSize: typeof CAFE_ARTICLE_LIST.pageSize
+  readonly sortBy: typeof CAFE_ARTICLE_LIST.sortBy
+  readonly viewType: typeof CAFE_ARTICLE_LIST.viewType
+}
 
 export interface SourceRef {
   readonly cafeId: string
@@ -58,6 +72,8 @@ export type AppMessage =
   | { type: 'COLLECT'; requestId: string; automationId: string; source: SourceRef; sincePostedAt: number }
   | { type: 'CHECK_COMMENTS'; requestId: string; automationId: string; action: PostRef }
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
+  /** One exact menu=0 JSON page; the extension must not follow pagination itself. */
+  | CollectBoardPageRequest
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -77,6 +93,7 @@ export type ExtensionMessage =
   | { type: 'COLLECTED'; requestId: string; candidates: RawCandidate[] }
   | { type: 'COMMENTS'; requestId: string; authors: CommentAuthor[] | null }
   | { type: 'COLLECT_PROGRESS'; requestId: string; pagesRead: number; collected: number }
+  | { type: 'BOARD_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedArticlePage }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -126,6 +143,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'COLLECT',
   'CHECK_COMMENTS',
   'EXECUTE',
+  'COLLECT_BOARD_PAGE',
   'PROBE',
   'ABORT',
 ])
@@ -136,6 +154,7 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'COLLECTED',
   'COMMENTS',
   'COLLECT_PROGRESS',
+  'BOARD_PAGE_COLLECTED',
   'EXECUTED',
   'PROBE_RESULT',
   'ERROR',
@@ -149,10 +168,56 @@ function messageType(value: unknown): string | null {
 
 export function isAppMessage(value: unknown): value is AppMessage {
   const type = messageType(value)
+  if (type === 'COLLECT_BOARD_PAGE') return isCollectBoardPageRequest(value)
   return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   const type = messageType(value)
+  if (type === 'BOARD_PAGE_COLLECTED') return isBoardPageCollected(value)
   return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
+}
+
+/** Runtime guard for the fixed, deliberately narrow menu=0 collection contract. */
+export function isCollectBoardPageRequest(value: unknown): value is CollectBoardPageRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<CollectBoardPageRequest>
+  return (
+    message.type === 'COLLECT_BOARD_PAGE' &&
+    typeof message.requestId === 'string' &&
+    message.cafeId === CAFE_ARTICLE_LIST.cafeId &&
+    message.menuId === CAFE_ARTICLE_LIST.menuId &&
+    typeof message.page === 'number' &&
+    Number.isSafeInteger(message.page) &&
+    message.page >= 1 &&
+    message.pageSize === CAFE_ARTICLE_LIST.pageSize &&
+    message.sortBy === CAFE_ARTICLE_LIST.sortBy &&
+    message.viewType === CAFE_ARTICLE_LIST.viewType
+  )
+}
+
+function isBoardPageCollected(value: unknown): value is Extract<ExtensionMessage, { type: 'BOARD_PAGE_COLLECTED' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as { type?: unknown; requestId?: unknown; page?: unknown; result?: unknown }
+  if (
+    message.type !== 'BOARD_PAGE_COLLECTED' ||
+    typeof message.requestId !== 'string' ||
+    typeof message.page !== 'number' ||
+    !Number.isSafeInteger(message.page) ||
+    message.page < 1 ||
+    typeof message.result !== 'object' ||
+    message.result === null
+  ) {
+    return false
+  }
+  const result = message.result as { items?: unknown; pageInfo?: unknown; pageIdentity?: unknown }
+  const pageInfo = result.pageInfo as { lastNavigationPageNumber?: unknown; visibleNextButton?: unknown; totalArticleCount?: unknown } | null
+  return (
+    Array.isArray(result.items) &&
+    typeof result.pageIdentity === 'string' &&
+    pageInfo !== null &&
+    typeof pageInfo?.lastNavigationPageNumber === 'number' &&
+    typeof pageInfo.visibleNextButton === 'boolean' &&
+    typeof pageInfo.totalArticleCount === 'number'
+  )
 }

@@ -20,18 +20,49 @@ describe('timeouts', () => {
     expect(TIMEOUTS.loginCheckMs).toBeLessThan(30_000)
     expect(TIMEOUTS.collectMs).toBeLessThan(30_000)
     expect(TIMEOUTS.executeMs).toBeLessThan(30_000)
+    expect(TIMEOUTS.boardPageMs).toBeLessThan(30_000)
   })
 
   it('matches the values fixed in the design spec', () => {
     expect(TIMEOUTS.loginCheckMs).toBe(10_000)
     expect(TIMEOUTS.collectMs).toBe(15_000)
     expect(TIMEOUTS.executeMs).toBe(15_000)
+    expect(TIMEOUTS.boardPageMs).toBe(20_000)
     expect(TIMEOUTS.extensionReplyMs).toBe(20_000)
   })
 
   it('bounds the pre-execution comment re-check', () => {
     expect(TIMEOUTS.commentCheckMs).toBe(10_000)
     expect(TIMEOUTS.commentCheckMs).toBeLessThan(30_000)
+  })
+})
+
+describe('board page messages', () => {
+  const request = {
+    type: 'COLLECT_BOARD_PAGE' as const,
+    requestId: 'board-1',
+    cafeId: '14538121' as const,
+    menuId: '0' as const,
+    page: 1,
+    pageSize: 50 as const,
+    sortBy: 'TIME' as const,
+    viewType: 'L' as const,
+  }
+
+  it('accepts only the fixed menu=0, 50-row request contract', () => {
+    expect(isAppMessage(request)).toBe(true)
+    expect(isAppMessage({ ...request, page: 0 })).toBe(false)
+    expect(isAppMessage({ ...request, cafeId: 'other' })).toBe(false)
+    expect(isAppMessage({ ...request, pageSize: 20 })).toBe(false)
+  })
+
+  it('recognises a structurally valid parsed board-page reply', () => {
+    expect(
+      isExtensionMessage({
+        type: 'BOARD_PAGE_COLLECTED', requestId: 'board-1', page: 1,
+        result: { items: [], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 0 }, pageIdentity: 'empty' },
+      }),
+    ).toBe(true)
   })
 })
 

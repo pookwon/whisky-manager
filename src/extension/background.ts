@@ -3,6 +3,7 @@ import type { AppMessage, ExtensionMessage } from '../shared/protocol.js'
 import type { Random } from '../shared/ports.js'
 import { createBridgeClient, type Reply } from './bridgeClient.js'
 import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeClient.js'
+import { createBoardPageReader } from './boardPageReader.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
 const RECONNECT_ALARM = 'bridge-reconnect'
@@ -135,6 +136,8 @@ const cafe = createCafeClient({
   sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
 })
 
+const boardPageReader = createBoardPageReader({ http: request })
+
 /** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
 async function probe(requestId: string, url: string, reply: Reply): Promise<void> {
   if (!isProbeTarget(url)) {
@@ -200,6 +203,18 @@ async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
       } finally {
         onCollectionProgress = null
       }
+      return
+    }
+
+    case 'COLLECT_BOARD_PAGE': {
+      const result = await boardPageReader.read(message)
+      if (!result.ok) {
+        // Codes are deliberately stable and body-free: a list response can
+        // contain account-linked data and must never be echoed to the bridge.
+        reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+        return
+      }
+      reply({ type: 'BOARD_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
       return
     }
 

@@ -38,3 +38,20 @@ export function kstDayRange(epochMs: number): KstDay {
   const startMs = kstDayStartMs(epochMs)
   return { startMs, endMs: startMs + MS_PER_DAY }
 }
+
+/** The three fully completed KST days immediately before the supplied anchor. */
+export function recentCompletedKstDays(anchorMs: number, days = 3): KstDay {
+  if (!Number.isSafeInteger(days) || days < 1) throw new Error('days must be a positive safe integer')
+  const endMs = kstDayStartMs(anchorMs)
+  return { startMs: endMs - days * MS_PER_DAY, endMs }
+}
+
+/** A half-open calendar-month range whose boundaries are KST midnight instants. */
+export function kstMonthRange(year: number, month: number): KstDay {
+  if (!Number.isSafeInteger(year) || !Number.isSafeInteger(month) || month < 1 || month > 12) {
+    throw new Error('year and month must identify a calendar month')
+  }
+  const startMs = Date.UTC(year, month - 1, 1) - KST_OFFSET_MS
+  const endMs = Date.UTC(year, month, 1) - KST_OFFSET_MS
+  return { startMs, endMs }
+}

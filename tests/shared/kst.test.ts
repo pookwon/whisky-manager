@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { kstDayRange, kstDayStartMs } from '../../src/shared/kst.js'
+import { kstDayRange, kstDayStartMs, kstMonthRange, recentCompletedKstDays } from '../../src/shared/kst.js'
 
 describe('kstDayStartMs', () => {
   it('is midnight in KST, not in UTC', () => {
@@ -34,6 +34,20 @@ describe('kstDayStartMs', () => {
     const day1End = Date.UTC(2026, 7, 22, 14, 59) // Still 2026-08-22 KST
     const day2Start = Date.UTC(2026, 7, 22, 15, 0) // 2026-08-23 00:00 KST
     expect(kstDayStartMs(day1End)).not.toBe(kstDayStartMs(day2Start))
+  })
+})
+
+describe('collection KST ranges', () => {
+  it('anchors development collection to the three completed KST days', () => {
+    // 2026-08-30 09:30 KST: today is still incomplete and excluded.
+    expect(recentCompletedKstDays(Date.UTC(2026, 7, 30, 0, 30))).toEqual({
+      startMs: Date.UTC(2026, 7, 26, 15),
+      endMs: Date.UTC(2026, 7, 29, 15),
+    })
+  })
+
+  it('uses KST midnight for an explicit month, including the next-month boundary', () => {
+    expect(kstMonthRange(2026, 7)).toEqual({ startMs: Date.UTC(2026, 5, 30, 15), endMs: Date.UTC(2026, 6, 31, 15) })
   })
 })
 

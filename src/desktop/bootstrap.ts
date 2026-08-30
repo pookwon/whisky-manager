@@ -27,7 +27,9 @@ import { createBridgeServer, type BridgeServer } from './ws/server.js'
 import { previewDay, type StartupPreview } from './preview.js'
 import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAuthors.js'
 import { createCollectGate } from './collectGate.js'
+import { createNaverReadGate } from './naverReadGate.js'
 import { appendRefusal } from './refusalLog.js'
+import { openOptionalCollectionContext, type OptionalCollectionContext } from './collectionContext.js'
 
 // Re-exported so the many main-process callers keep their existing import.
 export { WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
@@ -77,6 +79,8 @@ export interface AppContext {
   readonly settings: SettingsRepo
   readonly repos: AppRepos
   readonly bridge: BridgeServer
+  /** Optional PostgreSQL collection context; legacy automation remains usable without it. */
+  readonly collection: OptionalCollectionContext
   readonly automation: AutomationControl
   /** Rotates the pairing token and clears both persistent and live extension trust. */
   resetExtensionPairing(): string
@@ -108,6 +112,7 @@ export interface AppContext {
 export async function createAppContext(options: AppContextOptions): Promise<AppContext> {
   const db = openDatabase(options.databasePath, { migrationsFolder: options.migrationsFolder })
   const settings = createSettingsRepo(db)
+  const collection = await openOptionalCollectionContext()
 
   let token = settings.get('pairingToken')
   if (token === undefined) {
@@ -151,7 +156,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * it at the same time. The bridge itself stays for what is not a read of the
    * board: pairing state and shutdown.
    */
-  const transport = createCollectGate(bridge)
+  const transport = createNaverReadGate(createCollectGate(bridge))
 
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
@@ -427,6 +432,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     settings,
     repos,
     bridge,
+    collection,
     automation,
     resetExtensionPairing() {
       const nextToken = generateToken()
@@ -480,6 +486,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       loop.stop()
       warmer.stop()
       await bridge.close()
+      await collection.close()
     },
   }
 }

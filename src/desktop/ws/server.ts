@@ -7,6 +7,9 @@ import {
 } from '../../shared/protocol.js'
 import { verifyHello, type PairingState } from './pairing.js'
 
+/** 50 parsed metadata rows plus envelope with room for future nullable fields. */
+export const BRIDGE_MAX_PAYLOAD_BYTES = 256 * 1024
+
 export interface ExtensionTransport {
   isConnected(): boolean
   request(message: AppMessage, timeoutMs: number, onInterim?: (message: ExtensionMessage) => void): Promise<ExtensionMessage>
@@ -39,7 +42,7 @@ function requestIdOf(message: AppMessage): string | null {
 }
 
 export async function createBridgeServer(options: BridgeServerOptions): Promise<BridgeServer> {
-  const wss = new WebSocketServer({ host: '127.0.0.1', port: options.port ?? 0 })
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: options.port ?? 0, maxPayload: BRIDGE_MAX_PAYLOAD_BYTES })
   const pending = new Map<string, Pending>()
   let peer: WebSocket | null = null
   let bound = options.boundExtensionId
@@ -57,6 +60,12 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 
   wss.on('connection', (socket, req) => {
     let authorised = false
+
+    // ws emits an error on the individual socket when maxPayload rejects a
+    // frame. The close handler below clears any peer state; leaving this event
+    // unhandled would turn a deliberately rejected oversized message into an
+    // uncaught process error.
+    socket.on('error', () => undefined)
 
     socket.on('message', (data) => {
       let parsed: unknown

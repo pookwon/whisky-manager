@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { generateToken } from '../../../src/desktop/ws/pairing.js'
-import { createBridgeServer, type BridgeServer } from '../../../src/desktop/ws/server.js'
+import { BRIDGE_MAX_PAYLOAD_BYTES, createBridgeServer, type BridgeServer } from '../../../src/desktop/ws/server.js'
 import { PROTOCOL_VERSION, type ExtensionMessage } from '../../../src/shared/protocol.js'
 
 const TOKEN = generateToken()
@@ -242,5 +242,20 @@ describe('createBridgeServer', () => {
     const result = await promise
     expect(result).toEqual({ type: 'COLLECTED', requestId: 'r5', candidates: [] })
     ws.close()
+  })
+
+  it('closes an oversized inbound frame before it can become a bridge message', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: ORIGIN })
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve)
+      ws.once('error', reject)
+    })
+    const closed = new Promise<number>((resolve) => ws.once('close', (code) => resolve(code)))
+    ws.on('error', () => undefined)
+    ws.send('x'.repeat(BRIDGE_MAX_PAYLOAD_BYTES + 1))
+
+    expect(await closed).toBe(1009)
+    expect(server.isConnected()).toBe(false)
   })
 })

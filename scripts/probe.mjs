@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import { createBridgeServer } from '../dist/desktop/ws/server.js'
+import { isCafeArticleListEndpoint } from '../dist/shared/cafeArticleFixture.js'
 
 const TOKEN_FILE = '.wm-probe-token'
 const PORT = 39217
@@ -27,6 +28,11 @@ const jobs = Array.from({ length: args.length / 2 }, (_, i) => ({
   url: args[i * 2],
   outFile: args[i * 2 + 1],
 }))
+
+if (jobs.some(({ url }) => isCafeArticleListEndpoint(url))) {
+  console.error('전체글 목록 응답은 raw 파일로 저장하지 않습니다. `pnpm capture:cafe-articles -- <page>`를 사용하세요.')
+  process.exit(1)
+}
 
 const token = existsSync(TOKEN_FILE)
   ? readFileSync(TOKEN_FILE, 'utf8').trim()

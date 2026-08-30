@@ -4,11 +4,15 @@ import { describe, expect, it } from 'vitest'
 
 const manifest = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../src/extension/manifest.json', import.meta.url)), 'utf8'),
-) as { manifest_version: number; permissions: string[]; host_permissions: string[] }
+) as { manifest_version: number; minimum_chrome_version: string; permissions: string[]; host_permissions: string[] }
 
 describe('extension manifest', () => {
   it('targets manifest v3', () => {
     expect(manifest.manifest_version).toBe(3)
+  })
+
+  it('requires Chrome 116 for the WebSocket service-worker keepalive contract', () => {
+    expect(manifest.minimum_chrome_version).toBe('116')
   })
 
   it('never requests the cookies permission', () => {

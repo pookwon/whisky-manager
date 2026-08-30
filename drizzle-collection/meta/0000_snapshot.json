@@ -1,0 +1,913 @@
+{
+  "id": "7429309e-c839-4cdc-b4f3-4639cae77d36",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.cafe_boards": {
+      "name": "cafe_boards",
+      "schema": "",
+      "columns": {
+        "cafe_id": {
+          "name": "cafe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "board_id": {
+          "name": "board_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "collection_board_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "collect_enabled": {
+          "name": "collect_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "discovered_at": {
+          "name": "discovered_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "cafe_boards_pkey": {
+          "name": "cafe_boards_pkey",
+          "columns": [
+            "cafe_id",
+            "board_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.cafe_posts": {
+      "name": "cafe_posts",
+      "schema": "",
+      "columns": {
+        "cafe_id": {
+          "name": "cafe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "post_id": {
+          "name": "post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "board_id": {
+          "name": "board_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prefix": {
+          "name": "prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_nickname": {
+          "name": "author_nickname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posted_date_kst": {
+          "name": "posted_date_kst",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "posted_at": {
+          "name": "posted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posted_precision": {
+          "name": "posted_precision",
+          "type": "collection_posted_precision",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_observed_run_id": {
+          "name": "last_observed_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unavailable_at": {
+          "name": "unavailable_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "cafe_posts_board_date": {
+          "name": "cafe_posts_board_date",
+          "columns": [
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "board_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "posted_date_kst",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "cafe_posts_author_date": {
+          "name": "cafe_posts_author_date",
+          "columns": [
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "author_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "posted_date_kst",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "cafe_posts_prefix_date": {
+          "name": "cafe_posts_prefix_date",
+          "columns": [
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "prefix",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "posted_date_kst",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "cafe_posts_last_observed_run_id_collection_runs_id_fk": {
+          "name": "cafe_posts_last_observed_run_id_collection_runs_id_fk",
+          "tableFrom": "cafe_posts",
+          "tableTo": "collection_runs",
+          "columnsFrom": [
+            "last_observed_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cafe_posts_board_fk": {
+          "name": "cafe_posts_board_fk",
+          "tableFrom": "cafe_posts",
+          "tableTo": "cafe_boards",
+          "columnsFrom": [
+            "cafe_id",
+            "board_id"
+          ],
+          "columnsTo": [
+            "cafe_id",
+            "board_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "cafe_posts_pkey": {
+          "name": "cafe_posts_pkey",
+          "columns": [
+            "cafe_id",
+            "post_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.collection_feed_state": {
+      "name": "collection_feed_state",
+      "schema": "",
+      "columns": {
+        "cafe_id": {
+          "name": "cafe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "feed_kind": {
+          "name": "feed_kind",
+          "type": "collection_feed_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "menu_id": {
+          "name": "menu_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_start_ms": {
+          "name": "target_start_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_end_ms": {
+          "name": "target_end_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "page_size": {
+          "name": "page_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 50
+        },
+        "state_version": {
+          "name": "state_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "anchor_post_id": {
+          "name": "anchor_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anchor_posted_date_kst": {
+          "name": "anchor_posted_date_kst",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_post_id": {
+          "name": "first_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_post_id": {
+          "name": "last_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_identity": {
+          "name": "page_identity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_page": {
+          "name": "reference_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "collection_feed_state_last_run_id_collection_runs_id_fk": {
+          "name": "collection_feed_state_last_run_id_collection_runs_id_fk",
+          "tableFrom": "collection_feed_state",
+          "tableTo": "collection_runs",
+          "columnsFrom": [
+            "last_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "collection_feed_state_pkey": {
+          "name": "collection_feed_state_pkey",
+          "columns": [
+            "cafe_id",
+            "feed_kind",
+            "menu_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "collection_feed_state_version": {
+          "name": "collection_feed_state_version",
+          "value": "\"collection_feed_state\".\"state_version\" >= 0"
+        },
+        "collection_feed_state_target_range": {
+          "name": "collection_feed_state_target_range",
+          "value": "\"collection_feed_state\".\"target_start_ms\" < \"collection_feed_state\".\"target_end_ms\""
+        },
+        "collection_feed_state_page_size": {
+          "name": "collection_feed_state_page_size",
+          "value": "\"collection_feed_state\".\"page_size\" between 1 and 50"
+        },
+        "collection_feed_state_reference_page": {
+          "name": "collection_feed_state_reference_page",
+          "value": "\"collection_feed_state\".\"reference_page\" is null or \"collection_feed_state\".\"reference_page\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.collection_runs": {
+      "name": "collection_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cafe_id": {
+          "name": "cafe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "feed_kind": {
+          "name": "feed_kind",
+          "type": "collection_feed_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "menu_id": {
+          "name": "menu_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_kind": {
+          "name": "run_kind",
+          "type": "collection_run_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resume_from_checkpoint": {
+          "name": "resume_from_checkpoint",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "target_start_ms": {
+          "name": "target_start_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_end_ms": {
+          "name": "target_end_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "collection_run_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "stop_reason": {
+          "name": "stop_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discovery_pages": {
+          "name": "discovery_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "collection_pages": {
+          "name": "collection_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "request_pages": {
+          "name": "request_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "observed_post_count": {
+          "name": "observed_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "in_range_post_count": {
+          "name": "in_range_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "inserted_post_count": {
+          "name": "inserted_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_post_count": {
+          "name": "updated_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "duplicate_post_count": {
+          "name": "duplicate_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "failed_post_count": {
+          "name": "failed_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_committed_anchor_post_id": {
+          "name": "last_committed_anchor_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_committed_page": {
+          "name": "last_committed_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "collection_runs_one_running_feed": {
+          "name": "collection_runs_one_running_feed",
+          "columns": [
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "feed_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "menu_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"collection_runs\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "collection_runs_feed_status": {
+          "name": "collection_runs_feed_status",
+          "columns": [
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "feed_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "menu_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "collection_runs_target_range": {
+          "name": "collection_runs_target_range",
+          "value": "\"collection_runs\".\"target_start_ms\" < \"collection_runs\".\"target_end_ms\""
+        },
+        "collection_runs_last_page": {
+          "name": "collection_runs_last_page",
+          "value": "\"collection_runs\".\"last_committed_page\" is null or \"collection_runs\".\"last_committed_page\" >= 1"
+        },
+        "collection_runs_nonnegative_counts": {
+          "name": "collection_runs_nonnegative_counts",
+          "value": "\"collection_runs\".\"discovery_pages\" >= 0 and \"collection_runs\".\"collection_pages\" >= 0 and \"collection_runs\".\"request_pages\" >= 0 and \"collection_runs\".\"observed_post_count\" >= 0 and \"collection_runs\".\"in_range_post_count\" >= 0 and \"collection_runs\".\"inserted_post_count\" >= 0 and \"collection_runs\".\"updated_post_count\" >= 0 and \"collection_runs\".\"duplicate_post_count\" >= 0 and \"collection_runs\".\"failed_post_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.post_metric_observations": {
+      "name": "post_metric_observations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cafe_id": {
+          "name": "cafe_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "post_id": {
+          "name": "post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "view_count": {
+          "name": "view_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "like_count": {
+          "name": "like_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "comment_count": {
+          "name": "comment_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "collection_run_id": {
+          "name": "collection_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "collection_metric_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parser_version": {
+          "name": "parser_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "post_metric_observations_run_post_source": {
+          "name": "post_metric_observations_run_post_source",
+          "columns": [
+            {
+              "expression": "collection_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "post_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "post_metric_observations_post_observed": {
+          "name": "post_metric_observations_post_observed",
+          "columns": [
+            {
+              "expression": "cafe_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "post_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "post_metric_observations_collection_run_id_collection_runs_id_fk": {
+          "name": "post_metric_observations_collection_run_id_collection_runs_id_fk",
+          "tableFrom": "post_metric_observations",
+          "tableTo": "collection_runs",
+          "columnsFrom": [
+            "collection_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "post_metric_observations_post_fk": {
+          "name": "post_metric_observations_post_fk",
+          "tableFrom": "post_metric_observations",
+          "tableTo": "cafe_posts",
+          "columnsFrom": [
+            "cafe_id",
+            "post_id"
+          ],
+          "columnsTo": [
+            "cafe_id",
+            "post_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.collection_board_kind": {
+      "name": "collection_board_kind",
+      "schema": "public",
+      "values": [
+        "normal",
+        "memo",
+        "special",
+        "unknown"
+      ]
+    },
+    "public.collection_feed_kind": {
+      "name": "collection_feed_kind",
+      "schema": "public",
+      "values": [
+        "all_articles"
+      ]
+    },
+    "public.collection_run_kind": {
+      "name": "collection_run_kind",
+      "schema": "public",
+      "values": [
+        "development",
+        "backfill",
+        "incremental"
+      ]
+    },
+    "public.collection_run_status": {
+      "name": "collection_run_status",
+      "schema": "public",
+      "values": [
+        "running",
+        "succeeded",
+        "partial",
+        "failed",
+        "interrupted"
+      ]
+    },
+    "public.collection_metric_source": {
+      "name": "collection_metric_source",
+      "schema": "public",
+      "values": [
+        "list",
+        "detail"
+      ]
+    },
+    "public.collection_posted_precision": {
+      "name": "collection_posted_precision",
+      "schema": "public",
+      "values": [
+        "day",
+        "minute",
+        "millisecond"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
