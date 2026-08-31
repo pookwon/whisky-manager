@@ -7,6 +7,9 @@ import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
+import type { CollectionFeed } from './collection-db/repository.js'
+import type { OptionalCollectionContext } from './collectionContext.js'
+import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
@@ -19,12 +22,24 @@ import type {
   AutomationSettingsView,
   AutomationStatus,
   BridgeStatus,
+  CollectionStatusView,
   CommonSettingsView,
   DashboardSnapshot,
   ExportConfigResult,
   ImportConfigResult,
   RendererApi,
 } from './ipc.js'
+
+/**
+ * The one feed Phase 1 collects: the whole-cafe article list. Taken from the
+ * endpoint contract rather than restated, so a screen can never read a feed the
+ * extension is not allowed to fetch.
+ */
+const ALL_ARTICLES_FEED: CollectionFeed = {
+  cafeId: CAFE_ARTICLE_LIST.cafeId,
+  feedKind: 'all_articles',
+  menuId: CAFE_ARTICLE_LIST.menuId,
+}
 
 const PAIRING_TOKEN_KEY = 'pairingToken'
 /**
@@ -59,6 +74,12 @@ export interface RendererApiDeps {
   readonly settings: SettingsRepo
   readonly bridge: ExtensionTransport
   readonly automation: AutomationControl
+  /**
+   * Collection storage as bootstrap found it. Read through a getter so a
+   * context that comes back after a retry is picked up without rebuilding this
+   * api.
+   */
+  readonly collection: () => OptionalCollectionContext
   /** The most recent session result for one automation, or null if it never ran. */
   readonly lastOutcome: (automationId: string) => SessionOutcome | null
   /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
@@ -170,6 +191,13 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   }
 
   return {
+    async getCollectionStatus(): Promise<CollectionStatusView> {
+      const collection = deps.collection()
+      if (collection.kind === 'disabled') return { kind: 'disabled' }
+      if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
+      return { kind: 'ready', status: await collection.status.read(ALL_ARTICLES_FEED) }
+    },
+
     getDashboard(): Promise<DashboardSnapshot> {
       const now = deps.clock.now()
       // Today means the day the greetings were posted on, so a run filling in

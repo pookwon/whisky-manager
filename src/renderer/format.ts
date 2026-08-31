@@ -164,6 +164,51 @@ export function warmSummary(lastWarm: WarmCheck | null): string {
   return lastWarm.loggedIn ? TEXT.time.sessionKeptAlive(time) : TEXT.time.sessionLapsed(time)
 }
 
+/**
+ * `MM-DD HH:MM` on the cafe's clock. A collected span runs over days, so the
+ * hour alone would leave the operator guessing which day they are looking at.
+ */
+export function formatKstDateTime(epochMs: number): string {
+  const kst = new Date(epochMs + KST_OFFSET_MS)
+  const month = String(kst.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(kst.getUTCDate()).padStart(2, '0')
+  return `${month}-${day} ${formatKstTime(epochMs)}`
+}
+
+/**
+ * The range a run was asked for, in the unit it was asked in. Under a day the
+ * operator thinks in hours, and "최근 0일" says nothing.
+ */
+export function collectionRangeLabel(run: {
+  readonly targetStartMs: number
+  readonly targetEndMs: number
+}): string {
+  const span = Math.max(0, run.targetEndMs - run.targetStartMs)
+  return span >= DAY
+    ? TEXT.collection.targetRange(Math.round(span / DAY))
+    : TEXT.collection.targetHours(Math.max(1, Math.round(span / HOUR)))
+}
+
+/**
+ * How far into its target range a run has walked, as a percentage.
+ *
+ * Measured from the cursor's own posted time rather than from page counts: the
+ * feed shifts under the reader, so a page number is not a position, while the
+ * time of the last committed post is exactly one. Null until the first page is
+ * committed, which is a real state and not zero progress.
+ */
+export function collectionCoveragePercent(run: {
+  readonly targetStartMs: number
+  readonly targetEndMs: number
+  readonly cursorPostedAtMs: number | null
+}): number | null {
+  if (run.cursorPostedAtMs === null) return null
+  const span = run.targetEndMs - run.targetStartMs
+  if (span <= 0) return null
+  const walked = run.targetEndMs - run.cursorPostedAtMs
+  return Math.min(100, Math.max(0, Math.round((walked / span) * 100)))
+}
+
 /** The next session on that same clock, or null when none is due. */
 export function formatNextSessionTime(nextSessionAt: number | null): string | null {
   return nextSessionAt === null ? null : formatKstTime(nextSessionAt)

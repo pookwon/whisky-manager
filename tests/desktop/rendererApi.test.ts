@@ -92,6 +92,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
       isConnected: () => bridge.connected ?? true,
       request: () => Promise.reject(new Error('not used in this test')),
     },
+    // These tests cover the SQLite-backed screens, which stay whole without
+    // collection storage — the state an operator without one actually runs in.
+    collection: () => ({ kind: 'disabled', close: () => Promise.resolve() }),
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
     lastOutcomeAt: () => null,

@@ -231,6 +231,7 @@ void app.whenReady().then(async () => {
       settings: appContext.settings,
       bridge: appContext.bridge,
       automation: appContext.automation,
+      collection: () => appContext.collection,
       // Only one automation has a runtime, so its outcome is the only one there
       // is to report. When a second runtime appears this becomes a lookup.
       lastOutcome: (automationId) =>

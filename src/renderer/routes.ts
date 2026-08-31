@@ -3,6 +3,7 @@ import type { AutomationPanel } from '../shared/automations/catalog.js'
 export type Route =
   | { readonly kind: 'dashboard' }
   | { readonly kind: 'automation'; readonly id: string; readonly panel: AutomationPanel }
+  | { readonly kind: 'collection' }
   | { readonly kind: 'commonSettings' }
 
 export const DEFAULT_ROUTE: Route = { kind: 'dashboard' }

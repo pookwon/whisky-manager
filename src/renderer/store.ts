@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AutomationSettingsView,
   AwaitingItem,
+  CollectionStatusView,
   CommonSettingsView,
   DashboardSnapshot,
 } from '../desktop/ipc.js'
@@ -17,6 +18,8 @@ interface AppState {
   templates: Template[]
   automationSettings: AutomationSettingsView | null
   commonSettings: CommonSettingsView | null
+  /** Null until the first answer; the view itself carries "no storage". */
+  collection: CollectionStatusView | null
   cafeImage: string | null
   busy: boolean
   /** Message of the last failed action, until the next action starts. */
@@ -35,6 +38,7 @@ export const useApp = create<AppState>((set, get) => ({
   templates: [],
   automationSettings: null,
   commonSettings: null,
+  collection: null,
   cafeImage: null,
   busy: false,
   error: null,
@@ -60,22 +64,28 @@ export const useApp = create<AppState>((set, get) => ({
     const { route } = get()
     const automationId = automationOf(route)
 
+    // The collection status is read on every route, unlike the per-automation
+    // data above: it is a local database read rather than cafe traffic, and the
+    // sidebar says whether a collection is running from wherever the operator
+    // happens to be standing.
     if (automationId === null) {
-      const [dashboard, commonSettings] = await Promise.all([
+      const [dashboard, commonSettings, collection] = await Promise.all([
         api.getDashboard(),
         api.getCommonSettings(),
+        api.getCollectionStatus(),
       ])
-      set({ dashboard, commonSettings })
+      set({ dashboard, commonSettings, collection })
       return
     }
 
-    const [dashboard, awaiting, templates, automationSettings] = await Promise.all([
+    const [dashboard, awaiting, templates, automationSettings, collection] = await Promise.all([
       api.getDashboard(),
       api.listAwaiting(automationId),
       api.listTemplates(automationId),
       api.getAutomationSettings(automationId),
+      api.getCollectionStatus(),
     ])
-    set({ dashboard, awaiting, templates, automationSettings })
+    set({ dashboard, awaiting, templates, automationSettings, collection })
   },
 
   loadCafeImage: async () => {

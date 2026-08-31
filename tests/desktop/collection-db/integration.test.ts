@@ -9,6 +9,7 @@ import { parseCafeArticleListText } from '../../../src/shared/cafeArticleList.js
 import { openCollectionDatabase, type CollectionDatabaseConnection } from '../../../src/desktop/collection-db/client.js'
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
+import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 
 const testDatabaseUrl = process.env.COLLECTION_TEST_DATABASE_URL?.trim()
 const integration = testDatabaseUrl === undefined || testDatabaseUrl === '' ? describe.skip : describe
@@ -160,7 +161,38 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     )
     expect(run.rows[0]).toEqual({ collection_pages: 2, observed_post_count: 100 })
 
+    // The screen's read model, against the rows the writes above just made.
+    const status = createCollectionStatusQuery(connection.db)
+    const whileRunning = await status.read(feed)
+    expect(whileRunning.totals).toMatchObject({
+      posts: 50,
+      observations: 50,
+      // However many boards the page's rows actually name — the count comes
+      // from the same rows the writes above stored.
+      boards: new Set(page.items.map((item) => item.boardId)).size,
+    })
+    expect(whileRunning.totals.oldestPostedAtMs).toBe(
+      Math.min(...page.items.map((item) => item.postedAt)),
+    )
+    expect(whileRunning.totals.newestPostedAtMs).toBe(
+      Math.max(...page.items.map((item) => item.postedAt)),
+    )
+    expect(whileRunning.running).toMatchObject({ id: runId, status: 'running', collectionPages: 2 })
+    // The cursor reports the anchor post's own posted time, so progress is
+    // measured against the target range rather than against a page count.
+    expect(whileRunning.running?.cursorPostedAtMs).toBeTypeOf('number')
+    expect(whileRunning.recentRuns[0]?.id).toBe(runId)
+
     await repository.finishRun(runId, 'interrupted', 'TEST_RANGE_RESUME', new Date(now.getTime() + 3_000))
+
+    const afterFinish = await status.read(feed)
+    expect(afterFinish.running).toBeNull()
+    expect(afterFinish.recentRuns[0]).toMatchObject({
+      id: runId,
+      status: 'interrupted',
+      stopReason: 'TEST_RANGE_RESUME',
+    })
+    expect(afterFinish.recentRuns[0]?.finishedAtMs).toBeTypeOf('number')
     const stateBeforeResume = await repository.readFeedState(feed)
     const resumedRunId = randomUUID()
     const resumed = await repository.startRun({

@@ -1,3 +1,5 @@
+import type { CollectionStatus } from './collection-db/statusQuery.js'
+import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { BundleProblem } from '../shared/configBundle.js'
 import type { ImportSummary } from './configTransfer.js'
@@ -11,6 +13,7 @@ export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
 
 export const IPC_CHANNELS = {
   getDashboard: 'wm:getDashboard',
+  getCollectionStatus: 'wm:getCollectionStatus',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -109,6 +112,17 @@ export interface DashboardSnapshot {
   readonly averageActionGapMs: number
 }
 
+/**
+ * Collection storage is optional, so its screen has three answers rather than
+ * one: no database configured, one configured but not usable, or the numbers.
+ * The screen must be able to say which — an empty screen and an unreachable
+ * database look identical otherwise.
+ */
+export type CollectionStatusView =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
+  | { readonly kind: 'ready'; readonly status: CollectionStatus }
+
 export interface AwaitingItem {
   readonly id: string
   readonly postId: string
@@ -161,6 +175,8 @@ export type ImportConfigResult =
 
 export interface RendererApi {
   getDashboard(): Promise<DashboardSnapshot>
+  /** Reads the collection database; answers `disabled` when there is none. */
+  getCollectionStatus(): Promise<CollectionStatusView>
   listAwaiting(automationId: string): Promise<AwaitingItem[]>
   approve(id: string): Promise<void>
   reject(id: string): Promise<void>

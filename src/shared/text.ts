@@ -38,15 +38,66 @@ export const TEXT = {
     approvals: '승인 큐',
     templates: '문구',
     settings: '자동화 설정',
+    collection: '게시판 수집',
+    collectionStatus: '수집 현황',
     commonSettings: '카페 · 계정 설정',
     common: '공통',
   },
   automation: {
     welcomeComment: '환영 댓글',
   },
+  collection: {
+    heading: '수집 현황',
+    running: '수집 중',
+    lastRun: '마지막 수집',
+    never: '아직 수집한 적이 없습니다',
+    /** Pages committed, not pages requested: a rewind read is not progress. */
+    pagesRead: (pages: number) => `${pages}쪽 저장`,
+    newPosts: (count: number) => `신규 ${count}건`,
+    reobserved: (count: number) => `재관측 ${count}건`,
+    elapsed: (text: string) => `${text} 경과`,
+    coverage: (percent: number) => `대상 구간의 ${percent}%`,
+    totals: {
+      posts: '수집한 글',
+      observations: '관측',
+      boards: '게시판',
+    },
+    span: '수집 구간',
+    spanRange: (oldest: string, newest: string) => `${oldest} — ${newest}`,
+    spanEmpty: '아직 저장된 글이 없습니다',
+    recent: '최근 실행',
+    /** A range said in days, because that is what the operator asked for. */
+    targetRange: (days: number) => `최근 ${days}일`,
+    targetHours: (hours: number) => `최근 ${hours}시간`,
+    runStatus: {
+      running: '진행 중',
+      succeeded: '완료',
+      partial: '일부만',
+      failed: '중단',
+      interrupted: '멈춤',
+    },
+    /**
+     * Storage is optional, and the two ways it can be missing need different
+     * answers: one is a choice, the other is something to fix.
+     */
+    disabledHeading: '수집 저장소가 설정되지 않았습니다',
+    disabledHow: 'DATABASE_URL을 지정하면 수집한 글이 이 화면에 쌓입니다. 가입인사 자동화는 이것 없이도 그대로 동작합니다.',
+    unavailableHeading: '수집 저장소를 쓸 수 없습니다',
+    unavailable: {
+      COLLECTION_CONNECTION_FAILED: 'PostgreSQL에 연결하지 못했습니다.',
+      COLLECTION_AUTHENTICATION_FAILED: 'PostgreSQL 접속 계정이 거부됐습니다.',
+      COLLECTION_SCHEMA_MISSING: '수집용 테이블이 아직 만들어지지 않았습니다.',
+      COLLECTION_SCHEMA_MISMATCH: '저장소의 스키마가 이 버전과 다릅니다.',
+      COLLECTION_MIGRATION_FILES_MISSING: '설치본에 수집용 마이그레이션이 없습니다.',
+    },
+  },
   dashboard: {
     heading: '대시보드',
     automations: '기능별 상태',
+    /** The collection is a feature of its own on this list, not an automation. */
+    collectionRunning: (pages: number, posts: number) => `${pages}쪽 저장 · 신규 ${posts}건`,
+    collectionIdle: (elapsed: string) => `마지막 수집 · ${elapsed}`,
+    collectionNever: '수집 기록 없음',
     awaitingShort: (count: number) => `대기 ${count}건`,
     /**
      * Said on the dashboard for as long as it is true, not once after an

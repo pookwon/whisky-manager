@@ -7,6 +7,7 @@ import type {
 
 const wm = {
   getDashboard: vi.fn(),
+  getCollectionStatus: vi.fn(),
   listAwaiting: vi.fn(),
   approve: vi.fn(),
   reject: vi.fn(),
@@ -71,6 +72,9 @@ const automationSettings: AutomationSettingsView = {
 beforeEach(() => {
   vi.clearAllMocks()
   wm.getDashboard.mockResolvedValue(snapshot)
+  // The state an install without collection storage answers with, which is the
+  // one every SQLite-only screen has to keep working in.
+  wm.getCollectionStatus.mockResolvedValue({ kind: 'disabled' })
   wm.listAwaiting.mockResolvedValue([])
   wm.listTemplates.mockResolvedValue([])
   wm.getCommonSettings.mockResolvedValue(commonSettings)

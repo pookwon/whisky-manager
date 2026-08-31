@@ -10,6 +10,7 @@ import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
 import { Approvals } from './views/Approvals.js'
 import { AutomationSettings } from './views/AutomationSettings.js'
+import { CollectionStatus } from './views/CollectionStatus.js'
 import { CommonSettings } from './views/CommonSettings.js'
 import { Dashboard } from './views/Dashboard.js'
 import { ExtensionSetupDialog } from './views/ExtensionSetupDialog.js'
@@ -23,6 +24,7 @@ export function App(): React.JSX.Element {
   const refresh = useApp((s) => s.refresh)
   const loadCafeImage = useApp((s) => s.loadCafeImage)
   const dashboard = useApp((s) => s.dashboard)
+  const collection = useApp((s) => s.collection)
   const cafeImage = useApp((s) => s.cafeImage)
   const error = useApp((s) => s.error)
   const [setupMode, setSetupMode] = useState<'connect' | 'recover' | null>(null)
@@ -59,6 +61,9 @@ export function App(): React.JSX.Element {
     bridgeStatus,
     dashboard?.extensionEverPaired,
   )
+
+  /** Only a storage that answered can report a run; anything else is not "no". */
+  const collectionRunning = collection?.kind === 'ready' && collection.status.running !== null
 
   /** Read from the dashboard, which every route polls, so the badge stays live. */
   const awaitingFor = (automationId: string): number =>
@@ -165,6 +170,24 @@ export function App(): React.JSX.Element {
           </section>
         ))}
 
+        {/* A feature of its own, given the same shape as an automation: its name
+            in full ink, its screens behind the containment rule. The chip says
+            a collection is under way, in the slot the approval count uses. */}
+        <section className="mt-5" aria-label={TEXT.nav.collection}>
+          <h2 className="nav-section">{TEXT.nav.collection}</h2>
+          <div className="nav-children">
+            <button
+              type="button"
+              className="nav-item nav-item-sub"
+              aria-current={route.kind === 'collection' ? 'page' : undefined}
+              onClick={() => setRoute({ kind: 'collection' })}
+            >
+              <span>{TEXT.nav.collectionStatus}</span>
+              {collectionRunning && <span className="chip tone-accent">{TEXT.collection.running}</span>}
+            </button>
+          </div>
+        </section>
+
         <section className="mt-5" aria-label={TEXT.nav.common}>
           <h2 className="nav-group-label">{TEXT.nav.common}</h2>
           <button
@@ -185,6 +208,7 @@ export function App(): React.JSX.Element {
           </div>
         )}
         {route.kind === 'dashboard' && <Dashboard />}
+        {route.kind === 'collection' && <CollectionStatus />}
         {route.kind === 'commonSettings' && <CommonSettings />}
         {route.kind === 'automation' && route.panel === 'approvals' && (
           <Approvals automationId={route.id} />
