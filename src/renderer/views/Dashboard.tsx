@@ -16,6 +16,7 @@ import {
   getBridgeStatusTone,
 } from '../format.js'
 import { useApp } from '../store.js'
+import { CollectionRow, CollectionStrip } from './DashboardCollection.js'
 
 function Stat({
   label,
@@ -55,6 +56,7 @@ function kstMidnightOf(value: string): number {
 
 export function Dashboard(): React.JSX.Element {
   const dashboard = useApp((s) => s.dashboard)
+  const collection = useApp((s) => s.collection)
   const setRoute = useApp((s) => s.setRoute)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
@@ -313,6 +315,15 @@ export function Dashboard(): React.JSX.Element {
         </div>
       </section>
 
+      {/* Below the session banner, above everything else: a collection under
+          way is present state, and it belongs where the eye already looks for
+          what the app is doing. */}
+      <CollectionStrip
+        collection={collection}
+        nowMs={Date.now()}
+        onOpen={() => setRoute({ kind: 'collection' })}
+      />
+
       {pending !== null && (
         <section className="panel overflow-hidden">
           <div className="flex">
@@ -472,6 +483,12 @@ export function Dashboard(): React.JSX.Element {
             </button>
           )
         })}
+
+        <CollectionRow
+          collection={collection}
+          nowMs={Date.now()}
+          onOpen={() => setRoute({ kind: 'collection' })}
+        />
       </section>
     </div>
   )
