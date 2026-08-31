@@ -28,6 +28,10 @@ import { previewDay, type StartupPreview } from './preview.js'
 import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAuthors.js'
 import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
+import { CAFE_ARTICLE_LIST_PARSER_VERSION } from '../shared/cafeArticleList.js'
+import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
+import { createCollectionRunner, type CollectionRunner } from './collectionRunner.js'
+import { readCollectionSchedule } from './collectionSettings.js'
 import { appendRefusal } from './refusalLog.js'
 import {
   openOptionalCollectionContext,
@@ -89,6 +93,10 @@ export interface AppContext {
   readonly bridge: BridgeServer
   /** Optional PostgreSQL collection context; legacy automation remains usable without it. */
   readonly collection: OptionalCollectionContext
+  /** Starts and stops one collection walk; the loop decides when scheduled ones happen. */
+  readonly collectionRunner: CollectionRunner
+  /** Re-read after the schedule is saved, so a change takes effect without a restart. */
+  readonly collectionLoop: CollectionLoop
   readonly automation: AutomationControl
   /** Rotates the pairing token and clears both persistent and live extension trust. */
   resetExtensionPairing(): string
@@ -336,6 +344,37 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
   })
 
+  /**
+   * The collection walks the board through the same gate the greeting session
+   * uses, and yields to it: a session in flight has a person waiting on it,
+   * where a backfill has hours to spare.
+   */
+  const collectionRunner = createCollectionRunner({
+    repository: () => (collection.kind === 'ready' ? collection.repository : null),
+    transport,
+    clock: systemClock,
+    random: systemRandom,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    isSessionBusy: () => sessionProgress !== null,
+    newId: () => randomUUID(),
+    parserVersion: CAFE_ARTICLE_LIST_PARSER_VERSION,
+    onError: (error) => console.error('[collection]', error),
+  })
+
+  const collectionLoop = createCollectionLoop({
+    schedule: () => readCollectionSchedule(settings),
+    runner: collectionRunner,
+    clock: systemClock,
+    setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+    clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
+    onStarted: (result, scheduledFor) => {
+      if (result.kind === 'refused') {
+        console.warn('[collection] scheduled run refused:', result.reason, scheduledFor)
+      }
+    },
+  })
+  collectionLoop.refresh()
+
   const automation: AutomationControl = {
     start() {
       killed = false
@@ -442,6 +481,8 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     repos,
     bridge,
     collection,
+    collectionRunner,
+    collectionLoop,
     automation,
     resetExtensionPairing() {
       const nextToken = generateToken()
@@ -493,6 +534,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         clearInterval(monitorConnectionHandle)
       }
       loop.stop()
+      collectionLoop.stop()
+      // A walk in flight is asked to end at its page boundary; the page it is
+      // on is either committed whole or dropped whole, never half.
+      collectionRunner.stop()
       warmer.stop()
       await bridge.close()
       await collection.close()

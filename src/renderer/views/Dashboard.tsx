@@ -321,7 +321,7 @@ export function Dashboard(): React.JSX.Element {
       <CollectionStrip
         collection={collection}
         nowMs={Date.now()}
-        onOpen={() => setRoute({ kind: 'collection' })}
+        onOpen={() => setRoute({ kind: 'collection', panel: 'status' })}
       />
 
       {pending !== null && (
@@ -487,7 +487,7 @@ export function Dashboard(): React.JSX.Element {
         <CollectionRow
           collection={collection}
           nowMs={Date.now()}
-          onOpen={() => setRoute({ kind: 'collection' })}
+          onOpen={() => setRoute({ kind: 'collection', panel: 'status' })}
         />
       </section>
     </div>

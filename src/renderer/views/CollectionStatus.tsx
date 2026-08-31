@@ -1,13 +1,33 @@
+import { useState } from 'react'
 import { TEXT } from '../../shared/text.js'
 import type { CollectionRunSummary } from '../../desktop/collection-db/statusQuery.js'
-import type { CollectionStatusView } from '../../desktop/ipc.js'
+import type { CollectionStatusView, StartCollectionResult } from '../../desktop/ipc.js'
+import { api } from '../api.js'
 import {
   collectionCoveragePercent,
   collectionRangeLabel,
   formatKstDateTime,
+  formatKstTime,
   relativeTime,
 } from '../format.js'
 import { useApp } from '../store.js'
+
+/** `YYYY-MM-DD` in KST, which is what the date input speaks. */
+function kstDateValue(epochMs: number): string {
+  return new Date(epochMs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+/** Midnight KST of a date the operator picked. */
+function kstMidnightOf(value: string): number {
+  return Date.parse(`${value}T00:00:00+09:00`)
+}
+
+/** Why a press did nothing, in the words of the thing the operator can fix. */
+function refusalText(result: StartCollectionResult): string | null {
+  if (result.kind === 'refused') return TEXT.collection.refused[result.reason]
+  if (result.kind === 'rejected') return TEXT.collection.rejected[result.problem]
+  return null
+}
 
 /** Same shape the dashboard's numbers wear, so the two screens read alike. */
 function Stat({ label, value }: { label: string; value: number }): React.JSX.Element {
@@ -96,6 +116,21 @@ function Unavailable({ view }: { view: CollectionStatusView }): React.JSX.Elemen
 
 export function CollectionStatus(): React.JSX.Element {
   const collection = useApp((s) => s.collection)
+  const schedule = useApp((s) => s.collectionSchedule)
+  const busy = useApp((s) => s.busy)
+  const act = useApp((s) => s.act)
+  const [firstDay, setFirstDay] = useState(() => kstDateValue(Date.now() - 3 * 86_400_000))
+  const [lastDay, setLastDay] = useState(() => kstDateValue(Date.now()))
+  /** What the last press answered, until the next one. */
+  const [refusal, setRefusal] = useState<string | null>(null)
+
+  const press = (request?: { firstDayMs: number; lastDayMs: number }): void => {
+    setRefusal(null)
+    void act(async () => {
+      const result = await api.startCollection(request)
+      setRefusal(refusalText(result))
+    })
+  }
 
   if (collection === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
@@ -167,9 +202,89 @@ export function CollectionStatus(): React.JSX.Element {
                   </div>
                 </>
               )}
+              {schedule !== null && running === null && (
+                <div className="mt-2 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+                  {schedule.nextRunAtMs === null
+                    ? TEXT.collection.nextRunNone
+                    : TEXT.collection.nextRunAt(formatKstTime(schedule.nextRunAtMs))}
+                </div>
+              )}
+              {refusal !== null && <div className="mt-2 text-sm tone-warn">{refusal}</div>}
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || running !== null}
+                onClick={() => press()}
+              >
+                {TEXT.collection.collectNow}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || running === null}
+                onClick={() => void act(() => api.stopCollection())}
+              >
+                {TEXT.collection.stop}
+              </button>
             </div>
           </div>
         </div>
+      </section>
+
+      {/* A window the operator names, as opposed to the schedule's own. Whole
+          days, because that is the unit they think in; already-stored posts
+          gain one more observation rather than a duplicate row. */}
+      <section className="panel flex flex-wrap items-end gap-3 px-5 py-4">
+        <div>
+          <label
+            className="block text-[0.6875rem] font-medium uppercase tracking-wider"
+            style={{ color: 'var(--ink-muted)' }}
+            htmlFor="collect-from"
+          >
+            {TEXT.collection.periodFrom}
+          </label>
+          <input
+            id="collect-from"
+            type="date"
+            className="field mt-1"
+            value={firstDay}
+            max={kstDateValue(Date.now())}
+            onChange={(event) => setFirstDay(event.target.value)}
+          />
+        </div>
+        <div>
+          <label
+            className="block text-[0.6875rem] font-medium uppercase tracking-wider"
+            style={{ color: 'var(--ink-muted)' }}
+            htmlFor="collect-to"
+          >
+            {TEXT.collection.periodTo}
+          </label>
+          <input
+            id="collect-to"
+            type="date"
+            className="field mt-1"
+            value={lastDay}
+            max={kstDateValue(Date.now())}
+            onChange={(event) => setLastDay(event.target.value)}
+          />
+        </div>
+        <button
+          type="button"
+          className="btn"
+          disabled={busy || running !== null}
+          onClick={() =>
+            press({ firstDayMs: kstMidnightOf(firstDay), lastDayMs: kstMidnightOf(lastDay) })
+          }
+        >
+          {TEXT.collection.periodRun}
+        </button>
+        <p className="w-full text-xs" style={{ color: 'var(--ink-muted)' }}>
+          {TEXT.collection.periodHint}
+        </p>
       </section>
 
       <section className="grid grid-cols-3 gap-3">

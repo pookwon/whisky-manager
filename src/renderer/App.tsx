@@ -10,6 +10,7 @@ import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
 import { Approvals } from './views/Approvals.js'
 import { AutomationSettings } from './views/AutomationSettings.js'
+import { CollectionSettings } from './views/CollectionSettings.js'
 import { CollectionStatus } from './views/CollectionStatus.js'
 import { CommonSettings } from './views/CommonSettings.js'
 import { Dashboard } from './views/Dashboard.js'
@@ -179,11 +180,19 @@ export function App(): React.JSX.Element {
             <button
               type="button"
               className="nav-item nav-item-sub"
-              aria-current={route.kind === 'collection' ? 'page' : undefined}
-              onClick={() => setRoute({ kind: 'collection' })}
+              aria-current={routeKey(route) === 'collection:status' ? 'page' : undefined}
+              onClick={() => setRoute({ kind: 'collection', panel: 'status' })}
             >
               <span>{TEXT.nav.collectionStatus}</span>
               {collectionRunning && <span className="chip tone-accent">{TEXT.collection.running}</span>}
+            </button>
+            <button
+              type="button"
+              className="nav-item nav-item-sub"
+              aria-current={routeKey(route) === 'collection:settings' ? 'page' : undefined}
+              onClick={() => setRoute({ kind: 'collection', panel: 'settings' })}
+            >
+              <span>{TEXT.nav.collectionSettings}</span>
             </button>
           </div>
         </section>
@@ -208,7 +217,8 @@ export function App(): React.JSX.Element {
           </div>
         )}
         {route.kind === 'dashboard' && <Dashboard />}
-        {route.kind === 'collection' && <CollectionStatus />}
+        {route.kind === 'collection' && route.panel === 'status' && <CollectionStatus />}
+        {route.kind === 'collection' && route.panel === 'settings' && <CollectionSettings />}
         {route.kind === 'commonSettings' && <CommonSettings />}
         {route.kind === 'automation' && route.panel === 'approvals' && (
           <Approvals automationId={route.id} />

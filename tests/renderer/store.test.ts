@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_COLLECTION_SCHEDULE } from '../../src/shared/collectionSchedule.js'
 import type {
   AutomationSettingsView,
   CommonSettingsView,
@@ -8,6 +9,10 @@ import type {
 const wm = {
   getDashboard: vi.fn(),
   getCollectionStatus: vi.fn(),
+  getCollectionSchedule: vi.fn(),
+  setCollectionSchedule: vi.fn(),
+  startCollection: vi.fn(),
+  stopCollection: vi.fn(),
   listAwaiting: vi.fn(),
   approve: vi.fn(),
   reject: vi.fn(),
@@ -75,6 +80,11 @@ beforeEach(() => {
   // The state an install without collection storage answers with, which is the
   // one every SQLite-only screen has to keep working in.
   wm.getCollectionStatus.mockResolvedValue({ kind: 'disabled' })
+  wm.getCollectionSchedule.mockResolvedValue({
+    schedule: DEFAULT_COLLECTION_SCHEDULE,
+    nextRunAtMs: null,
+    running: false,
+  })
   wm.listAwaiting.mockResolvedValue([])
   wm.listTemplates.mockResolvedValue([])
   wm.getCommonSettings.mockResolvedValue(commonSettings)

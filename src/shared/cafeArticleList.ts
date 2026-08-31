@@ -36,6 +36,13 @@ export interface CollectedArticlePage {
   readonly pageIdentity: string
 }
 
+/**
+ * Stamped on every observation this parser produces. Bump it when the mapping
+ * changes, so rows read under two different readings of the same response are
+ * told apart afterwards rather than averaged together.
+ */
+export const CAFE_ARTICLE_LIST_PARSER_VERSION = 'article-list-v1'
+
 export type CafeArticleListParseErrorCode =
   | 'INVALID_JSON'
   | 'INVALID_ENVELOPE'

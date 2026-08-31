@@ -9,7 +9,15 @@ import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
 import type { CollectionFeed } from './collection-db/repository.js'
 import type { OptionalCollectionContext } from './collectionContext.js'
+import type { CollectionLoop } from './collectionLoop.js'
+import type { CollectionRunner } from './collectionRunner.js'
+import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
 import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
+import {
+  checkCollectionRange,
+  collectionRangeOfDays,
+  scheduledCollectionRange,
+} from '../shared/collectionSchedule.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 import type { SessionOutcome } from './orchestrator.js'
@@ -22,7 +30,10 @@ import type {
   AutomationSettingsView,
   AutomationStatus,
   BridgeStatus,
+  CollectionRunRequest,
+  CollectionScheduleView,
   CollectionStatusView,
+  StartCollectionResult,
   CommonSettingsView,
   DashboardSnapshot,
   ExportConfigResult,
@@ -80,6 +91,10 @@ export interface RendererApiDeps {
    * api.
    */
   readonly collection: () => OptionalCollectionContext
+  /** Starts and stops one collection walk. */
+  readonly collectionRunner: CollectionRunner
+  /** Re-laid whenever the schedule is saved. */
+  readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
   readonly lastOutcome: (automationId: string) => SessionOutcome | null
   /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
@@ -126,6 +141,12 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   const startedAt = deps.clock.now()
 
   const setting = (automationId: string) => repos.automationSettings.get(automationId)
+
+  const scheduleView = (): CollectionScheduleView => ({
+    schedule: readCollectionSchedule(settings),
+    nextRunAtMs: deps.collectionLoop.nextRunAt(),
+    running: deps.collectionRunner.isRunning(),
+  })
 
   const transfer: ConfigTransferDeps = {
     settings,
@@ -191,6 +212,46 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   }
 
   return {
+    getCollectionSchedule(): Promise<CollectionScheduleView> {
+      return Promise.resolve(scheduleView())
+    },
+
+    setCollectionSchedule(schedule): Promise<CollectionScheduleView> {
+      writeCollectionSchedule(settings, schedule)
+      // Re-laid straight away: a schedule the operator just saved that does not
+      // take effect until the next restart is a schedule they cannot trust.
+      deps.collectionLoop.refresh()
+      return Promise.resolve(scheduleView())
+    },
+
+    startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
+      const now = deps.clock.now()
+      const schedule = readCollectionSchedule(settings)
+      const range =
+        request === undefined
+          ? scheduledCollectionRange(now, schedule)
+          : collectionRangeOfDays(request.firstDayMs, request.lastDayMs)
+
+      const problem = checkCollectionRange(range, now)
+      if (problem !== null) return Promise.resolve({ kind: 'rejected', problem })
+
+      const started = deps.collectionRunner.start({
+        range,
+        // A window the operator picked is a backfill however short it is; the
+        // schedule's own window is the incremental top-up.
+        kind: request === undefined ? 'incremental' : 'backfill',
+        maxPages: schedule.maxPages,
+      })
+      return Promise.resolve(
+        started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason },
+      )
+    },
+
+    stopCollection(): Promise<void> {
+      deps.collectionRunner.stop()
+      return Promise.resolve()
+    },
+
     async getCollectionStatus(): Promise<CollectionStatusView> {
       const collection = deps.collection()
       if (collection.kind === 'disabled') return { kind: 'disabled' }

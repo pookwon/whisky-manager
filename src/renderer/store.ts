@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AutomationSettingsView,
   AwaitingItem,
+  CollectionScheduleView,
   CollectionStatusView,
   CommonSettingsView,
   DashboardSnapshot,
@@ -20,6 +21,7 @@ interface AppState {
   commonSettings: CommonSettingsView | null
   /** Null until the first answer; the view itself carries "no storage". */
   collection: CollectionStatusView | null
+  collectionSchedule: CollectionScheduleView | null
   cafeImage: string | null
   busy: boolean
   /** Message of the last failed action, until the next action starts. */
@@ -39,6 +41,7 @@ export const useApp = create<AppState>((set, get) => ({
   automationSettings: null,
   commonSettings: null,
   collection: null,
+  collectionSchedule: null,
   cafeImage: null,
   busy: false,
   error: null,
@@ -69,23 +72,26 @@ export const useApp = create<AppState>((set, get) => ({
     // sidebar says whether a collection is running from wherever the operator
     // happens to be standing.
     if (automationId === null) {
-      const [dashboard, commonSettings, collection] = await Promise.all([
+      const [dashboard, commonSettings, collection, collectionSchedule] = await Promise.all([
         api.getDashboard(),
         api.getCommonSettings(),
         api.getCollectionStatus(),
+        api.getCollectionSchedule(),
       ])
-      set({ dashboard, commonSettings, collection })
+      set({ dashboard, commonSettings, collection, collectionSchedule })
       return
     }
 
-    const [dashboard, awaiting, templates, automationSettings, collection] = await Promise.all([
-      api.getDashboard(),
-      api.listAwaiting(automationId),
-      api.listTemplates(automationId),
-      api.getAutomationSettings(automationId),
-      api.getCollectionStatus(),
-    ])
-    set({ dashboard, awaiting, templates, automationSettings, collection })
+    const [dashboard, awaiting, templates, automationSettings, collection, collectionSchedule] =
+      await Promise.all([
+        api.getDashboard(),
+        api.listAwaiting(automationId),
+        api.listTemplates(automationId),
+        api.getAutomationSettings(automationId),
+        api.getCollectionStatus(),
+        api.getCollectionSchedule(),
+      ])
+    set({ dashboard, awaiting, templates, automationSettings, collection, collectionSchedule })
   },
 
   loadCafeImage: async () => {

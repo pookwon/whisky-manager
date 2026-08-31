@@ -95,6 +95,12 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     // These tests cover the SQLite-backed screens, which stay whole without
     // collection storage — the state an operator without one actually runs in.
     collection: () => ({ kind: 'disabled', close: () => Promise.resolve() }),
+    collectionRunner: {
+      start: () => ({ kind: 'refused', reason: 'NO_STORAGE' }),
+      stop: () => undefined,
+      isRunning: () => false,
+    },
+    collectionLoop: { refresh: () => undefined, stop: () => undefined, nextRunAt: () => null },
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
     lastOutcomeAt: () => null,

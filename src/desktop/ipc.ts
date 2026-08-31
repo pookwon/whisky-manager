@@ -1,5 +1,10 @@
 import type { CollectionStatus } from './collection-db/statusQuery.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
+import type { CollectionStartRefusal } from './collectionRunner.js'
+import type {
+  CollectionRangeProblem,
+  CollectionSchedule,
+} from '../shared/collectionSchedule.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { BundleProblem } from '../shared/configBundle.js'
 import type { ImportSummary } from './configTransfer.js'
@@ -14,6 +19,10 @@ export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
 export const IPC_CHANNELS = {
   getDashboard: 'wm:getDashboard',
   getCollectionStatus: 'wm:getCollectionStatus',
+  getCollectionSchedule: 'wm:getCollectionSchedule',
+  setCollectionSchedule: 'wm:setCollectionSchedule',
+  startCollection: 'wm:startCollection',
+  stopCollection: 'wm:stopCollection',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -123,6 +132,31 @@ export type CollectionStatusView =
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
   | { readonly kind: 'ready'; readonly status: CollectionStatus }
 
+/**
+ * The schedule as the screen edits it, with the two things only the app knows:
+ * when the next read is due, and whether one is under way right now.
+ */
+export interface CollectionScheduleView {
+  readonly schedule: CollectionSchedule
+  readonly nextRunAtMs: number | null
+  readonly running: boolean
+}
+
+/** A window the operator picked, in whole KST days. */
+export interface CollectionRunRequest {
+  readonly firstDayMs: number
+  readonly lastDayMs: number
+}
+
+/**
+ * What a press to collect ended as. A refusal is an ordinary answer with a
+ * reason the screen can name, not an exception.
+ */
+export type StartCollectionResult =
+  | { readonly kind: 'started' }
+  | { readonly kind: 'refused'; readonly reason: CollectionStartRefusal }
+  | { readonly kind: 'rejected'; readonly problem: CollectionRangeProblem }
+
 export interface AwaitingItem {
   readonly id: string
   readonly postId: string
@@ -177,6 +211,18 @@ export interface RendererApi {
   getDashboard(): Promise<DashboardSnapshot>
   /** Reads the collection database; answers `disabled` when there is none. */
   getCollectionStatus(): Promise<CollectionStatusView>
+  getCollectionSchedule(): Promise<CollectionScheduleView>
+  /** Saves the schedule and re-lays the next beat; returns what was stored. */
+  setCollectionSchedule(schedule: CollectionSchedule): Promise<CollectionScheduleView>
+  /**
+   * Starts one collection now. Omit the request for the configured window
+   * ending now; pass two days to collect exactly that period. Resolves once it
+   * has started, not once it has finished — a walk takes many minutes, and
+   * progress is read from the collection screen.
+   */
+  startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult>
+  /** Asks a walk in flight to end at its next page boundary. */
+  stopCollection(): Promise<void>
   listAwaiting(automationId: string): Promise<AwaitingItem[]>
   approve(id: string): Promise<void>
   reject(id: string): Promise<void>
