@@ -1,4 +1,4 @@
-import type { CollectionStatus } from './collection-db/statusQuery.js'
+import type { CollectionJob, CollectionStatus } from './collection-db/statusQuery.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
 import type {
@@ -146,6 +146,12 @@ export interface CollectionScheduleView {
 export interface CollectionRunRequest {
   readonly firstDayMs: number
   readonly lastDayMs: number
+  /**
+   * Carries the operator's answer to being shown what the job in progress
+   * would lose. Without it a different period is reported back rather than
+   * started, so a running job is never discarded by a stray press.
+   */
+  readonly replace?: boolean
 }
 
 /**
@@ -156,6 +162,8 @@ export type StartCollectionResult =
   | { readonly kind: 'started' }
   | { readonly kind: 'refused'; readonly reason: CollectionStartRefusal }
   | { readonly kind: 'rejected'; readonly problem: CollectionRangeProblem }
+  /** A different period was asked for while this job is unfinished. */
+  | { readonly kind: 'needs_replace'; readonly job: CollectionJob }
 
 export interface AwaitingItem {
   readonly id: string

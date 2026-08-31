@@ -176,6 +176,17 @@ export function formatKstDateTime(epochMs: number): string {
 }
 
 /**
+ * `YYYY-MM-DD` on the cafe's clock. A target period is picked in whole days and
+ * can reach years back, so the year is part of naming it.
+ */
+export function formatKstDate(epochMs: number): string {
+  const kst = new Date(epochMs + KST_OFFSET_MS)
+  const month = String(kst.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(kst.getUTCDate()).padStart(2, '0')
+  return `${kst.getUTCFullYear()}-${month}-${day}`
+}
+
+/**
  * The range a run was asked for, in the unit it was asked in. Under a day the
  * operator thinks in hours, and "최근 0일" says nothing.
  */

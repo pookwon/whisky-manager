@@ -106,7 +106,7 @@ export const TEXT = {
      */
     disabledHeading: '수집 저장소가 설정되지 않았습니다',
     disabledHow: 'DATABASE_URL을 지정하면 수집한 글이 이 화면에 쌓입니다. 가입인사 자동화는 이것 없이도 그대로 동작합니다.',
-    collectNow: '지금 수집',
+    collectNow: '이어서 수집',
     stop: '중지',
     /** A window the operator picks, as opposed to the schedule's own. */
     periodHeading: '기간 지정 수집',
@@ -122,6 +122,20 @@ export const TEXT = {
       NO_STORAGE: '수집 저장소가 없어 시작하지 못했습니다.',
       ALREADY_RUNNING: '이미 수집이 돌고 있습니다.',
       BRIDGE_OFFLINE: '확장이 연결되어 있지 않습니다.',
+      STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 기간을 바꾸세요.',
+      NO_JOB: '이어받을 작업이 없습니다. 아래에서 기간을 골라 시작하세요.',
+      JOB_FINISHED: '이 기간은 끝까지 옮겼습니다. 새 기간을 골라 시작하세요.',
+    },
+    /** Replacing a job the operator has not finished, said as what it costs. */
+    replace: {
+      heading: '진행 중인 작업이 있습니다',
+      period: (from: string, to: string) => `대상 기간 ${from} — ${to}`,
+      progress: (percent: number) => `${percent}%까지 옮겼습니다`,
+      progressUnknown: '아직 한 쪽도 옮기지 않았습니다',
+      walkedTo: (at: string) => `${at}까지 내려왔습니다`,
+      cost: '기간을 바꾸면 이 작업의 진행 위치가 사라지고 새 기간의 처음부터 시작합니다. 이미 옮긴 글은 지워지지 않습니다.',
+      confirm: '기간 바꾸기',
+      cancel: '그대로 두기',
     },
     rejected: {
       EMPTY_RANGE: '시작 날짜가 끝 날짜보다 뒤입니다.',

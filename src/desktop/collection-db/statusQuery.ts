@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { CollectionDatabase } from './client.js'
 import type { CollectionFeed } from './repository.js'
-import { boards, collectionRuns, posts } from './schema.js'
+import { boards, collectionRuns, feedState, posts } from './schema.js'
 
 /**
  * What the collection screen reads. Separate from the repository because that
@@ -38,8 +38,27 @@ export interface CollectionTotals {
   readonly lastSnapshotAtMs: number | null
 }
 
+/**
+ * The period being worked through, and how far into it the walk has come.
+ *
+ * A job outlives the runs that advance it: blocks end when their page budget
+ * runs out, and the next one picks the same job up. The screen has to name the
+ * job rather than the last run, or an operator between blocks is told nothing
+ * is happening when in fact a month of backfill is half done.
+ */
+export interface CollectionJob {
+  readonly targetStartMs: number
+  readonly targetEndMs: number
+  /** Posted time of the last committed post; null before the first page lands. */
+  readonly cursorPostedAtMs: number | null
+  readonly cursorUpdatedAtMs: number
+  readonly complete: boolean
+}
+
 export interface CollectionStatus {
   readonly totals: CollectionTotals
+  /** Null when no period has been asked for yet. */
+  readonly job: CollectionJob | null
   /** The run in flight, which is also the first of `recentRuns`. */
   readonly running: CollectionRunSummary | null
   readonly recentRuns: readonly CollectionRunSummary[]
@@ -73,7 +92,7 @@ function epochFromSeconds(value: string | number | null | undefined): number | n
 export function createCollectionStatusQuery(db: CollectionDatabase): CollectionStatusQuery {
   return {
     async read(feed) {
-      const [postTotals, boardTotals, runs] = await Promise.all([
+      const [postTotals, boardTotals, runs, jobRows] = await Promise.all([
         db
           .select({
             posts: sql<string>`count(*)`,
@@ -106,6 +125,16 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           .where(and(eq(collectionRuns.feedKind, feed.feedKind), eq(collectionRuns.menuId, feed.menuId)))
           .orderBy(desc(collectionRuns.startedAt))
           .limit(RECENT_RUN_LIMIT),
+        db
+          .select({
+            targetStartMs: feedState.targetStartMs,
+            targetEndMs: feedState.targetEndMs,
+            anchorPostedAt: feedState.anchorPostedAt,
+            updatedAt: feedState.updatedAt,
+          })
+          .from(feedState)
+          .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
+          .limit(1),
       ])
 
       const recentRuns: CollectionRunSummary[] = runs.map((run) => ({
@@ -124,6 +153,22 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
         cursorPostedAtMs: epochMs(run.cursorPostedAt),
       }))
 
+      const jobRow = jobRows[0]
+      const cursorPostedAtMs = epochMs(jobRow?.anchorPostedAt ?? null)
+      const job: CollectionJob | null =
+        jobRow === undefined
+          ? null
+          : {
+              targetStartMs: jobRow.targetStartMs,
+              targetEndMs: jobRow.targetEndMs,
+              cursorPostedAtMs,
+              cursorUpdatedAtMs: jobRow.updatedAt.getTime(),
+              // Walked past the period's start, so there is nothing older left
+              // to read. Kept as a derived answer rather than a stored flag: a
+              // second place to write it is a second place to disagree.
+              complete: cursorPostedAtMs !== null && cursorPostedAtMs <= jobRow.targetStartMs,
+            }
+
       const totalsRow = postTotals[0]
       return {
         totals: {
@@ -133,6 +178,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           newestPostedAtMs: epochFromSeconds(totalsRow?.newest),
           lastSnapshotAtMs: epochFromSeconds(totalsRow?.lastSnapshot),
         },
+        job,
         // Only one run per feed can be running, which the schema enforces.
         running: recentRuns.find((run) => run.status === 'running') ?? null,
         recentRuns,

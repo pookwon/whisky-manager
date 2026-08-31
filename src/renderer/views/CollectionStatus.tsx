@@ -1,11 +1,16 @@
 import { useState } from 'react'
 import { TEXT } from '../../shared/text.js'
 import type { CollectionRunSummary } from '../../desktop/collection-db/statusQuery.js'
-import type { CollectionStatusView, StartCollectionResult } from '../../desktop/ipc.js'
+import type {
+  CollectionRunRequest,
+  CollectionStatusView,
+  StartCollectionResult,
+} from '../../desktop/ipc.js'
 import { api } from '../api.js'
 import {
   collectionCoveragePercent,
   collectionRangeLabel,
+  formatKstDate,
   formatKstDateTime,
   formatKstTime,
   relativeTime,
@@ -123,11 +128,23 @@ export function CollectionStatus(): React.JSX.Element {
   const [lastDay, setLastDay] = useState(() => kstDateValue(Date.now()))
   /** What the last press answered, until the next one. */
   const [refusal, setRefusal] = useState<string | null>(null)
+  /**
+   * The period that was asked for while another job was still unfinished, held
+   * until the operator answers. Only the request is kept: the job it would
+   * replace is read live below, so a scheduled block that advances the cursor
+   * while the panel is open cannot leave a stale number in front of the answer.
+   */
+  const [replacing, setReplacing] = useState<CollectionRunRequest | null>(null)
 
-  const press = (request?: { firstDayMs: number; lastDayMs: number }): void => {
+  const press = (request?: CollectionRunRequest): void => {
     setRefusal(null)
+    setReplacing(null)
     void act(async () => {
       const result = await api.startCollection(request)
+      if (result.kind === 'needs_replace' && request !== undefined) {
+        setReplacing(request)
+        return
+      }
       setRefusal(refusalText(result))
     })
   }
@@ -149,7 +166,7 @@ export function CollectionStatus(): React.JSX.Element {
     )
   }
 
-  const { totals, running, recentRuns } = collection.status
+  const { job, totals, running, recentRuns } = collection.status
   const nowMs = Date.now()
   const coverage = running === null ? null : collectionCoveragePercent(running)
   const lastFinished = recentRuns.find((run) => run.status !== 'running') ?? null
@@ -233,6 +250,59 @@ export function CollectionStatus(): React.JSX.Element {
           </div>
         </div>
       </section>
+
+      {replacing !== null && job !== null && (
+        <section className="panel overflow-hidden">
+          <div className="flex">
+            <div className="w-1 shrink-0 bar-warn" />
+            <div className="flex-1 px-5 py-4">
+              <div
+                className="text-[0.6875rem] font-medium uppercase tracking-wider"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                {TEXT.collection.replace.heading}
+              </div>
+              <p className="mt-1 text-sm font-semibold tone-warn">
+                {/* The end is the midnight after the last day, so naming it
+                    directly would announce a day that is not in the period. */}
+                {TEXT.collection.replace.period(
+                  formatKstDate(job.targetStartMs),
+                  formatKstDate(job.targetEndMs - 1),
+                )}
+              </p>
+              {/* Said as how far it walked rather than as pages: the operator is
+                  deciding whether to throw this position away. */}
+              <p className="mt-1 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+                {(() => {
+                  const percent = collectionCoveragePercent(job)
+                  return percent === null || job.cursorPostedAtMs === null
+                    ? TEXT.collection.replace.progressUnknown
+                    : `${TEXT.collection.replace.progress(percent)} · ${TEXT.collection.replace.walkedTo(
+                        formatKstDateTime(job.cursorPostedAtMs),
+                      )}`
+                })()}
+              </p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                {TEXT.collection.replace.cost}
+              </p>
+
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  onClick={() => press({ ...replacing, replace: true })}
+                >
+                  {TEXT.collection.replace.confirm}
+                </button>
+                <button type="button" className="btn" disabled={busy} onClick={() => setReplacing(null)}>
+                  {TEXT.collection.replace.cancel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* A window the operator names, as opposed to the schedule's own. Whole
           days, because that is the unit they think in; already-stored posts

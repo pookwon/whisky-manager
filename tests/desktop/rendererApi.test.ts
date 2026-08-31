@@ -12,6 +12,9 @@ import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
+import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
+import type { CollectionRepository } from '../../src/desktop/collection-db/repository.js'
+import type { CollectionStartRequest } from '../../src/desktop/collectionRunner.js'
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 import type { WarmCheck } from '../../src/desktop/sessionWarmer.js'
 import { PROFILES } from '../../src/shared/profiles.js'
@@ -46,7 +49,20 @@ interface BridgeOverrides {
   readonly lastSeenConnectedAt?: number | null
 }
 
-function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
+/**
+ * What a collection database would answer, for the tests that need one. The
+ * default is no database at all, which is what an install without collection
+ * storage runs as.
+ */
+interface CollectionOverrides {
+  /** The unfinished job in `feed_state`, or null when none has been asked for. */
+  readonly job?: CollectionJob | null
+  readonly runnerBusy?: boolean
+}
+
+function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
+  /** Every start the api asked for, so the resume flag can be read back. */
+  const started: CollectionStartRequest[] = []
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -94,11 +110,36 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     },
     // These tests cover the SQLite-backed screens, which stay whole without
     // collection storage — the state an operator without one actually runs in.
-    collection: () => ({ kind: 'disabled', close: () => Promise.resolve() }),
+    collection: () =>
+      collection.job === undefined
+        ? { kind: 'disabled', close: () => Promise.resolve() }
+        : {
+            kind: 'ready',
+            close: () => Promise.resolve(),
+            // Reading is all the api does with storage; a repository that
+            // throws on any touch proves that rather than assuming it.
+            repository: new Proxy({} as CollectionRepository, {
+              get: () => {
+                throw new Error('the renderer api must not reach the collection repository')
+              },
+            }),
+            status: {
+              read: () =>
+                Promise.resolve({
+                  totals: { posts: 0, boards: 0, oldestPostedAtMs: null, newestPostedAtMs: null, lastSnapshotAtMs: null },
+                  job: collection.job ?? null,
+                  running: null,
+                  recentRuns: [],
+                }),
+            },
+          },
     collectionRunner: {
-      start: () => ({ kind: 'refused', reason: 'NO_STORAGE' }),
+      start: (request) => {
+        started.push(request)
+        return collection.job === undefined ? { kind: 'refused', reason: 'NO_STORAGE' } : { kind: 'started' }
+      },
       stop: () => undefined,
-      isRunning: () => false,
+      isRunning: () => collection.runnerBusy ?? false,
     },
     collectionLoop: { refresh: () => undefined, stop: () => undefined, nextRunAt: () => null },
     automation,
@@ -153,7 +194,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}) {
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock }
+  return { api, repos, settings, clock, started }
 }
 
 async function seedAwaiting(
@@ -682,5 +723,129 @@ describe('importConfig', () => {
     expect((await api.listTemplates(WELCOME_AUTOMATION_ID)).map((t) => t.body)).toEqual([
       '환영합니다',
     ])
+  })
+})
+
+describe('asking for a period while a job is unfinished', () => {
+  const DAY = 86_400_000
+  /** 8월 20일 00:00 KST부터 8월 23일 자정까지 — 화면이 고르는 것과 같은 경계. */
+  const firstDayMs = Date.UTC(2026, 7, 19, 15, 0, 0)
+  const lastDayMs = firstDayMs + 2 * DAY
+  const targetStartMs = firstDayMs
+  const targetEndMs = lastDayMs + DAY
+
+  function job(overrides: Partial<CollectionJob> = {}): CollectionJob {
+    return {
+      targetStartMs,
+      targetEndMs,
+      // Two of the three days walked.
+      cursorPostedAtMs: targetStartMs + DAY,
+      cursorUpdatedAtMs: MON_10_00 - 3_600_000,
+      complete: false,
+      ...overrides,
+    }
+  }
+
+  it('carries on from the cursor when the period is the one already under way', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job() })
+
+    const result = await api.startCollection({ firstDayMs, lastDayMs })
+
+    expect(result).toEqual({ kind: 'started' })
+    expect(started[0]?.resumeFromCheckpoint).toBe(true)
+  })
+
+  it('asks before replacing a different period, and starts nothing yet', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job() })
+
+    const result = await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs })
+
+    expect(result.kind).toBe('needs_replace')
+    if (result.kind !== 'needs_replace') return
+    // The panel is shown the job itself, which is what it puts in front of the
+    // operator before they answer.
+    expect(result.job.targetStartMs).toBe(targetStartMs)
+    expect(result.job.cursorPostedAtMs).toBe(targetStartMs + DAY)
+    expect(started).toEqual([])
+  })
+
+  it('starts the new period from scratch once the operator has answered', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job() })
+
+    const result = await api.startCollection({
+      firstDayMs: firstDayMs - 7 * DAY,
+      lastDayMs,
+      replace: true,
+    })
+
+    expect(result).toEqual({ kind: 'started' })
+    // A fresh cursor is what makes it a replacement rather than a resume; the
+    // repository resets `feed_state` on exactly this flag.
+    expect(started[0]?.resumeFromCheckpoint).toBe(false)
+    expect(started[0]?.range.startMs).toBe(firstDayMs - 7 * DAY)
+  })
+
+  it('does not ask about a job that has already finished its period', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job({ complete: true }) })
+
+    const result = await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs })
+
+    expect(result).toEqual({ kind: 'started' })
+    expect(started[0]?.resumeFromCheckpoint).toBe(false)
+  })
+
+  it('sends the operator to stop the walk before changing the period under it', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job(), runnerBusy: true })
+
+    const result = await api.startCollection({
+      firstDayMs: firstDayMs - 7 * DAY,
+      lastDayMs,
+      replace: true,
+    })
+
+    // Resetting the cursor while a run is writing it would race; the walk ends
+    // at its own page boundary, so the operator stops it first.
+    expect(result).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
+    expect(started).toEqual([])
+  })
+
+  it('carries the stored job on when no period is named', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job() })
+
+    const result = await api.startCollection()
+
+    expect(result).toEqual({ kind: 'started' })
+    expect(started[0]?.resumeFromCheckpoint).toBe(true)
+    // The job's own period, not a window assumed on the operator's behalf.
+    expect(started[0]?.range).toEqual({ startMs: targetStartMs, endMs: targetEndMs })
+  })
+
+  it('has nothing to carry on with before a period has been asked for', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: null })
+
+    expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(started).toEqual([])
+  })
+
+  it('says the period is done rather than starting a walk that would end at once', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job({ complete: true }) })
+
+    expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+    expect(started).toEqual([])
+  })
+
+  it('names the missing database rather than the missing job', async () => {
+    const { api } = build()
+
+    expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+
+  it('starts fresh when no period has ever been asked for', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: null })
+
+    const result = await api.startCollection({ firstDayMs, lastDayMs })
+
+    expect(result).toEqual({ kind: 'started' })
+    expect(started[0]?.resumeFromCheckpoint).toBe(false)
   })
 })

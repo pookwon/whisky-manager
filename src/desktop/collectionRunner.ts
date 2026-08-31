@@ -31,7 +31,16 @@ export interface CollectionStartRequest {
  * screen can name, not an exception: the operator pressed a button and is owed
  * a reason.
  */
-export type CollectionStartRefusal = 'NO_STORAGE' | 'ALREADY_RUNNING' | 'BRIDGE_OFFLINE'
+export type CollectionStartRefusal =
+  | 'NO_STORAGE'
+  | 'ALREADY_RUNNING'
+  | 'BRIDGE_OFFLINE'
+  /** A period was asked for while a run is still writing the cursor. */
+  | 'STOP_RUNNING_FIRST'
+  /** Nothing to carry on with: no period has ever been asked for. */
+  | 'NO_JOB'
+  /** The stored job has already walked past its period's start. */
+  | 'JOB_FINISHED'
 
 export type CollectionStartResult =
   | { readonly kind: 'started' }

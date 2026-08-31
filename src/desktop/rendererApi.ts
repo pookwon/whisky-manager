@@ -17,6 +17,7 @@ import {
   checkCollectionRange,
   collectionRangeOfDays,
   pagesPerWorkBlock,
+  type CollectionRange,
 } from '../shared/collectionSchedule.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
@@ -223,28 +224,56 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve(scheduleView())
     },
 
-    startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
-      // A manual start always requires a date range to be specified.
-      if (request === undefined) {
-        return Promise.resolve({ kind: 'rejected', problem: 'EMPTY_RANGE' })
+    async startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
+      const collection = deps.collection()
+      const stored = collection.kind === 'ready' ? await collection.status.read(ALL_ARTICLES_FEED) : null
+      const inProgress = stored?.job ?? null
+
+      const startFor = (range: CollectionRange, resumeFromCheckpoint: boolean): StartCollectionResult => {
+        const schedule = readCollectionSchedule(settings)
+        const started = deps.collectionRunner.start({
+          range,
+          kind: 'backfill',
+          maxPages: pagesPerWorkBlock(schedule.workBlockMinutes),
+          resumeFromCheckpoint,
+        })
+        return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
 
-      const now = deps.clock.now()
-      const schedule = readCollectionSchedule(settings)
+      // No period named means "carry on", which is the same thing a scheduled
+      // block does: the stored job says which period, and its cursor says where.
+      // This is deliberately not a default window — the feature moves a piece of
+      // the past, so there is no window to assume when nothing has been asked for.
+      if (request === undefined) {
+        if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+        if (inProgress === null) return { kind: 'refused', reason: 'NO_JOB' }
+        if (inProgress.complete) return { kind: 'refused', reason: 'JOB_FINISHED' }
+        return startFor({ startMs: inProgress.targetStartMs, endMs: inProgress.targetEndMs }, true)
+      }
+
       const range = collectionRangeOfDays(request.firstDayMs, request.lastDayMs)
+      const problem = checkCollectionRange(range, deps.clock.now())
+      if (problem !== null) return { kind: 'rejected', problem }
 
-      const problem = checkCollectionRange(range, now)
-      if (problem !== null) return Promise.resolve({ kind: 'rejected', problem })
+      const samePeriod =
+        inProgress !== null &&
+        inProgress.targetStartMs === range.startMs &&
+        inProgress.targetEndMs === range.endMs
 
-      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
-      const started = deps.collectionRunner.start({
-        range,
-        kind: 'backfill',
-        maxPages,
-      })
-      return Promise.resolve(
-        started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason },
-      )
+      // An unfinished job is not discarded on a press. The screen is handed
+      // what would be lost and asks; only the answer starts the replacement.
+      if (inProgress !== null && !samePeriod && !inProgress.complete && request.replace !== true) {
+        return { kind: 'needs_replace', job: inProgress }
+      }
+      // Replacing what a run is still writing would race its cursor, and a walk
+      // ends at its own page boundary rather than mid-page.
+      if (inProgress !== null && !samePeriod && deps.collectionRunner.isRunning()) {
+        return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
+      }
+
+      // The same period carries on from its cursor; a new one starts afresh,
+      // which is what resets the cursor without touching collected posts.
+      return startFor(range, samePeriod)
     },
 
     stopCollection(): Promise<void> {
