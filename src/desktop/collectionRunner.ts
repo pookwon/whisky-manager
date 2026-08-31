@@ -22,6 +22,8 @@ export interface CollectionStartRequest {
   readonly range: CollectionRange
   readonly kind: CollectionRunKind
   readonly maxPages: number
+  /** Whether to resume from the feed's checkpoint (for continuing jobs). */
+  readonly resumeFromCheckpoint?: boolean
 }
 
 /**
@@ -93,9 +95,9 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
             ...ALL_ARTICLES_FEED,
             id: deps.newId(),
             runKind: request.kind === 'backfill' ? 'backfill' : 'incremental',
-            // Each run owns its own window, so there is no checkpoint from a
-            // different window to resume; the cursor starts from the feed.
-            resumeFromCheckpoint: false,
+            // Scheduled runs continue from checkpoint if requested; manual/backfill
+            // runs start fresh.
+            resumeFromCheckpoint: request.resumeFromCheckpoint ?? false,
             targetStartMs: request.range.startMs,
             targetEndMs: request.range.endMs,
             startedAt: new Date(deps.clock.now()),

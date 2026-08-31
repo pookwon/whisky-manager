@@ -166,10 +166,10 @@ describe('collection planning and orchestration', () => {
     })
 
     await expect(orchestrator.run({ feed, run, maxPages: 1 })).resolves.toEqual({
-      kind: 'failed', pagesStored: 0, code: 'MAX_PAGE_LIMIT',
+      kind: 'partial', pagesStored: 0, reason: 'PAGE_BUDGET_SPENT',
     })
     expect(requests).toBe(1)
-    expect(finished).toEqual(['failed:MAX_PAGE_LIMIT'])
+    expect(finished).toEqual(['partial:PAGE_BUDGET_SPENT'])
   })
 
   it('rechecks greeting-session priority after a request delay', async () => {

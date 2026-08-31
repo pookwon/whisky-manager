@@ -16,7 +16,7 @@ import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import {
   checkCollectionRange,
   collectionRangeOfDays,
-  scheduledCollectionRange,
+  pagesPerWorkBlock,
 } from '../shared/collectionSchedule.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
@@ -224,22 +224,23 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     },
 
     startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
+      // A manual start always requires a date range to be specified.
+      if (request === undefined) {
+        return Promise.resolve({ kind: 'rejected', problem: 'EMPTY_RANGE' })
+      }
+
       const now = deps.clock.now()
       const schedule = readCollectionSchedule(settings)
-      const range =
-        request === undefined
-          ? scheduledCollectionRange(now, schedule)
-          : collectionRangeOfDays(request.firstDayMs, request.lastDayMs)
+      const range = collectionRangeOfDays(request.firstDayMs, request.lastDayMs)
 
       const problem = checkCollectionRange(range, now)
       if (problem !== null) return Promise.resolve({ kind: 'rejected', problem })
 
+      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
       const started = deps.collectionRunner.start({
         range,
-        // A window the operator picked is a backfill however short it is; the
-        // schedule's own window is the incremental top-up.
-        kind: request === undefined ? 'incremental' : 'backfill',
-        maxPages: schedule.maxPages,
+        kind: 'backfill',
+        maxPages,
       })
       return Promise.resolve(
         started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason },

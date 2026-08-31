@@ -9,6 +9,7 @@ export interface BoardPageFetcher { read(page: number): Promise<CollectedArticle
 export interface CollectionRunOptions { readonly feed: CollectionFeed; readonly run: CreateCollectionRunInput; readonly maxPages: number; readonly maxProbePages?: number }
 export type CollectionRunResult =
   | { readonly kind: 'succeeded'; readonly pagesStored: number }
+  | { readonly kind: 'partial'; readonly pagesStored: number; readonly reason: 'PAGE_BUDGET_SPENT' }
   | { readonly kind: 'interrupted'; readonly pagesStored: number; readonly reason: 'ABORTED' }
   | { readonly kind: 'cas_conflict'; readonly pagesStored: number; readonly latestState: CollectionFeedState | null }
   | { readonly kind: 'failed'; readonly pagesStored: number; readonly code: string }
@@ -171,6 +172,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
       }
     } catch (error) {
       if (error instanceof CollectionPageError && error.code === 'ABORTED') { await deps.repository.finishRun(options.run.id, 'interrupted', 'ABORTED', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'interrupted', pagesStored, reason: 'ABORTED' } }
+      if (error instanceof CollectionPageError && error.code === 'MAX_PAGE_LIMIT') { await deps.repository.finishRun(options.run.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'partial', pagesStored, reason: 'PAGE_BUDGET_SPENT' } }
       const code = error instanceof CollectionPageError ? error.code : 'COLLECTION_FAILURE'; await deps.repository.finishRun(options.run.id, 'failed', code, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, code }
     }
   } }

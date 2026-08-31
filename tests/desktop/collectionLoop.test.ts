@@ -5,18 +5,54 @@ import {
   type CollectionSchedule,
 } from '../../src/shared/collectionSchedule.js'
 import type { CollectionStartRequest, CollectionStartResult } from '../../src/desktop/collectionRunner.js'
+import type {
+  CollectionFeed,
+  CollectionFeedState,
+  CollectionRepository,
+} from '../../src/desktop/collection-db/repository.js'
 
+const MINUTE = 60_000
 const HOUR = 3_600_000
-/** 2026-08-31 09:00 KST, well before the 14:00 slot of an 02:00 six-hour grid. */
-const NOW = Date.UTC(2026, 7, 31, 0)
+const DAY = 86_400_000
+/** 2026-08-31 08:00 KST, an hour before the 09:00 window opens. */
+const NOW = Date.UTC(2026, 7, 30, 23)
+const kst = (ms: number): string => new Date(ms + 9 * HOUR).toISOString().slice(0, 16).replace('T', ' ')
 
-function harness(schedule: CollectionSchedule, startResult: CollectionStartResult = { kind: 'started' }) {
-  const timers: { fn: () => void; ms: number; handle: number }[] = []
+const feed: CollectionFeed = { feedKind: 'all_articles', menuId: '0' }
+
+function job(overrides: Partial<CollectionFeedState> = {}): CollectionFeedState {
+  return {
+    stateVersion: 1,
+    targetStartMs: Date.UTC(2026, 6, 1),
+    targetEndMs: Date.UTC(2026, 7, 1),
+    anchorPostId: '900000',
+    anchorPostedAtMs: Date.UTC(2026, 6, 20),
+    referencePage: 120,
+    pageIdentity: 'fnv1a64:0000000000000001',
+    ...overrides,
+  }
+}
+
+/**
+ * Drives the loop with a clock the test moves, rather than popping timers by
+ * hand: a beat that lays its successor at the current instant is a busy loop,
+ * and only a harness that keeps firing whatever is due will notice.
+ */
+function harness(
+  schedule: CollectionSchedule,
+  feedState: CollectionFeedState | null,
+  startResult: CollectionStartResult = { kind: 'started' },
+) {
   const started: CollectionStartRequest[] = []
   const cleared: number[] = []
+  let pending: { fn: () => void; dueAt: number; handle: number } | null = null
   let now = NOW
   let current = schedule
   let handles = 0
+
+  const repository = {
+    readFeedState: () => Promise.resolve(feedState),
+  } as unknown as CollectionRepository
 
   const loop = createCollectionLoop({
     schedule: () => current,
@@ -28,110 +64,165 @@ function harness(schedule: CollectionSchedule, startResult: CollectionStartResul
       stop: () => undefined,
       isRunning: () => false,
     },
+    repository: () => repository,
+    feed,
     clock: { now: () => now },
     setTimer: (fn, ms) => {
       handles += 1
-      timers.push({ fn, ms, handle: handles })
+      pending = { fn, dueAt: now + ms, handle: handles }
       return handles
     },
-    clearTimer: (handle) => cleared.push(handle),
+    clearTimer: (handle) => {
+      cleared.push(handle)
+      if (pending?.handle === handle) pending = null
+    },
   })
 
   return {
     loop,
     started,
     cleared,
-    timers,
+    pendingDelayMs: () => (pending === null ? null : pending.dueAt - now),
+    /** Advances the clock, firing every beat that falls due along the way. */
+    advance: async (ms: number, fireLimit = 200): Promise<number> => {
+      const target = now + ms
+      let fired = 0
+      while (pending !== null && pending.dueAt <= target) {
+        if ((fired += 1) > fireLimit) throw new Error('loop fired too many times — busy loop')
+        const due = pending
+        now = Math.max(now, due.dueAt)
+        pending = null
+        due.fn()
+        // The beat reads the database before starting, so its continuation runs
+        // on a later microtask than the call itself.
+        await Promise.resolve()
+        await Promise.resolve()
+      }
+      now = target
+      return fired
+    },
     setSchedule: (next: CollectionSchedule) => {
       current = next
     },
-    /** Runs the pending timer as if the clock had reached its deadline. */
-    fire: () => {
-      const pending = timers.pop()
-      if (pending === undefined) throw new Error('no timer pending')
-      now += pending.ms
-      pending.fn()
-    },
-    nowMs: () => now,
   }
 }
 
 const enabled: CollectionSchedule = { ...DEFAULT_COLLECTION_SCHEDULE, enabled: true }
 
 describe('collection loop', () => {
-  it('waits for the next slot on the cafe clock, not for an interval from now', () => {
-    const h = harness(enabled)
+  it('waits for the active window to open', () => {
+    const h = harness(enabled, job())
     h.loop.refresh()
 
-    // 09:00 KST to the 14:00 slot is five hours, not the six-hour interval.
-    expect(h.timers[0]?.ms).toBe(5 * HOUR)
-    expect(h.loop.nextRunAt()).toBe(NOW + 5 * HOUR)
+    expect(h.pendingDelayMs()).toBe(1 * HOUR)
+    expect(kst(h.loop.nextRunAt() ?? 0)).toBe('2026-08-31 09:00')
   })
 
-  it('lays nothing while switched off or left to the operator', () => {
-    for (const schedule of [
-      { ...enabled, enabled: false },
-      { ...enabled, interval: 'MANUAL' as const },
-    ]) {
-      const h = harness(schedule)
-      h.loop.refresh()
-      expect(h.timers).toHaveLength(0)
-      expect(h.loop.nextRunAt()).toBeNull()
-    }
-  })
-
-  it('asks for the configured window ending now, and keeps beating', () => {
-    const h = harness({ ...enabled, rangeDays: 3, maxPages: 40 })
+  it('lays nothing while switched off', () => {
+    const h = harness({ ...enabled, enabled: false }, job())
     h.loop.refresh()
-    h.fire()
 
-    expect(h.started).toHaveLength(1)
-    expect(h.started[0]?.maxPages).toBe(40)
-    expect(h.started[0]?.kind).toBe('incremental')
-    expect(h.started[0]?.range.endMs).toBe(h.nowMs())
-    expect(h.started[0]?.range.startMs).toBe(h.nowMs() - 3 * 24 * HOUR)
-    // The next beat is laid whether or not this one ran.
-    expect(h.loop.nextRunAt()).toBe(h.nowMs() + 6 * HOUR)
+    expect(h.pendingDelayMs()).toBeNull()
+    expect(h.loop.nextRunAt()).toBeNull()
   })
 
-  it('keeps beating after a refused start', () => {
-    // A browser that was closed at 02:00 is no reason to stop collecting at 08:00.
-    const h = harness(enabled, { kind: 'refused', reason: 'BRIDGE_OFFLINE' })
+  it('rests between blocks instead of beating continuously', async () => {
+    // The failure this guards: laying the next beat at the current instant
+    // while the window is open fires it again immediately, forever.
+    const h = harness(enabled, job())
     h.loop.refresh()
-    h.fire()
+    const fired = await h.advance(12 * HOUR)
 
-    expect(h.started).toHaveLength(1)
-    expect(h.loop.nextRunAt()).not.toBeNull()
+    // 09:00-21:00 with two hours of work and two of rest leaves room for three.
+    expect(fired).toBe(3)
+    expect(h.started).toHaveLength(3)
   })
 
-  it('does not run a beat the operator switched off while it was pending', () => {
-    const h = harness(enabled)
+  it('continues the stored job rather than a window of its own', async () => {
+    const state = job()
+    const h = harness(enabled, state)
+    h.loop.refresh()
+    await h.advance(2 * HOUR)
+
+    expect(h.started[0]).toMatchObject({
+      resumeFromCheckpoint: true,
+      range: { startMs: state.targetStartMs, endMs: state.targetEndMs },
+    })
+  })
+
+  it('spends the work block as its page budget', async () => {
+    const h = harness({ ...enabled, workBlockMinutes: 120 }, job())
+    h.loop.refresh()
+    await h.advance(2 * HOUR)
+
+    // Derived from the pacing rule rather than stored, and near what two hours
+    // of 5-9s requests with the periodic rests actually fits.
+    expect(h.started[0]?.maxPages).toBeGreaterThan(250)
+    expect(h.started[0]?.maxPages).toBeLessThan(320)
+  })
+
+  it('makes no request at all when there is no job', async () => {
+    const h = harness(enabled, null)
+    h.loop.refresh()
+    const fired = await h.advance(12 * HOUR)
+
+    expect(fired).toBeGreaterThan(0)
+    expect(h.started).toHaveLength(0)
+  })
+
+  it('waits one rest before looking again when nothing was started', async () => {
+    const h = harness(enabled, null)
+    h.loop.refresh()
+    await h.advance(1 * HOUR)
+
+    expect(h.pendingDelayMs()).toBe(enabled.restMinutes * MINUTE)
+  })
+
+  it('keeps beating after a refused start', async () => {
+    // A browser that was closed is no reason to stop collecting at the next block.
+    const h = harness(enabled, job(), { kind: 'refused', reason: 'BRIDGE_OFFLINE' })
+    h.loop.refresh()
+    await h.advance(12 * HOUR)
+
+    expect(h.started.length).toBeGreaterThan(1)
+  })
+
+  it('does not run a beat the operator switched off while it was pending', async () => {
+    const h = harness(enabled, job())
     h.loop.refresh()
     h.setSchedule({ ...enabled, enabled: false })
-    h.fire()
+    await h.advance(2 * HOUR)
 
     expect(h.started).toHaveLength(0)
     expect(h.loop.nextRunAt()).toBeNull()
   })
 
-  it('replaces the pending beat when the schedule is saved again', () => {
-    const h = harness(enabled)
+  it('carries the rhythm into the next day rather than working through the night', async () => {
+    const h = harness(enabled, job())
     h.loop.refresh()
-    const first = h.timers[0]?.handle
-    h.setSchedule({ ...enabled, interval: 'DAILY' })
-    h.loop.refresh()
+    // Far enough to see tomorrow's blocks: 08:00 today to 20:00 tomorrow.
+    await h.advance(DAY + 12 * HOUR)
 
-    // The old timer is cancelled rather than left to fire alongside the new one.
-    expect(h.cleared).toContain(first)
-    expect(h.loop.nextRunAt()).toBe(Date.UTC(2026, 7, 31, 17))
+    // Three blocks a day — 09:00, 13:00, 17:00 — and none through the night.
+    expect(h.started).toHaveLength(6)
   })
 
-  it('stops leaves nothing pending', () => {
-    const h = harness(enabled)
+  it('replaces the pending beat when the schedule is saved again', () => {
+    const h = harness(enabled, job())
+    h.loop.refresh()
+    h.setSchedule({ ...enabled, activeWindowStartHourKst: 10 })
+    h.loop.refresh()
+
+    expect(h.cleared).toHaveLength(1)
+    expect(kst(h.loop.nextRunAt() ?? 0)).toBe('2026-08-31 10:00')
+  })
+
+  it('leaves nothing pending after stop', () => {
+    const h = harness(enabled, job())
     h.loop.refresh()
     h.loop.stop()
 
-    expect(h.cleared).toHaveLength(1)
+    expect(h.pendingDelayMs()).toBeNull()
     expect(h.loop.nextRunAt()).toBeNull()
   })
 })

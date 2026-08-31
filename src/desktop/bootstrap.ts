@@ -29,7 +29,7 @@ import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAu
 import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
-import { createCollectionRunner, type CollectionRunner } from './collectionRunner.js'
+import { createCollectionRunner, ALL_ARTICLES_FEED, type CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { appendRefusal } from './refusalLog.js'
 import {
@@ -362,6 +362,8 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
     runner: collectionRunner,
+    repository: () => (collection.kind === 'ready' ? collection.repository : null),
+    feed: ALL_ARTICLES_FEED,
     clock: systemClock,
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
