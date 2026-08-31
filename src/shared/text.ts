@@ -113,7 +113,7 @@ export const TEXT = {
     periodFrom: '시작 날짜',
     periodTo: '끝 날짜',
     periodRun: '이 기간 수집',
-    periodHint: '고른 날짜의 0시부터 끝 날짜가 끝날 때까지를 다시 읽습니다. 이미 저장한 글은 관측만 하나 더 쌓입니다.',
+    periodHint: '고른 날짜의 0시부터 끝 날짜가 끝날 때까지를 읽습니다. 이미 저장한 글은 새 행이 아니라 그 자리에서 갱신됩니다.',
     nextRun: '다음 예정',
     nextRunNone: '예약 없음 — 직접 눌러 실행합니다',
     nextRunAt: (time: string) => `${time} 예정`,
