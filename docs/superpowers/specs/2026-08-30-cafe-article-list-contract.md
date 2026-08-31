@@ -91,7 +91,7 @@ GET https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/notices
 - `articleId`: number
 - `writeDateTimestamp`: millisecond epoch number
 - `writerInfo.memberKey`: string
-- 말머리 있는 글의 `headId`: number, `headName`: string. 말머리 없는 글은 두 필드를 함께 생략
+- 말머리 있는 글의 `headId`: number(0 아님), `headName`: string. 말머리 없는 글은 `headName`을 생략하고 `headId`는 함께 생략하거나 `0`으로 준다 — 2026-08-31 라이브 page 1에서 50건 중 4건이 `headId: 0` 형태였고, 2026-08-30 캡처 fixture 3장에는 생략 형태만 있었다
 - `commentCount`, `readCount`, `likeCount`, `replyArticleCount`: number
 - `menuId`, `menuName`, `boardType`, `menuType`: 글별 게시판 분류
 - page 1 표본에서 댓글 0건 6개, 말머리 없음 1개 확인
@@ -130,7 +130,7 @@ fixture는 쿠키·계정 ID·불필요한 프로필 URL을 제거하고 memberK
 Phase 1 parser 규칙은 다음으로 고정한다.
 
 - `result.articleList`의 각 원소는 정확히 `{ type: "ARTICLE", item: object }`여야 한다. 다른 `type`은 공지로 건너뛰지 않고 페이지 전체를 `UNEXPECTED_LIST_ENTRY_TYPE` 오류로 거부한다. 공지는 별도 `notices` endpoint에 있으므로, 침묵한 누락보다 계약 변경을 드러내는 편이 안전하다.
-- `articleId`, `cafeId`, `menuId`, 작성 millisecond epoch, `readCount`, `commentCount`, `replyArticleCount`, `pageInfo` 숫자는 null·음수·안전하지 않은 정수를 거부한다. `writerInfo.memberKey`, 닉네임, 제목은 원본이 명시적으로 `null`일 때만 null을 보존한다. 말머리 없는 글은 `headId`와 `headName`을 함께 생략하는 실제 응답을 `prefix=null`로만 허용하며, `headId`가 있는데 이름이 없는 경우는 거부한다.
+- `articleId`, `cafeId`, `menuId`, 작성 millisecond epoch, `readCount`, `commentCount`, `replyArticleCount`, `pageInfo` 숫자는 null·음수·안전하지 않은 정수를 거부한다. `writerInfo.memberKey`, 닉네임, 제목은 원본이 명시적으로 `null`일 때만 null을 보존한다. 말머리 없는 글은 `headName`을 생략하고 `headId`를 생략하거나 `0`으로 주는 두 실제 응답을 모두 `prefix=null`로 허용하며, `headId`가 0이 아닌 값으로 있는데 이름이 없는 경우는 거부한다.
 - `likeCount`는 raw contract에 남아 있어도 Phase 1의 결과 타입에 넣지 않는다.
 - `page_identity`는 `article-page-v1\\0` 뒤에 일반 글 ID를 ECMAScript code-unit 순으로 정렬해 NUL로 이어 붙인 문자열의 Unicode code point 열을 FNV-1a 64-bit로 누적한 hash(`fnv1a64:<16자리 hex>`)다. 빈 `articleList`에도 identity는 계산하되, 종료 여부는 Phase 4 orchestration이 결정한다.
 

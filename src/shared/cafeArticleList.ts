@@ -130,9 +130,11 @@ function authorNicknameOf(item: JsonRecord, writerInfo: JsonRecord, path: string
 function prefixOf(item: JsonRecord, path: string): string | null {
   const headName = optionalNullableString(item, 'headName', path, 'INVALID_ARTICLE')
   if (headName !== undefined) return headName
-  // The captured API omits both `headId` and `headName` when a post has no
-  // prefix. A present headId without its corresponding name is not that case.
-  if (!hasOwn(item, 'headId') || item.headId === null) return null
+  // A post with no prefix always omits `headName`, and reports `headId` either
+  // by omitting it too or as 0 — both spellings appear in one live page. A
+  // present, non-zero headId without its name is neither, and is rejected so a
+  // renamed prefix field cannot pass as a post that never had one.
+  if (!hasOwn(item, 'headId') || item.headId === null || item.headId === 0) return null
   fail('INVALID_ARTICLE', `${path}.headName is missing for a headed article`)
 }
 

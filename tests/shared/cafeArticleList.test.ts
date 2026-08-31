@@ -91,6 +91,22 @@ describe('parseCafeArticleList', () => {
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: unsafeId }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
   })
 
+  it('reads both spellings a post without a prefix uses, and still rejects a headed post with no name', () => {
+    const omitted: Record<string, unknown> = { ...validArticle() }
+    delete omitted.headName
+    const omittedPage = parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: omitted }], pageInfo: validPageInfo() } })
+    expect(omittedPage.items[0]?.prefix).toBeNull()
+
+    // Observed live alongside the omitted spelling on one page: headId 0 is how
+    // the same "no prefix" state is reported when the field is present.
+    const zeroHead = { ...omitted, headId: 0 }
+    const zeroPage = parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: zeroHead }], pageInfo: validPageInfo() } })
+    expect(zeroPage.items[0]?.prefix).toBeNull()
+
+    const headedWithoutName = { ...omitted, headId: 368 }
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: headedWithoutName }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
+  })
+
   it('rejects missing required fields and duplicate ordinary post IDs rather than silently shortening a page', () => {
     const missing = { ...validArticle(), writerInfo: { nickName: null } }
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: missing }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
