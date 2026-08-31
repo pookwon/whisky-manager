@@ -27,6 +27,7 @@ function job(overrides: Partial<CollectionFeedState> = {}): CollectionFeedState 
     targetEndMs: Date.UTC(2026, 7, 1),
     anchorPostId: '900000',
     anchorPostedAtMs: Date.UTC(2026, 6, 20),
+    cursorUpdatedAtMs: NOW - 2 * HOUR,
     referencePage: 120,
     pageIdentity: 'fnv1a64:0000000000000001',
     ...overrides,

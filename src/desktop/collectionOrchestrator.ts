@@ -2,6 +2,7 @@ import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
 import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
+import { locateResumePosition } from './collectionResume.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface CollectionClock { now(): number }
@@ -100,20 +101,7 @@ export async function findCollectionStartPage(reader: ScheduledReader, targetEnd
   return { baseline, page: upper }
 }
 
-async function locateAnchor(reader: ScheduledReader, state: Pick<CollectionFeedState, 'anchorPostId' | 'referencePage'>, targetStartMs: number): Promise<{ page: number; offset: number; candidate: CollectedArticlePage } | null> {
-  if (state.anchorPostId === null) return null
-  let page = Math.max(1, (state.referencePage ?? 1) - 1)
-  for (let scanned = 0; scanned < 24; scanned += 1, page += 1) {
-    const candidate = await reader.collect(page)
-    if (fallback(candidate, page)) return null
-    const index = candidate.items.findIndex((item) => item.postId === state.anchorPostId)
-    if (index >= 0) return { page, offset: index + 1, candidate }
-    if (oldest(candidate) < targetStartMs) return null
-  }
-  return null
-}
-
-interface ContinuityAnchor { readonly page: number; readonly postId: string; readonly pageIdentity: string }
+interface ContinuityAnchor { readonly page: number; readonly postId: string; readonly postedAtMs: number; readonly pageIdentity: string }
 
 /**
  * Stable adjacent pages share no post IDs, so overlap with the previous page
@@ -122,7 +110,7 @@ interface ContinuityAnchor { readonly page: number; readonly postId: string; rea
  * out while still moving the boundary, so totalArticleCount is not evidence of
  * continuity.
  */
-async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnchor, next: CollectedArticlePage, nextPageNumber: number, targetStartMs: number): Promise<{ page: CollectedArticlePage; pageNumber: number; firstOffset: number }> {
+async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnchor, next: CollectedArticlePage, nextPageNumber: number, targetStartMs: number, nowMs: number): Promise<{ page: CollectedArticlePage; pageNumber: number; firstOffset: number }> {
   const surfaced = next.items.findIndex((item) => item.postId === previous.postId)
   if (surfaced >= 0) return { page: next, pageNumber: nextPageNumber, firstOffset: surfaced + 1 }
   const rewind = await reader.collect(previous.page)
@@ -131,8 +119,14 @@ async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnc
   const index = rewind.items.findIndex((item) => item.postId === previous.postId)
   if (index === rewind.items.length - 1) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
   if (index >= 0) return { page: rewind, pageNumber: previous.page, firstOffset: index + 1 }
-  const relocated = await locateAnchor(reader, { anchorPostId: previous.postId, referencePage: previous.page }, targetStartMs)
-  if (relocated === null) throw new CollectionPageError('ANCHOR_RELOCATION_FAILED')
+  // Seconds old, so this always takes the page-by-page path.
+  const relocated = await locateResumePosition(
+    reader,
+    { anchorPostId: previous.postId, anchorPostedAtMs: previous.postedAtMs, referencePage: previous.page, cursorUpdatedAtMs: nowMs },
+    nowMs,
+    targetStartMs,
+  )
+  if (relocated.kind !== 'found') throw new CollectionPageError('ANCHOR_RELOCATION_FAILED')
   return { page: relocated.candidate, pageNumber: relocated.page, firstOffset: relocated.offset }
 }
 
@@ -145,15 +139,31 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
       const reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 64)
       let state: CollectionFeedState = initial
       let pageNumber: number; let firstOffset = 0; let firstPage: CollectedArticlePage | null = null
-      const located = await locateAnchor(reader, state, options.run.targetStartMs)
-      if (located !== null) { pageNumber = located.page; firstOffset = located.offset; firstPage = located.candidate }
+      const resumed = state.anchorPostId !== null && state.anchorPostedAtMs !== null && state.referencePage !== null
+        ? await locateResumePosition(
+            reader,
+            {
+              anchorPostId: state.anchorPostId,
+              anchorPostedAtMs: state.anchorPostedAtMs,
+              referencePage: state.referencePage,
+              cursorUpdatedAtMs: state.cursorUpdatedAtMs,
+            },
+            deps.clock.now(),
+            options.run.targetStartMs,
+          )
+        : null
+      if (resumed?.kind === 'complete') {
+        await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
+        return { kind: 'succeeded', pagesStored }
+      }
+      if (resumed?.kind === 'found') { pageNumber = resumed.page; firstOffset = resumed.offset; firstPage = resumed.candidate }
       else { const searched = await findCollectionStartPage(reader, options.run.targetEndMs); pageNumber = searched.page }
       let continuity: ContinuityAnchor | null = null
       while (true) {
         let page = firstPage ?? await reader.collect(pageNumber); firstPage = null
         if (fallback(page, pageNumber)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
         if (continuity !== null) {
-          const verified = await verifyContinuity(reader, continuity, page, pageNumber, options.run.targetStartMs)
+          const verified = await verifyContinuity(reader, continuity, page, pageNumber, options.run.targetStartMs, deps.clock.now())
           page = verified.page; pageNumber = verified.pageNumber; firstOffset = verified.firstOffset
           if (page.pageIdentity === continuity.pageIdentity) throw new CollectionPageError('BOARD_PAGE_REPEATED')
         }
@@ -162,12 +172,23 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         if (inRange.length > 0) {
           const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange } })
           if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, latestState } }
-          state = { stateVersion: stored.nextStateVersion, anchorPostId: stored.anchorPostId, referencePage: pageNumber, pageIdentity: page.pageIdentity, anchorPostedAtMs: null, targetStartMs: options.run.targetStartMs, targetEndMs: options.run.targetEndMs }; pagesStored += 1
+          const committed = inRange.at(-1)
+          state = {
+            stateVersion: stored.nextStateVersion,
+            anchorPostId: stored.anchorPostId,
+            referencePage: pageNumber,
+            pageIdentity: page.pageIdentity,
+            anchorPostedAtMs: committed?.postedAt ?? null,
+            cursorUpdatedAtMs: deps.clock.now(),
+            targetStartMs: options.run.targetStartMs,
+            targetEndMs: options.run.targetEndMs,
+          }
+          pagesStored += 1
         }
         const tail = page.items.at(-1)
         if (tail === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY')
         if (tail.postedAt < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored } }
-        continuity = { page: pageNumber, postId: tail.postId, pageIdentity: page.pageIdentity }
+        continuity = { page: pageNumber, postId: tail.postId, postedAtMs: tail.postedAt, pageIdentity: page.pageIdentity }
         pageNumber += 1
       }
     } catch (error) {

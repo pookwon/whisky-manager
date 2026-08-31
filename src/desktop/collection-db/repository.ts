@@ -63,6 +63,11 @@ export interface CollectionFeedState extends FeedStateExpectation {
   readonly referencePage: number | null
   readonly pageIdentity: string | null
   readonly anchorPostedAtMs: number | null
+  /**
+   * When the cursor last moved. How stale it is decides how hard the next run
+   * has to look for its place: the feed drifts about eight pages a day.
+   */
+  readonly cursorUpdatedAtMs: number
 }
 
 /** Thrown inside the transaction so every page write rolls back on CAS failure. */
@@ -118,13 +123,18 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           anchorPostedAt: feedState.anchorPostedAt,
           referencePage: feedState.referencePage,
           pageIdentity: feedState.pageIdentity,
+          updatedAt: feedState.updatedAt,
         })
         .from(feedState)
         .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
         .limit(1)
       const row = state[0]
       if (row === undefined) return null
-      return { ...row, anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null }
+      return {
+        ...row,
+        anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null,
+        cursorUpdatedAtMs: row.updatedAt.getTime(),
+      }
     },
 
     async startRun(input) {
@@ -167,6 +177,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           anchorPostedAtMs: state.anchorPostedAt?.getTime() ?? null,
           referencePage: state.referencePage,
           pageIdentity: state.pageIdentity,
+          cursorUpdatedAtMs: state.updatedAt.getTime(),
         }
       })
     },

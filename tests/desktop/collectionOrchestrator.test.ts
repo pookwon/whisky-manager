@@ -32,8 +32,8 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
     persisted,
     finished,
     repo: {
-      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
-      startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
+      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
+      startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
       recordPageRequest: async () => undefined,
       finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
       reconcileOrphanedRuns: async () => 0,
@@ -48,12 +48,17 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
   }
 }
 
-function repositoryWithCheckpoint(checkpoint: { anchorPostId: string; referencePage: number; stateVersion: number }) {
+function repositoryWithCheckpoint(checkpoint: {
+  anchorPostId: string
+  anchorPostedAtMs: number
+  referencePage: number
+  stateVersion: number
+}) {
   const persisted: PersistCollectedPageInput[] = []
   const finished: string[] = []
   let state = {
     ...checkpoint,
-    anchorPostedAtMs: 1_788_000_000_000,
+    cursorUpdatedAtMs: 1_000,
     pageIdentity: 'previous',
     targetStartMs: run.targetStartMs,
     targetEndMs: run.targetEndMs,
@@ -209,7 +214,7 @@ describe('collection planning and orchestration', () => {
   })
 
   it('relocates an anchor shifted by multiple pages and reuses the matched candidate', async () => {
-    const { repo, persisted } = repositoryWithCheckpoint({ anchorPostId: 'anchor', referencePage: 2, stateVersion: 7 })
+    const { repo, persisted } = repositoryWithCheckpoint({ anchorPostId: 'anchor', anchorPostedAtMs: 280, referencePage: 2, stateVersion: 7 })
     const fetched: number[] = []
     const pages = {
       1: page([post('n1', 350), post('n2', 340)]),
@@ -232,7 +237,9 @@ describe('collection planning and orchestration', () => {
     await expect(orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 10 })).resolves.toMatchObject({ kind: 'succeeded' })
     // Stable adjacent pages do not overlap, so the conservative continuity
     // rule re-reads page 3 before accepting page 4.
-    expect(fetched).toEqual([1, 2, 3, 4, 3])
+    // Starts at the page the cursor named rather than one before it: posts only
+    // ever drift to higher page numbers, so the page before is never the answer.
+    expect(fetched).toEqual([2, 3, 4, 3])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['resume-here'])
   })
 
