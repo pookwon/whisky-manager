@@ -1,17 +1,13 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { KST_OFFSET_MS } from '../../shared/kst.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../shared/cafeArticleList.js'
 import type { CollectionDatabase } from './client.js'
-import {
-  cafeBoards,
-  cafePosts,
-  collectionFeedState,
-  collectionRuns,
-  postMetricObservations,
-} from './schema.js'
+import { boards, collectionRuns, feedState, posts } from './schema.js'
 
+/**
+ * Which feed of the cafe. The cafe itself is the database, so it is not part of
+ * this: one collection database holds one cafe's feeds.
+ */
 export interface CollectionFeed {
-  readonly cafeId: string
   readonly feedKind: 'all_articles'
   readonly menuId: string
 }
@@ -39,7 +35,6 @@ export interface PersistCollectedPageInput {
   readonly referencePage: number
   readonly expectedState: FeedStateExpectation
   readonly page: CollectedArticlePage
-  readonly parserVersion: string
 }
 
 export type PersistCollectedPageResult =
@@ -47,7 +42,6 @@ export type PersistCollectedPageResult =
       readonly kind: 'stored'
       readonly insertedPostCount: number
       readonly updatedPostCount: number
-      readonly duplicateObservationCount: number
       readonly nextStateVersion: number
       readonly anchorPostId: string
     }
@@ -68,7 +62,7 @@ export interface CollectionFeedState extends FeedStateExpectation {
   readonly targetEndMs: number
   readonly referencePage: number | null
   readonly pageIdentity: string | null
-  readonly anchorPostedDateKst: string | null
+  readonly anchorPostedAtMs: number | null
 }
 
 /** Thrown inside the transaction so every page write rolls back on CAS failure. */
@@ -77,12 +71,6 @@ class FeedStateConflictError extends Error {
     super('collection feed state changed before this page could commit')
     this.name = 'FeedStateConflictError'
   }
-}
-
-export function postedDateKstFromEpochMs(epochMs: number): string {
-  // Shifting the instant, then taking ISO's UTC date, is explicitly KST-based
-  // and does not inherit the computer's locale or timezone.
-  return new Date(epochMs + KST_OFFSET_MS).toISOString().slice(0, 10)
 }
 
 function assertPersistablePage(input: PersistCollectedPageInput): readonly CollectedPostMetadata[] {
@@ -95,11 +83,9 @@ function assertPersistablePage(input: PersistCollectedPageInput): readonly Colle
   if (input.page.items.length === 0) {
     throw new Error('an empty article page must be handled by collection orchestration, not persisted')
   }
-  if (input.parserVersion.trim() === '') throw new Error('parserVersion is required')
 
   const postIds = new Set<string>()
   for (const item of input.page.items) {
-    if (item.cafeId !== input.feed.cafeId) throw new Error('page cafeId does not match feed cafeId')
     if (item.isNotice) throw new Error('notice rows are not valid collection page input')
     if (postIds.has(item.postId)) throw new Error(`page has duplicate postId ${item.postId}`)
     postIds.add(item.postId)
@@ -108,13 +94,12 @@ function assertPersistablePage(input: PersistCollectedPageInput): readonly Colle
 }
 
 function boardRows(items: readonly CollectedPostMetadata[], observedAt: Date) {
-  const rows = new Map<string, { cafeId: string; boardId: string; name: string; discoveredAt: Date; lastSeenAt: Date }>()
+  const rows = new Map<string, { boardId: string; name: string; firstSeenAt: Date; lastSeenAt: Date }>()
   for (const item of items) {
-    rows.set(`${item.cafeId}\u0000${item.boardId}`, {
-      cafeId: item.cafeId,
+    rows.set(item.boardId, {
       boardId: item.boardId,
       name: item.boardName,
-      discoveredAt: observedAt,
+      firstSeenAt: observedAt,
       lastSeenAt: observedAt,
     })
   }
@@ -126,18 +111,20 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
     async readFeedState(feed) {
       const state = await db
         .select({
-          stateVersion: collectionFeedState.stateVersion,
-          targetStartMs: collectionFeedState.targetStartMs,
-          targetEndMs: collectionFeedState.targetEndMs,
-          anchorPostId: collectionFeedState.anchorPostId,
-          anchorPostedDateKst: collectionFeedState.anchorPostedDateKst,
-          referencePage: collectionFeedState.referencePage,
-          pageIdentity: collectionFeedState.pageIdentity,
+          stateVersion: feedState.stateVersion,
+          targetStartMs: feedState.targetStartMs,
+          targetEndMs: feedState.targetEndMs,
+          anchorPostId: feedState.anchorPostId,
+          anchorPostedAt: feedState.anchorPostedAt,
+          referencePage: feedState.referencePage,
+          pageIdentity: feedState.pageIdentity,
         })
-        .from(collectionFeedState)
-        .where(and(eq(collectionFeedState.cafeId, feed.cafeId), eq(collectionFeedState.feedKind, feed.feedKind), eq(collectionFeedState.menuId, feed.menuId)))
+        .from(feedState)
+        .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
         .limit(1)
-      return state[0] ?? null
+      const row = state[0]
+      if (row === undefined) return null
+      return { ...row, anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null }
     },
 
     async startRun(input) {
@@ -145,25 +132,42 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         throw new Error('collection run target range must contain a positive interval')
       }
       return await db.transaction(async (tx) => {
-        const inserted = await tx.insert(collectionFeedState).values({
-          cafeId: input.cafeId, feedKind: input.feedKind, menuId: input.menuId,
+        const inserted = await tx.insert(feedState).values({
+          feedKind: input.feedKind, menuId: input.menuId,
           targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs,
-          pageSize: 50, stateVersion: 0, updatedAt: input.startedAt,
-        }).onConflictDoNothing().returning({ cafeId: collectionFeedState.cafeId })
-        const rows = await tx.select().from(collectionFeedState).where(and(eq(collectionFeedState.cafeId, input.cafeId), eq(collectionFeedState.feedKind, input.feedKind), eq(collectionFeedState.menuId, input.menuId))).for('update')
+          stateVersion: 0, updatedAt: input.startedAt,
+        }).onConflictDoNothing().returning({ menuId: feedState.menuId })
+        const rows = await tx.select().from(feedState).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).for('update')
         const current = rows[0]
         if (current === undefined) throw new Error('collection feed state does not exist')
-        const running = await tx.select({ id: collectionRuns.id }).from(collectionRuns).where(and(eq(collectionRuns.cafeId, input.cafeId), eq(collectionRuns.feedKind, input.feedKind), eq(collectionRuns.menuId, input.menuId), eq(collectionRuns.status, 'running'))).limit(1)
+        const running = await tx.select({ id: collectionRuns.id }).from(collectionRuns).where(and(eq(collectionRuns.feedKind, input.feedKind), eq(collectionRuns.menuId, input.menuId), eq(collectionRuns.status, 'running'))).limit(1)
         if (running.length > 0) throw new Error('collection feed already has a running run')
         const rangeChanged = current.targetStartMs !== input.targetStartMs || current.targetEndMs !== input.targetEndMs
         if (input.resumeFromCheckpoint && rangeChanged) throw new Error('cannot resume a checkpoint for a different target range')
         const reset = !input.resumeFromCheckpoint && inserted.length === 0
         const state = reset
-          ? (await tx.update(collectionFeedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedDateKst: null, firstPostId: null, lastPostId: null, pageIdentity: null, referencePage: null, lastRunId: null, updatedAt: input.startedAt }).where(and(eq(collectionFeedState.cafeId, input.cafeId), eq(collectionFeedState.feedKind, input.feedKind), eq(collectionFeedState.menuId, input.menuId))).returning())[0]
+          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
           : current
         if (state === undefined) throw new Error('collection feed reset failed')
-        await tx.insert(collectionRuns).values({ ...input, status: 'running' })
-        return { stateVersion: state.stateVersion, targetStartMs: state.targetStartMs, targetEndMs: state.targetEndMs, anchorPostId: state.anchorPostId, anchorPostedDateKst: state.anchorPostedDateKst, referencePage: state.referencePage, pageIdentity: state.pageIdentity }
+        await tx.insert(collectionRuns).values({
+          id: input.id,
+          feedKind: input.feedKind,
+          menuId: input.menuId,
+          runKind: input.runKind,
+          targetStartMs: input.targetStartMs,
+          targetEndMs: input.targetEndMs,
+          status: 'running',
+          startedAt: input.startedAt,
+        })
+        return {
+          stateVersion: state.stateVersion,
+          targetStartMs: state.targetStartMs,
+          targetEndMs: state.targetEndMs,
+          anchorPostId: state.anchorPostId,
+          anchorPostedAtMs: state.anchorPostedAt?.getTime() ?? null,
+          referencePage: state.referencePage,
+          pageIdentity: state.pageIdentity,
+        }
       })
     },
 
@@ -199,97 +203,71 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
 
     async persistPage(input) {
       const items = assertPersistablePage(input)
-      const firstPost = items[0]
       const anchorPost = items.at(-1)
-      if (firstPost === undefined || anchorPost === undefined) throw new Error('persistable page unexpectedly has no posts')
+      if (anchorPost === undefined) throw new Error('persistable page unexpectedly has no posts')
 
       try {
         return await db.transaction(async (tx) => {
           const existingRows = await tx
-            .select({ postId: cafePosts.postId })
-            .from(cafePosts)
-            .where(and(eq(cafePosts.cafeId, input.feed.cafeId), inArray(cafePosts.postId, items.map((item) => item.postId))))
+            .select({ postId: posts.postId })
+            .from(posts)
+            .where(inArray(posts.postId, items.map((item) => item.postId)))
           const existingPostIds = new Set(existingRows.map((row) => row.postId))
           const insertedPostCount = items.filter((item) => !existingPostIds.has(item.postId)).length
           const updatedPostCount = items.length - insertedPostCount
 
           await tx
-            .insert(cafeBoards)
+            .insert(boards)
             .values(boardRows(items, input.observedAt))
             .onConflictDoUpdate({
-              target: [cafeBoards.cafeId, cafeBoards.boardId],
-              set: {
-                name: sql`excluded.name`,
-                lastSeenAt: input.observedAt,
-                retiredAt: null,
-              },
+              target: boards.boardId,
+              set: { name: sql`excluded.name`, lastSeenAt: input.observedAt },
             })
 
+          // The post and its reading are one row, so a re-read updates in
+          // place: the counters move, and `firstSeenAt` stays what it was.
           await tx
-            .insert(cafePosts)
+            .insert(posts)
             .values(
               items.map((item) => ({
-                cafeId: item.cafeId,
                 postId: item.postId,
                 boardId: item.boardId,
                 title: item.title,
                 prefix: item.prefix,
                 authorNickname: item.authorNickname,
                 authorId: item.authorId,
-                postedDateKst: postedDateKstFromEpochMs(item.postedAt),
                 postedAt: new Date(item.postedAt),
-                postedPrecision: 'millisecond' as const,
+                viewCount: item.viewCount,
+                commentCount: item.commentCount,
+                snapshotAt: input.observedAt,
                 firstSeenAt: input.observedAt,
-                lastSeenAt: input.observedAt,
-                lastObservedRunId: input.runId,
-                unavailableAt: null,
+                lastRunId: input.runId,
               })),
             )
             .onConflictDoUpdate({
-              target: [cafePosts.cafeId, cafePosts.postId],
+              target: posts.postId,
               set: {
                 boardId: sql`excluded.board_id`,
                 title: sql`excluded.title`,
                 prefix: sql`excluded.prefix`,
                 authorNickname: sql`excluded.author_nickname`,
                 authorId: sql`excluded.author_id`,
-                postedDateKst: sql`excluded.posted_date_kst`,
                 postedAt: sql`excluded.posted_at`,
-                postedPrecision: sql`excluded.posted_precision`,
-                lastSeenAt: input.observedAt,
-                lastObservedRunId: input.runId,
-                unavailableAt: null,
+                viewCount: sql`excluded.view_count`,
+                commentCount: sql`excluded.comment_count`,
+                snapshotAt: input.observedAt,
+                lastRunId: input.runId,
               },
             })
-
-          const insertedObservations = await tx
-            .insert(postMetricObservations)
-            .values(
-              items.map((item) => ({
-                cafeId: item.cafeId,
-                postId: item.postId,
-                observedAt: input.observedAt,
-                viewCount: item.viewCount,
-                likeCount: null,
-                commentCount: item.commentCount,
-                collectionRunId: input.runId,
-                source: 'list' as const,
-                parserVersion: input.parserVersion,
-              })),
-            )
-            .onConflictDoNothing()
-            .returning({ postId: postMetricObservations.postId })
 
           const updatedRun = await tx
             .update(collectionRuns)
             .set({
               collectionPages: sql`${collectionRuns.collectionPages} + 1`,
               observedPostCount: sql`${collectionRuns.observedPostCount} + ${items.length}`,
-              inRangePostCount: sql`${collectionRuns.inRangePostCount} + ${items.length}`,
               insertedPostCount: sql`${collectionRuns.insertedPostCount} + ${insertedPostCount}`,
               updatedPostCount: sql`${collectionRuns.updatedPostCount} + ${updatedPostCount}`,
-              duplicatePostCount: sql`${collectionRuns.duplicatePostCount} + ${items.length - insertedObservations.length}`,
-              lastCommittedAnchorPostId: anchorPost.postId,
+              lastCommittedPostId: anchorPost.postId,
               lastCommittedPage: input.referencePage,
             })
             .where(eq(collectionRuns.id, input.runId))
@@ -297,13 +275,11 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           if (updatedRun.length !== 1) throw new Error('collection run does not exist')
 
           const stateUpdated = await tx
-            .update(collectionFeedState)
+            .update(feedState)
             .set({
               stateVersion: input.expectedState.stateVersion + 1,
               anchorPostId: anchorPost.postId,
-              anchorPostedDateKst: postedDateKstFromEpochMs(anchorPost.postedAt),
-              firstPostId: firstPost.postId,
-              lastPostId: anchorPost.postId,
+              anchorPostedAt: new Date(anchorPost.postedAt),
               pageIdentity: input.page.pageIdentity,
               referencePage: input.referencePage,
               lastRunId: input.runId,
@@ -311,21 +287,19 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
             })
             .where(
               and(
-                eq(collectionFeedState.cafeId, input.feed.cafeId),
-                eq(collectionFeedState.feedKind, input.feed.feedKind),
-                eq(collectionFeedState.menuId, input.feed.menuId),
-                eq(collectionFeedState.stateVersion, input.expectedState.stateVersion),
-                sql`${collectionFeedState.anchorPostId} is not distinct from ${input.expectedState.anchorPostId}`,
+                eq(feedState.feedKind, input.feed.feedKind),
+                eq(feedState.menuId, input.feed.menuId),
+                eq(feedState.stateVersion, input.expectedState.stateVersion),
+                sql`${feedState.anchorPostId} is not distinct from ${input.expectedState.anchorPostId}`,
               ),
             )
-            .returning({ stateVersion: collectionFeedState.stateVersion })
+            .returning({ stateVersion: feedState.stateVersion })
           if (stateUpdated.length !== 1) throw new FeedStateConflictError()
 
           return {
             kind: 'stored' as const,
             insertedPostCount,
             updatedPostCount,
-            duplicateObservationCount: items.length - insertedObservations.length,
             nextStateVersion: stateUpdated[0]?.stateVersion ?? input.expectedState.stateVersion + 1,
             anchorPostId: anchorPost.postId,
           }

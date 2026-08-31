@@ -28,7 +28,6 @@ import { previewDay, type StartupPreview } from './preview.js'
 import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAuthors.js'
 import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
-import { CAFE_ARTICLE_LIST_PARSER_VERSION } from '../shared/cafeArticleList.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, type CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule } from './collectionSettings.js'
@@ -357,7 +356,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     isSessionBusy: () => sessionProgress !== null,
     newId: () => randomUUID(),
-    parserVersion: CAFE_ARTICLE_LIST_PARSER_VERSION,
     onError: (error) => console.error('[collection]', error),
   })
 

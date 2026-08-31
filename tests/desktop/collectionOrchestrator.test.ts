@@ -3,11 +3,11 @@ import { CollectionPageError, collectionDelayMs, createCollectionOrchestrator, f
 import type { CollectionRepository, PersistCollectedPageInput } from '../../src/desktop/collection-db/repository.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
 
-const feed = { cafeId: '14538121', feedKind: 'all_articles' as const, menuId: '0' }
+const feed = { feedKind: 'all_articles' as const, menuId: '0' }
 const run = { ...feed, id: '00000000-0000-4000-8000-000000000001', runKind: 'development' as const, resumeFromCheckpoint: false, targetStartMs: 200, targetEndMs: 290, startedAt: new Date(1_000) }
 
 function post(id: string, postedAt: number): CollectedPostMetadata {
-  return { cafeId: feed.cafeId, postId: id, boardId: '1', boardName: '게시판', title: null, prefix: null, authorId: null, authorNickname: null, postedAt, viewCount: 0, commentCount: 0, replyCount: 0, isNotice: false }
+  return { cafeId: '14538121', postId: id, boardId: '1', boardName: '게시판', title: null, prefix: null, authorId: null, authorNickname: null, postedAt, viewCount: 0, commentCount: 0, replyCount: 0, isNotice: false }
 }
 
 function page(items: CollectedPostMetadata[], lastNavigationPageNumber = 100, totalArticleCount = 500): CollectedArticlePage {
@@ -32,8 +32,8 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
     persisted,
     finished,
     repo: {
-      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedDateKst: null, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
-      startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedDateKst: null, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
+      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
+      startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
       recordPageRequest: async () => undefined,
       finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
       reconcileOrphanedRuns: async () => 0,
@@ -42,7 +42,7 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
         if (conflict) return { kind: 'conflict' }
         version += 1
         anchor = input.page.items.at(-1)?.postId ?? null
-        return { kind: 'stored', insertedPostCount: input.page.items.length, updatedPostCount: 0, duplicateObservationCount: 0, nextStateVersion: version, anchorPostId: anchor ?? '' }
+        return { kind: 'stored', insertedPostCount: input.page.items.length, updatedPostCount: 0, nextStateVersion: version, anchorPostId: anchor ?? '' }
       },
     },
   }
@@ -53,7 +53,7 @@ function repositoryWithCheckpoint(checkpoint: { anchorPostId: string; referenceP
   const finished: string[] = []
   let state = {
     ...checkpoint,
-    anchorPostedDateKst: '2026-08-30',
+    anchorPostedAtMs: 1_788_000_000_000,
     pageIdentity: 'previous',
     targetStartMs: run.targetStartMs,
     targetEndMs: run.targetEndMs,
@@ -116,7 +116,7 @@ describe('collection planning and orchestration', () => {
       isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toEqual({ kind: 'succeeded', pagesStored: 2 })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toEqual({ kind: 'succeeded', pagesStored: 2 })
     expect(sleeps[0]).toBe(1_000)
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['in-1', 'in-2'])
     expect(finished).toEqual(['succeeded:'])
@@ -131,7 +131,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => true,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toEqual({ kind: 'interrupted', pagesStored: 0, reason: 'ABORTED' })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toEqual({ kind: 'interrupted', pagesStored: 0, reason: 'ABORTED' })
     expect(persisted).toHaveLength(0)
     expect(finished).toEqual(['interrupted:ABORTED'])
   })
@@ -145,7 +145,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toMatchObject({ kind: 'cas_conflict', pagesStored: 0, latestState: { stateVersion: 0 } })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toMatchObject({ kind: 'cas_conflict', pagesStored: 0, latestState: { stateVersion: 0 } })
     expect(finished).toEqual(['partial:CAS_CONFLICT_REPOSITION_REQUIRED'])
   })
 
@@ -165,7 +165,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 1, parserVersion: 'v1' })).resolves.toEqual({
+    await expect(orchestrator.run({ feed, run, maxPages: 1 })).resolves.toEqual({
       kind: 'failed', pagesStored: 0, code: 'MAX_PAGE_LIMIT',
     })
     expect(requests).toBe(1)
@@ -203,7 +203,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => busy, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toMatchObject({ kind: 'succeeded' })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toMatchObject({ kind: 'succeeded' })
     expect(sleeps).toContain(1_000)
     expect(busyAtFetch.every((value) => value === false)).toBe(true)
   })
@@ -229,7 +229,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 10, parserVersion: 'v1' })).resolves.toMatchObject({ kind: 'succeeded' })
+    await expect(orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 10 })).resolves.toMatchObject({ kind: 'succeeded' })
     // Stable adjacent pages do not overlap, so the conservative continuity
     // rule re-reads page 3 before accepting page 4.
     expect(fetched).toEqual([1, 2, 3, 4, 3])
@@ -254,7 +254,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toMatchObject({ kind: 'succeeded' })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toMatchObject({ kind: 'succeeded' })
     // page 1 is probed once and then fetched for collection. The collection
     // fetch starts at 6000 and completes at 11000.
     expect(persisted[0]?.observedAt).toEqual(new Date(6_000))
@@ -274,7 +274,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toEqual({ kind: 'succeeded', pagesStored: 2 })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toEqual({ kind: 'succeeded', pagesStored: 2 })
     expect(fetched).toEqual([1, 1, 2])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['a', 'b', 'c'])
   })
@@ -302,7 +302,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 10, parserVersion: 'v1' })).resolves.toEqual({ kind: 'succeeded', pagesStored: 3 })
+    await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toEqual({ kind: 'succeeded', pagesStored: 3 })
     expect(fetched).toEqual([1, 1, 2, 1, 2, 1])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['a', 'b', 'c', 'd'])
   })
@@ -326,7 +326,7 @@ describe('collection planning and orchestration', () => {
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
-    await expect(orchestrator.run({ feed, run, maxPages: 20, parserVersion: 'v1' })).resolves.toEqual({ kind: 'failed', pagesStored: 1, code: 'ANCHOR_RELOCATION_FAILED' })
+    await expect(orchestrator.run({ feed, run, maxPages: 20 })).resolves.toEqual({ kind: 'failed', pagesStored: 1, code: 'ANCHOR_RELOCATION_FAILED' })
     expect(finished).toEqual(['failed:ANCHOR_RELOCATION_FAILED'])
   })
 })

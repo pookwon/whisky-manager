@@ -47,7 +47,6 @@ import type {
  * extension is not allowed to fetch.
  */
 const ALL_ARTICLES_FEED: CollectionFeed = {
-  cafeId: CAFE_ARTICLE_LIST.cafeId,
   feedKind: 'all_articles',
   menuId: CAFE_ARTICLE_LIST.menuId,
 }

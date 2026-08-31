@@ -287,9 +287,8 @@ export function CollectionStatus(): React.JSX.Element {
         </p>
       </section>
 
-      <section className="grid grid-cols-3 gap-3">
+      <section className="grid grid-cols-2 gap-3">
         <Stat label={TEXT.collection.totals.posts} value={totals.posts} />
-        <Stat label={TEXT.collection.totals.observations} value={totals.observations} />
         <Stat label={TEXT.collection.totals.boards} value={totals.boards} />
       </section>
 

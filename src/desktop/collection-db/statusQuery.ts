@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { CollectionDatabase } from './client.js'
 import type { CollectionFeed } from './repository.js'
-import { cafeBoards, cafePosts, collectionRuns, postMetricObservations } from './schema.js'
+import { boards, collectionRuns, posts } from './schema.js'
 
 /**
  * What the collection screen reads. Separate from the repository because that
@@ -31,10 +31,11 @@ export interface CollectionRunSummary {
 
 export interface CollectionTotals {
   readonly posts: number
-  readonly observations: number
   readonly boards: number
   readonly oldestPostedAtMs: number | null
   readonly newestPostedAtMs: number | null
+  /** When the most recent reading of any post was taken. */
+  readonly lastSnapshotAtMs: number | null
 }
 
 export interface CollectionStatus {
@@ -54,6 +55,11 @@ function epochMs(value: Date | null): number | null {
   return value === null ? null : value.getTime()
 }
 
+/** Postgres counts arrive as strings; a count this small always fits a number. */
+function count(value: string | number | null | undefined): number {
+  return Number(value ?? 0)
+}
+
 /**
  * An aggregate is not a column, so the driver hands it back unconverted. Asking
  * postgres for the epoch keeps the conversion out of string parsing entirely.
@@ -64,37 +70,19 @@ function epochFromSeconds(value: string | number | null | undefined): number | n
   return Number.isFinite(seconds) ? Math.round(seconds * 1000) : null
 }
 
-/** Postgres counts arrive as strings; a count this small always fits a number. */
-function count(value: string | number | null): number {
-  return Number(value ?? 0)
-}
-
 export function createCollectionStatusQuery(db: CollectionDatabase): CollectionStatusQuery {
   return {
     async read(feed) {
-      const feedRuns = and(
-        eq(collectionRuns.cafeId, feed.cafeId),
-        eq(collectionRuns.feedKind, feed.feedKind),
-        eq(collectionRuns.menuId, feed.menuId),
-      )
-
-      const [posts, observations, boards, runs] = await Promise.all([
+      const [postTotals, boardTotals, runs] = await Promise.all([
         db
           .select({
             posts: sql<string>`count(*)`,
-            oldest: sql<string | null>`extract(epoch from min(${cafePosts.postedAt}))`,
-            newest: sql<string | null>`extract(epoch from max(${cafePosts.postedAt}))`,
+            oldest: sql<string | null>`extract(epoch from min(${posts.postedAt}))`,
+            newest: sql<string | null>`extract(epoch from max(${posts.postedAt}))`,
+            lastSnapshot: sql<string | null>`extract(epoch from max(${posts.snapshotAt}))`,
           })
-          .from(cafePosts)
-          .where(eq(cafePosts.cafeId, feed.cafeId)),
-        db
-          .select({ observations: sql<string>`count(*)` })
-          .from(postMetricObservations)
-          .where(eq(postMetricObservations.cafeId, feed.cafeId)),
-        db
-          .select({ boards: sql<string>`count(*)` })
-          .from(cafeBoards)
-          .where(and(eq(cafeBoards.cafeId, feed.cafeId), sql`${cafeBoards.retiredAt} is null`)),
+          .from(posts),
+        db.select({ boards: sql<string>`count(*)` }).from(boards),
         db
           .select({
             id: collectionRuns.id,
@@ -109,19 +97,13 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
             requestPages: collectionRuns.requestPages,
             insertedPostCount: collectionRuns.insertedPostCount,
             observedPostCount: collectionRuns.observedPostCount,
-            cursorPostedAt: cafePosts.postedAt,
+            cursorPostedAt: posts.postedAt,
           })
           .from(collectionRuns)
-          // The anchor is a post id, so its time has to be looked up. A left
-          // join keeps a run whose anchor post was since deleted.
-          .leftJoin(
-            cafePosts,
-            and(
-              eq(cafePosts.cafeId, collectionRuns.cafeId),
-              eq(cafePosts.postId, collectionRuns.lastCommittedAnchorPostId),
-            ),
-          )
-          .where(feedRuns)
+          // The cursor is a post id, so its time has to be looked up. A left
+          // join keeps a run whose last post was since deleted.
+          .leftJoin(posts, eq(posts.postId, collectionRuns.lastCommittedPostId))
+          .where(and(eq(collectionRuns.feedKind, feed.feedKind), eq(collectionRuns.menuId, feed.menuId)))
           .orderBy(desc(collectionRuns.startedAt))
           .limit(RECENT_RUN_LIMIT),
       ])
@@ -142,14 +124,14 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
         cursorPostedAtMs: epochMs(run.cursorPostedAt),
       }))
 
-      const totalsRow = posts[0]
+      const totalsRow = postTotals[0]
       return {
         totals: {
-          posts: count(totalsRow?.posts ?? 0),
-          observations: count(observations[0]?.observations ?? 0),
-          boards: count(boards[0]?.boards ?? 0),
+          posts: count(totalsRow?.posts),
+          boards: count(boardTotals[0]?.boards),
           oldestPostedAtMs: epochFromSeconds(totalsRow?.oldest),
           newestPostedAtMs: epochFromSeconds(totalsRow?.newest),
+          lastSnapshotAtMs: epochFromSeconds(totalsRow?.lastSnapshot),
         },
         // Only one run per feed can be running, which the schema enforces.
         running: recentRuns.find((run) => run.status === 'running') ?? null,

@@ -12,7 +12,6 @@ import type { ExtensionTransport } from './ws/server.js'
 
 /** The one feed Phase 1 reads, taken from the endpoint contract itself. */
 export const ALL_ARTICLES_FEED: CollectionFeed = {
-  cafeId: CAFE_ARTICLE_LIST.cafeId,
   feedKind: 'all_articles',
   menuId: CAFE_ARTICLE_LIST.menuId,
 }
@@ -46,7 +45,6 @@ export interface CollectionRunnerDeps {
   /** True while a greeting session holds the browser; the walk waits it out. */
   readonly isSessionBusy: () => boolean
   readonly newId: () => string
-  readonly parserVersion: string
   readonly onFinished?: (result: CollectionRunResult) => void
   readonly onError?: (error: unknown) => void
 }
@@ -102,7 +100,6 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
             targetEndMs: request.range.endMs,
             startedAt: new Date(deps.clock.now()),
           },
-          parserVersion: deps.parserVersion,
           maxPages: request.maxPages,
         })
         .then((result) => {

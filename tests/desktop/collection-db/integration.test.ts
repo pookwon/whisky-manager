@@ -18,21 +18,8 @@ const page = parseCafeArticleListText(
   readFileSync(fileURLToPath(new URL('../../fixtures/cafe-article-list-page-1.json', import.meta.url)), 'utf8'),
 )
 
-const COLLECTION_TABLES = [
-  'post_metric_observations',
-  'cafe_posts',
-  'cafe_boards',
-  'collection_feed_state',
-  'collection_runs',
-]
-const COLLECTION_TYPES = [
-  'collection_board_kind',
-  'collection_feed_kind',
-  'collection_metric_source',
-  'collection_posted_precision',
-  'collection_run_kind',
-  'collection_run_status',
-]
+const COLLECTION_TABLES = ['posts', 'boards', 'feed_state', 'runs']
+const COLLECTION_TYPES = ['collection_feed_kind', 'collection_run_kind', 'collection_run_status']
 
 let pool: Pool
 let connection: CollectionDatabaseConnection
@@ -92,7 +79,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
   it('applies migrations, persists a page atomically, rejects stale CAS, and keeps observations idempotent', async () => {
     const repository = createCollectionRepository(connection.db)
-    const feed = { cafeId: '14538121', feedKind: 'all_articles' as const, menuId: '0' }
+    const feed = { feedKind: 'all_articles' as const, menuId: '0' }
     const now = new Date('2026-08-30T00:00:00.000Z')
     const runId = randomUUID()
 
@@ -113,12 +100,10 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       referencePage: 1,
       expectedState: { stateVersion: 0, anchorPostId: null },
       page,
-      parserVersion: 'article-list-v1',
     })
-    expect(first).toMatchObject({ kind: 'stored', insertedPostCount: 50, updatedPostCount: 0, duplicateObservationCount: 0 })
+    expect(first).toMatchObject({ kind: 'stored', insertedPostCount: 50, updatedPostCount: 0 })
     if (first.kind !== 'stored') throw new Error('first page persistence unexpectedly conflicted')
-    expect(await countRows('cafe_posts')).toBe(50)
-    expect(await countRows('post_metric_observations')).toBe(50)
+    expect(await countRows('posts')).toBe(50)
 
     const second = await repository.persistPage({
       feed,
@@ -127,10 +112,8 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       referencePage: 1,
       expectedState: { stateVersion: 1, anchorPostId: first.anchorPostId },
       page,
-      parserVersion: 'article-list-v1',
     })
-    expect(second).toMatchObject({ kind: 'stored', insertedPostCount: 0, updatedPostCount: 50, duplicateObservationCount: 50 })
-    expect(await countRows('post_metric_observations')).toBe(50)
+    expect(second).toMatchObject({ kind: 'stored', insertedPostCount: 0, updatedPostCount: 50 })
 
     const originalTitle = page.items[0]?.title
     const rollbackPage = {
@@ -144,19 +127,14 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       referencePage: 1,
       expectedState: { stateVersion: 0, anchorPostId: null },
       page: rollbackPage,
-      parserVersion: 'article-list-v1',
     })
     expect(stale).toEqual({ kind: 'conflict' })
 
-    expect(await countRows('cafe_posts')).toBe(50)
-    expect(await countRows('post_metric_observations')).toBe(50)
-    const title = await pool.query<{ title: string | null }>('select title from cafe_posts where cafe_id = $1 and post_id = $2', [
-      feed.cafeId,
-      page.items[0]?.postId,
-    ])
+    expect(await countRows('posts')).toBe(50)
+    const title = await pool.query<{ title: string | null }>('select title from posts where post_id = $1', [page.items[0]?.postId])
     expect(title.rows[0]?.title).toBe(originalTitle)
     const run = await pool.query<{ collection_pages: number; observed_post_count: number }>(
-      'select collection_pages, observed_post_count from collection_runs where id = $1',
+      'select collection_pages, observed_post_count from runs where id = $1',
       [runId],
     )
     expect(run.rows[0]).toEqual({ collection_pages: 2, observed_post_count: 100 })
@@ -166,7 +144,6 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const whileRunning = await status.read(feed)
     expect(whileRunning.totals).toMatchObject({
       posts: 50,
-      observations: 50,
       // However many boards the page's rows actually name — the count comes
       // from the same rows the writes above stored.
       boards: new Set(page.items.map((item) => item.boardId)).size,
@@ -286,7 +263,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     try {
       expect(reopened.kind).toBe('ready')
       const orphan = await pool.query<{ status: string; stop_reason: string | null; finished_at: Date | null }>(
-        'select status, stop_reason, finished_at from collection_runs where id = $1',
+        'select status, stop_reason, finished_at from runs where id = $1',
         [orphanRunId],
       )
       expect(orphan.rows[0]?.status).toBe('interrupted')

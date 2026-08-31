@@ -6,7 +6,7 @@ import type { ExtensionTransport } from './ws/server.js'
 
 export interface CollectionClock { now(): number }
 export interface BoardPageFetcher { read(page: number): Promise<CollectedArticlePage> }
-export interface CollectionRunOptions { readonly feed: CollectionFeed; readonly run: CreateCollectionRunInput; readonly parserVersion: string; readonly maxPages: number; readonly maxProbePages?: number }
+export interface CollectionRunOptions { readonly feed: CollectionFeed; readonly run: CreateCollectionRunInput; readonly maxPages: number; readonly maxProbePages?: number }
 export type CollectionRunResult =
   | { readonly kind: 'succeeded'; readonly pagesStored: number }
   | { readonly kind: 'interrupted'; readonly pagesStored: number; readonly reason: 'ABORTED' }
@@ -139,7 +139,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
   return { async run(options: CollectionRunOptions): Promise<CollectionRunResult> {
     let pagesStored = 0
     try {
-      if (options.run.cafeId !== options.feed.cafeId || options.run.feedKind !== options.feed.feedKind || options.run.menuId !== options.feed.menuId) throw new CollectionPageError('RUN_FEED_MISMATCH')
+      if (options.run.feedKind !== options.feed.feedKind || options.run.menuId !== options.feed.menuId) throw new CollectionPageError('RUN_FEED_MISMATCH')
       const initial = await deps.repository.startRun(options.run)
       const reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 64)
       let state: CollectionFeedState = initial
@@ -159,9 +159,9 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
         const inRange = page.items.slice(firstOffset).filter((item) => item.postedAt >= options.run.targetStartMs && item.postedAt < options.run.targetEndMs); firstOffset = 0
         if (inRange.length > 0) {
-          const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange }, parserVersion: options.parserVersion })
+          const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange } })
           if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, latestState } }
-          state = { stateVersion: stored.nextStateVersion, anchorPostId: stored.anchorPostId, referencePage: pageNumber, pageIdentity: page.pageIdentity, anchorPostedDateKst: null, targetStartMs: options.run.targetStartMs, targetEndMs: options.run.targetEndMs }; pagesStored += 1
+          state = { stateVersion: stored.nextStateVersion, anchorPostId: stored.anchorPostId, referencePage: pageNumber, pageIdentity: page.pageIdentity, anchorPostedAtMs: null, targetStartMs: options.run.targetStartMs, targetEndMs: options.run.targetEndMs }; pagesStored += 1
         }
         const tail = page.items.at(-1)
         if (tail === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY')

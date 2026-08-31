@@ -1,23 +1,17 @@
 {
-  "id": "7429309e-c839-4cdc-b4f3-4639cae77d36",
+  "id": "9c1e4b59-988d-4be5-82da-81e34f7bd8e0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.cafe_boards": {
-      "name": "cafe_boards",
+    "public.boards": {
+      "name": "boards",
       "schema": "",
       "columns": {
-        "cafe_id": {
-          "name": "cafe_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "board_id": {
           "name": "board_id",
           "type": "text",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true
         },
         "name": {
@@ -26,120 +20,12 @@
           "primaryKey": false,
           "notNull": true
         },
-        "kind": {
-          "name": "kind",
-          "type": "collection_board_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'unknown'"
-        },
         "collect_enabled": {
           "name": "collect_enabled",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": true
-        },
-        "discovered_at": {
-          "name": "discovered_at",
-          "type": "timestamp (3) with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_seen_at": {
-          "name": "last_seen_at",
-          "type": "timestamp (3) with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "timestamp (3) with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "cafe_boards_pkey": {
-          "name": "cafe_boards_pkey",
-          "columns": [
-            "cafe_id",
-            "board_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.cafe_posts": {
-      "name": "cafe_posts",
-      "schema": "",
-      "columns": {
-        "cafe_id": {
-          "name": "cafe_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "post_id": {
-          "name": "post_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "board_id": {
-          "name": "board_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "prefix": {
-          "name": "prefix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "author_nickname": {
-          "name": "author_nickname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "author_id": {
-          "name": "author_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "posted_date_kst": {
-          "name": "posted_date_kst",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "posted_at": {
-          "name": "posted_at",
-          "type": "timestamp (3) with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "posted_precision": {
-          "name": "posted_precision",
-          "type": "collection_posted_precision",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
         },
         "first_seen_at": {
           "name": "first_seen_at",
@@ -152,307 +38,24 @@
           "type": "timestamp (3) with time zone",
           "primaryKey": false,
           "notNull": true
-        },
-        "last_observed_run_id": {
-          "name": "last_observed_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unavailable_at": {
-          "name": "unavailable_at",
-          "type": "timestamp (3) with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
-      "indexes": {
-        "cafe_posts_board_date": {
-          "name": "cafe_posts_board_date",
-          "columns": [
-            {
-              "expression": "cafe_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "board_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "posted_date_kst",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "cafe_posts_author_date": {
-          "name": "cafe_posts_author_date",
-          "columns": [
-            {
-              "expression": "cafe_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "author_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "posted_date_kst",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "cafe_posts_prefix_date": {
-          "name": "cafe_posts_prefix_date",
-          "columns": [
-            {
-              "expression": "cafe_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "prefix",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "posted_date_kst",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "cafe_posts_last_observed_run_id_collection_runs_id_fk": {
-          "name": "cafe_posts_last_observed_run_id_collection_runs_id_fk",
-          "tableFrom": "cafe_posts",
-          "tableTo": "collection_runs",
-          "columnsFrom": [
-            "last_observed_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "cafe_posts_board_fk": {
-          "name": "cafe_posts_board_fk",
-          "tableFrom": "cafe_posts",
-          "tableTo": "cafe_boards",
-          "columnsFrom": [
-            "cafe_id",
-            "board_id"
-          ],
-          "columnsTo": [
-            "cafe_id",
-            "board_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "cafe_posts_pkey": {
-          "name": "cafe_posts_pkey",
-          "columns": [
-            "cafe_id",
-            "post_id"
-          ]
-        }
-      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.collection_feed_state": {
-      "name": "collection_feed_state",
-      "schema": "",
-      "columns": {
-        "cafe_id": {
-          "name": "cafe_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "feed_kind": {
-          "name": "feed_kind",
-          "type": "collection_feed_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "menu_id": {
-          "name": "menu_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_start_ms": {
-          "name": "target_start_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_end_ms": {
-          "name": "target_end_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "page_size": {
-          "name": "page_size",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 50
-        },
-        "state_version": {
-          "name": "state_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "anchor_post_id": {
-          "name": "anchor_post_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anchor_posted_date_kst": {
-          "name": "anchor_posted_date_kst",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "first_post_id": {
-          "name": "first_post_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_post_id": {
-          "name": "last_post_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "page_identity": {
-          "name": "page_identity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reference_page": {
-          "name": "reference_page",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_run_id": {
-          "name": "last_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp (3) with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "collection_feed_state_last_run_id_collection_runs_id_fk": {
-          "name": "collection_feed_state_last_run_id_collection_runs_id_fk",
-          "tableFrom": "collection_feed_state",
-          "tableTo": "collection_runs",
-          "columnsFrom": [
-            "last_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "collection_feed_state_pkey": {
-          "name": "collection_feed_state_pkey",
-          "columns": [
-            "cafe_id",
-            "feed_kind",
-            "menu_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "collection_feed_state_version": {
-          "name": "collection_feed_state_version",
-          "value": "\"collection_feed_state\".\"state_version\" >= 0"
-        },
-        "collection_feed_state_target_range": {
-          "name": "collection_feed_state_target_range",
-          "value": "\"collection_feed_state\".\"target_start_ms\" < \"collection_feed_state\".\"target_end_ms\""
-        },
-        "collection_feed_state_page_size": {
-          "name": "collection_feed_state_page_size",
-          "value": "\"collection_feed_state\".\"page_size\" between 1 and 50"
-        },
-        "collection_feed_state_reference_page": {
-          "name": "collection_feed_state_reference_page",
-          "value": "\"collection_feed_state\".\"reference_page\" is null or \"collection_feed_state\".\"reference_page\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.collection_runs": {
-      "name": "collection_runs",
+    "public.runs": {
+      "name": "runs",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
-        },
-        "cafe_id": {
-          "name": "cafe_id",
-          "type": "text",
-          "primaryKey": false,
           "notNull": true
         },
         "feed_kind": {
@@ -474,13 +77,6 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
-        },
-        "resume_from_checkpoint": {
-          "name": "resume_from_checkpoint",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "target_start_ms": {
           "name": "target_start_ms",
@@ -548,13 +144,6 @@
           "notNull": true,
           "default": 0
         },
-        "in_range_post_count": {
-          "name": "in_range_post_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "inserted_post_count": {
           "name": "inserted_post_count",
           "type": "integer",
@@ -569,22 +158,8 @@
           "notNull": true,
           "default": 0
         },
-        "duplicate_post_count": {
-          "name": "duplicate_post_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "failed_post_count": {
-          "name": "failed_post_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "last_committed_anchor_post_id": {
-          "name": "last_committed_anchor_post_id",
+        "last_committed_post_id": {
+          "name": "last_committed_post_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -597,15 +172,9 @@
         }
       },
       "indexes": {
-        "collection_runs_one_running_feed": {
-          "name": "collection_runs_one_running_feed",
+        "runs_one_running_feed": {
+          "name": "runs_one_running_feed",
           "columns": [
-            {
-              "expression": "cafe_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "feed_kind",
               "isExpression": false,
@@ -620,20 +189,14 @@
             }
           ],
           "isUnique": true,
-          "where": "\"collection_runs\".\"status\" = 'running'",
+          "where": "\"runs\".\"status\" = 'running'",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "collection_runs_feed_status": {
-          "name": "collection_runs_feed_status",
+        "runs_feed_status": {
+          "name": "runs_feed_status",
           "columns": [
-            {
-              "expression": "cafe_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "feed_kind",
               "isExpression": false,
@@ -664,45 +227,179 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "collection_runs_target_range": {
-          "name": "collection_runs_target_range",
-          "value": "\"collection_runs\".\"target_start_ms\" < \"collection_runs\".\"target_end_ms\""
+        "runs_target_range": {
+          "name": "runs_target_range",
+          "value": "\"runs\".\"target_start_ms\" < \"runs\".\"target_end_ms\""
         },
-        "collection_runs_last_page": {
-          "name": "collection_runs_last_page",
-          "value": "\"collection_runs\".\"last_committed_page\" is null or \"collection_runs\".\"last_committed_page\" >= 1"
+        "runs_last_page": {
+          "name": "runs_last_page",
+          "value": "\"runs\".\"last_committed_page\" is null or \"runs\".\"last_committed_page\" >= 1"
         },
-        "collection_runs_nonnegative_counts": {
-          "name": "collection_runs_nonnegative_counts",
-          "value": "\"collection_runs\".\"discovery_pages\" >= 0 and \"collection_runs\".\"collection_pages\" >= 0 and \"collection_runs\".\"request_pages\" >= 0 and \"collection_runs\".\"observed_post_count\" >= 0 and \"collection_runs\".\"in_range_post_count\" >= 0 and \"collection_runs\".\"inserted_post_count\" >= 0 and \"collection_runs\".\"updated_post_count\" >= 0 and \"collection_runs\".\"duplicate_post_count\" >= 0 and \"collection_runs\".\"failed_post_count\" >= 0"
+        "runs_nonnegative_counts": {
+          "name": "runs_nonnegative_counts",
+          "value": "\"runs\".\"discovery_pages\" >= 0 and \"runs\".\"collection_pages\" >= 0 and \"runs\".\"request_pages\" >= 0 and \"runs\".\"observed_post_count\" >= 0 and \"runs\".\"inserted_post_count\" >= 0 and \"runs\".\"updated_post_count\" >= 0"
         }
       },
       "isRLSEnabled": false
     },
-    "public.post_metric_observations": {
-      "name": "post_metric_observations",
+    "public.feed_state": {
+      "name": "feed_state",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
+        "feed_kind": {
+          "name": "feed_kind",
+          "type": "collection_feed_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
           "notNull": true
         },
-        "cafe_id": {
-          "name": "cafe_id",
+        "menu_id": {
+          "name": "menu_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
+        "target_start_ms": {
+          "name": "target_start_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_end_ms": {
+          "name": "target_end_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_version": {
+          "name": "state_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "anchor_post_id": {
+          "name": "anchor_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anchor_posted_at": {
+          "name": "anchor_posted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_identity": {
+          "name": "page_identity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_page": {
+          "name": "reference_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "feed_state_last_run_id_runs_id_fk": {
+          "name": "feed_state_last_run_id_runs_id_fk",
+          "tableFrom": "feed_state",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "last_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "feed_state_pkey": {
+          "name": "feed_state_pkey",
+          "columns": [
+            "feed_kind",
+            "menu_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "feed_state_version": {
+          "name": "feed_state_version",
+          "value": "\"feed_state\".\"state_version\" >= 0"
+        },
+        "feed_state_target_range": {
+          "name": "feed_state_target_range",
+          "value": "\"feed_state\".\"target_start_ms\" < \"feed_state\".\"target_end_ms\""
+        },
+        "feed_state_reference_page": {
+          "name": "feed_state_reference_page",
+          "value": "\"feed_state\".\"reference_page\" is null or \"feed_state\".\"reference_page\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.posts": {
+      "name": "posts",
+      "schema": "",
+      "columns": {
         "post_id": {
           "name": "post_id",
           "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "board_id": {
+          "name": "board_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "observed_at": {
-          "name": "observed_at",
+        "prefix": {
+          "name": "prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_nickname": {
+          "name": "author_nickname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posted_at": {
+          "name": "posted_at",
           "type": "timestamp (3) with time zone",
           "primaryKey": false,
           "notNull": true
@@ -713,89 +410,79 @@
           "primaryKey": false,
           "notNull": false
         },
-        "like_count": {
-          "name": "like_count",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
         "comment_count": {
           "name": "comment_count",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
-        "collection_run_id": {
-          "name": "collection_run_id",
+        "snapshot_at": {
+          "name": "snapshot_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_run_id": {
+          "name": "last_run_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "collection_metric_source",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "parser_version": {
-          "name": "parser_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
+          "notNull": false
         }
       },
       "indexes": {
-        "post_metric_observations_run_post_source": {
-          "name": "post_metric_observations_run_post_source",
+        "posts_posted_at": {
+          "name": "posts_posted_at",
           "columns": [
             {
-              "expression": "collection_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "cafe_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "post_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "source",
+              "expression": "posted_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "post_metric_observations_post_observed": {
-          "name": "post_metric_observations_post_observed",
+        "posts_board_posted_at": {
+          "name": "posts_board_posted_at",
           "columns": [
             {
-              "expression": "cafe_id",
+              "expression": "board_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "post_id",
+              "expression": "posted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posts_author_posted_at": {
+          "name": "posts_author_posted_at",
+          "columns": [
+            {
+              "expression": "author_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "observed_at",
+              "expression": "posted_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -808,30 +495,28 @@
         }
       },
       "foreignKeys": {
-        "post_metric_observations_collection_run_id_collection_runs_id_fk": {
-          "name": "post_metric_observations_collection_run_id_collection_runs_id_fk",
-          "tableFrom": "post_metric_observations",
-          "tableTo": "collection_runs",
+        "posts_board_id_boards_board_id_fk": {
+          "name": "posts_board_id_boards_board_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "boards",
           "columnsFrom": [
-            "collection_run_id"
+            "board_id"
           ],
           "columnsTo": [
-            "id"
+            "board_id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "post_metric_observations_post_fk": {
-          "name": "post_metric_observations_post_fk",
-          "tableFrom": "post_metric_observations",
-          "tableTo": "cafe_posts",
+        "posts_last_run_id_runs_id_fk": {
+          "name": "posts_last_run_id_runs_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "runs",
           "columnsFrom": [
-            "cafe_id",
-            "post_id"
+            "last_run_id"
           ],
           "columnsTo": [
-            "cafe_id",
-            "post_id"
+            "id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -840,26 +525,23 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "posts_nonnegative_counts": {
+          "name": "posts_nonnegative_counts",
+          "value": "(\"posts\".\"view_count\" is null or \"posts\".\"view_count\" >= 0) and (\"posts\".\"comment_count\" is null or \"posts\".\"comment_count\" >= 0)"
+        }
+      },
       "isRLSEnabled": false
     }
   },
   "enums": {
-    "public.collection_board_kind": {
-      "name": "collection_board_kind",
-      "schema": "public",
-      "values": [
-        "normal",
-        "memo",
-        "special",
-        "unknown"
-      ]
-    },
     "public.collection_feed_kind": {
       "name": "collection_feed_kind",
       "schema": "public",
       "values": [
-        "all_articles"
+        "all_articles",
+        "notices",
+        "recommended"
       ]
     },
     "public.collection_run_kind": {
@@ -880,23 +562,6 @@
         "partial",
         "failed",
         "interrupted"
-      ]
-    },
-    "public.collection_metric_source": {
-      "name": "collection_metric_source",
-      "schema": "public",
-      "values": [
-        "list",
-        "detail"
-      ]
-    },
-    "public.collection_posted_precision": {
-      "name": "collection_posted_precision",
-      "schema": "public",
-      "values": [
-        "day",
-        "minute",
-        "millisecond"
       ]
     }
   },
