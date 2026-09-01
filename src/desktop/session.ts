@@ -14,6 +14,8 @@ export const SETTING_KEYS = {
   cafeId: 'cafeId',
   cafeUrlName: 'cafeUrlName',
   operatorAccounts: 'operatorAccounts',
+  /** Midnight KST of the last day worked to its end, as a decimal string. */
+  lastSettledDay: 'lastSettledDayStartMs',
 } as const
 
 /**
@@ -131,6 +133,18 @@ export function createSessionRunner(
       ...(dayStartMs === undefined ? {} : { dayStartMs }),
       // An absent reporter has to be absent rather than undefined here.
       ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
+      lastSettledDay: () => {
+        const raw = settings.get(SETTING_KEYS.lastSettledDay)
+        if (raw === undefined) return null
+        const parsed = Number(raw)
+        // A setting that is not a number is a setting nobody can act on. Reading
+        // it as null costs one redundant collection; reading it as NaN would
+        // make every comparison against it false and settle nothing, ever.
+        return Number.isFinite(parsed) ? parsed : null
+      },
+      onDaySettled: (dayStartMs) => {
+        settings.set(SETTING_KEYS.lastSettledDay, String(dayStartMs))
+      },
     })
 
     return outcome

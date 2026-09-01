@@ -459,3 +459,39 @@ describe('createSessionRunner', () => {
     expect(db.select().from(executions).all()[0]?.reason).toBe('ALREADY_COMMENTED')
   })
 })
+
+describe('the settled-day record', () => {
+  it('reads nothing when the setting has never been written', async () => {
+    // A fresh install has settled no days. Reading it as day zero would make
+    // every day since the epoch look owed.
+    const { run, repos, settings } = build([])
+    settings.remove(SETTING_KEYS.lastSettledDay)
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    await run({ mode: 'SCHEDULED' })
+    expect(settings.get(SETTING_KEYS.lastSettledDay)).toBeDefined()
+  })
+
+  it('writes the day it settled', async () => {
+    const { run, repos, settings } = build([])
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    await run({ mode: 'SCHEDULED' })
+    const written = Number(settings.get(SETTING_KEYS.lastSettledDay))
+    expect(written).toBe(kstDayStartMs(MON_10_00) - 86_400_000)
+  })
+
+  it('ignores a value that is not a number', async () => {
+    // A hand-edited or half-written setting must not stop the tool; the worst
+    // it should cost is one redundant collection.
+    const { run, repos, settings } = build([])
+    settings.set(SETTING_KEYS.lastSettledDay, 'yesterday-ish')
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    const outcome = await run({ mode: 'SCHEDULED' })
+    expect(outcome.opened).toBe(true)
+  })
+})
