@@ -88,6 +88,11 @@ export async function openOptionalCollectionContext(
     const migration = await connection.db.execute<{ hash: string; created_at: string }>(
       sql`select hash, created_at::text from drizzle.__drizzle_migrations order by created_at desc limit 1`,
     )
+    // Checked, never applied. This database can hold months of collected posts
+    // that no run will gather again, so an app meeting a schema it does not
+    // recognise says so and stays out rather than altering it — which also
+    // means regenerating a shipped migration invalidates every database
+    // already carrying it.
     const latest = migration.rows[0]
     if (latest === undefined) throw new CollectionContextError('COLLECTION_SCHEMA_MISSING')
     if (latest.hash !== expected.hash || Number(latest.created_at) !== expected.createdAt) {
