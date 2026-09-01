@@ -165,11 +165,24 @@ describe('nextSessionStart and the settle run', () => {
     expect(next.at).toBe(kst(25, 10, 4))
   })
 
-  it('gives every day exactly one settle run, weekends included', () => {
-    // The guarantee run out over a week rather than asserted a case at a time.
+  it('keeps settle runs distinct and repeats them across a long walk including weekends', () => {
+    // Over 30 iterations spanning ~9 calendar days, the scheduler produces distinct
+    // settle runs — no day is settled twice. However, not every calendar day receives
+    // a settle run from the scheduler. Some days pass without one if a session is
+    // still running when the settle moment (00:01–00:15 KST) passes, causing
+    // nextSessionStart to move the boundary to the following day.
+    //
+    // The guarantee that every day eventually gets settled does not belong to the
+    // scheduler: it lives in the session's owed-day check in src/desktop/orchestrator.ts.
+    // That check runs before the session starts and settles any day the scheduler
+    // did not, keeping the two mechanisms in sync.
     const SESSION_MS = 55 * 60_000
     const drawn = (limits.sessionIntervalMinMs + limits.sessionIntervalMaxMs) / 2
     const dayOf = (epochMs: number): number => kstDayRange(epochMs).startMs
+
+    // Minimum settle runs observed over 30 iterations spanning ~9 days.
+    // This is the floor we've measured; the scheduler does not guarantee one per day.
+    const MIN_SETTLE_RUNS = 5
 
     const settled: number[] = []
     const reached = new Set<number>()
@@ -187,8 +200,11 @@ describe('nextSessionStart and the settle run', () => {
       previousEnd = next.at + SESSION_MS
     }
 
+    // No day is settled twice by the scheduler (uniqueness check).
     expect(new Set(settled).size).toBe(settled.length)
-    expect(settled.length).toBeGreaterThanOrEqual(5)
+    // Settle runs keep being drawn over the long walk.
+    expect(settled.length).toBeGreaterThanOrEqual(MIN_SETTLE_RUNS)
+    // The walk reaches across multiple days including at least a weekend.
     expect(reached.size).toBeGreaterThan(7)
   })
 })
