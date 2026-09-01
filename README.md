@@ -26,6 +26,7 @@
 | [기술 스택](docs/tech-stack.md) | 채택 버전과 근거, 기각한 대안, 버전 정책 |
 | [Chrome 확장 수동 설치 안내](docs/chrome-extension-manual-installation.md) | 비개발자용 확장 설치·앱 연결·문제 해결 안내 |
 | [설정 전달 설계](docs/superpowers/specs/2026-08-27-config-export-import-design.md) | 설정 export/import — 담는 것과 담지 않는 것, 거절 사유 |
+| [수집 DB를 Windows로 옮기기](docs/collection-db-windows-restore.md) | PostgreSQL 설치·덤프 복원·앱 연결 — 비개발자용 이전 절차 |
 
 구현 계획서는 `docs/superpowers/plans/`에 있다.
 
