@@ -58,7 +58,7 @@ describe('promoteRetries', () => {
   })
 
   it('expires a retry whose post has grown stale instead of promoting it', async () => {
-    const id = await seed('1002', NOW - 30 * HOUR, 'RETRY_WAIT')
+    const id = await seed('1002', NOW - 50 * HOUR, 'RETRY_WAIT')
 
     expect(promoteRetries(repo, AUTOMATION, limits, NOW)).toEqual({ promoted: 0, expired: 1 })
     expect(repo.getById(id)?.status).toBe('EXPIRED')
