@@ -56,10 +56,10 @@
 import { describe, expect, it } from 'vitest'
 import { nextDaySettle } from '../../src/shared/daySettling.js'
 import { kstDayRange } from '../../src/shared/kst.js'
+import type { Random } from '../../src/shared/ports.js'
 import { SequenceRandom } from '../fakes.js'
 
 const MINUTE = 60_000
-const HOUR = 3_600_000
 const DAY = 86_400_000
 
 // The KST day 2026-08-24 runs from 2026-08-23 15:00 UTC to 2026-08-24 15:00 UTC.
@@ -85,9 +85,37 @@ describe('nextDaySettle', () => {
     expect(nextDaySettle(MORNING, spread(15 * MINUTE))).toBe(DAY_END + 15 * MINUTE)
   })
 
-  it('clamps a draw outside the band', () => {
-    expect(nextDaySettle(MORNING, spread(0))).toBe(DAY_END + MINUTE)
-    expect(nextDaySettle(MORNING, spread(HOUR))).toBe(DAY_END + 15 * MINUTE)
+  it('asks for a one-to-fifteen-minute band', () => {
+    // The bounds themselves, read off the request rather than the answer.
+    // Asserting a clamped result would prove nothing: the fake clamps to the
+    // band it is handed, so a wrong band would still come back looking right.
+    const asked: [number, number][] = []
+    const recording: Random = {
+      intInclusive: (min, max) => {
+        asked.push([min, max])
+        return min
+      },
+    }
+
+    nextDaySettle(MORNING, recording)
+
+    expect(asked).toEqual([[MINUTE, 15 * MINUTE]])
+  })
+
+  it('draws the offset once, not once per branch', () => {
+    // Two draws would let the answer depend on which side of the boundary the
+    // call landed on, which is a difference nobody asked for.
+    let draws = 0
+    const counting: Random = {
+      intInclusive: (min) => {
+        draws += 1
+        return min
+      },
+    }
+
+    nextDaySettle(MORNING, counting)
+
+    expect(draws).toBe(1)
   })
 
   it('still settles yesterday when the day has only just turned', () => {
@@ -744,7 +772,7 @@ describe('settling the previous day', () => {
       deps({
         transport,
         runMode: 'SETTLE',
-        clock: new FakeClock(justAfterMidnight),
+        clock: new FakeClock(justAfterMidnight, KST_OFFSET_MS),
         lastSettledDay: () => null,
       }),
     )
@@ -755,7 +783,11 @@ describe('settling the previous day', () => {
   it('opens outside the operating window in settle mode', async () => {
     const justAfterMidnight = TODAY + 5 * 60_000
     const outcome = await runSession(
-      deps({ runMode: 'SETTLE', clock: new FakeClock(justAfterMidnight), lastSettledDay: () => null }),
+      deps({
+        runMode: 'SETTLE',
+        clock: new FakeClock(justAfterMidnight, KST_OFFSET_MS),
+        lastSettledDay: () => null,
+      }),
     )
 
     expect(outcome.opened).toBe(true)
@@ -763,7 +795,7 @@ describe('settling the previous day', () => {
 
   it('still refuses a scheduled session outside the operating window', async () => {
     const justAfterMidnight = TODAY + 5 * 60_000
-    const outcome = await runSession(deps({ clock: new FakeClock(justAfterMidnight) }))
+    const outcome = await runSession(deps({ clock: new FakeClock(justAfterMidnight, KST_OFFSET_MS) }))
 
     expect(outcome).toEqual({ opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' })
   })
