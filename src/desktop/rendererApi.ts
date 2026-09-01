@@ -271,9 +271,11 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
       }
 
-      // The same period carries on from its cursor; a new one starts afresh,
-      // which is what resets the cursor without touching collected posts.
-      return startFor(range, samePeriod)
+      // The same unfinished period carries on from its cursor. A new one — or
+      // the same one asked for again after it finished, which is a request to
+      // read it over — starts afresh, resetting the cursor without touching
+      // the posts already collected.
+      return startFor(range, samePeriod && !inProgress.complete)
     },
 
     stopCollection(): Promise<void> {

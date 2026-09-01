@@ -171,11 +171,17 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         const inRange = page.items.slice(firstOffset).filter((item) => item.postedAt >= options.run.targetStartMs && item.postedAt < options.run.targetEndMs); firstOffset = 0
         if (inRange.length > 0) {
           const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange } })
+          // Not retried here: a conflict means the stored cursor moved under
+          // this walk, so the page number it is holding no longer addresses
+          // what it thinks. Ending lets the next run find its place again from
+          // the cursor rather than writing from a position already known stale.
           if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, latestState } }
           const committed = inRange.at(-1)
           state = {
             stateVersion: stored.nextStateVersion,
             anchorPostId: stored.anchorPostId,
+            // A page just landed, so the walk is by definition not finished.
+            complete: false,
             referencePage: pageNumber,
             pageIdentity: page.pageIdentity,
             anchorPostedAtMs: committed?.postedAt ?? null,
@@ -185,6 +191,10 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
           }
           pagesStored += 1
         }
+        // Deliberately the whole page's last post rather than the last one
+        // stored: everything stored is inside the period by construction, so a
+        // filtered tail could never be older than the period's start and the
+        // walk would only ever end by spending its page budget.
         const tail = page.items.at(-1)
         if (tail === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY')
         if (tail.postedAt < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored } }

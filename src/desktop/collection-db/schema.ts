@@ -129,6 +129,15 @@ export const feedState = pgTable(
     pageIdentity: text('page_identity'),
     referencePage: integer('reference_page'),
     lastRunId: uuid('last_run_id').references(() => collectionRuns.id),
+    /**
+     * When a run reached the period's start, which is the only moment anything
+     * knows the job is done. It cannot be worked out from the cursor: the
+     * cursor is always the time of a post inside the period, so it never
+     * crosses the period's start, and a job derived as finished from it never
+     * would be — the scheduler would keep re-searching a finished period every
+     * rest period for as long as the app runs.
+     */
+    completedAt: observedTimestamp('completed_at'),
     updatedAt: observedTimestamp('updated_at').notNull(),
   },
   (table) => [

@@ -32,8 +32,10 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
     persisted,
     finished,
     repo: {
-      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
-      startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
+      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
+    cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
+      startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
+    cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
       recordPageRequest: async () => undefined,
       finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
       reconcileOrphanedRuns: async () => 0,
@@ -58,6 +60,7 @@ function repositoryWithCheckpoint(checkpoint: {
   const finished: string[] = []
   let state = {
     ...checkpoint,
+    complete: false,
     cursorUpdatedAtMs: 1_000,
     pageIdentity: 'previous',
     targetStartMs: run.targetStartMs,

@@ -11,6 +11,18 @@ export type TimerHandle = number
 
 const MINUTE_MS = 60_000
 
+/**
+ * How soon a beat looks again after finding no extension to read through.
+ *
+ * The extension dials the app about once a minute, so a browser that is up
+ * reconnects within one of these. A full rest instead would push the first
+ * collection after the app starts out by the whole rest period — two hours on
+ * the defaults — for want of a socket that arrived a second later: the app
+ * listens the moment it starts and beats immediately, while the extension is
+ * still waiting on its own retry.
+ */
+const BRIDGE_RETRY_MINUTES = 2
+
 export interface CollectionLoopDeps {
   /** Read on every beat, so a saved change takes effect without a restart. */
   readonly schedule: () => CollectionSchedule
@@ -52,18 +64,28 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
   }
 
   /**
-   * When to wake next, given what this beat did.
+   * When to wake next, given how this beat ended.
    *
    * A started block occupies its work length and is then followed by the rest,
-   * which is what the operator set the two numbers for. A beat that started
-   * nothing waits one rest before looking again — asking the database whether a
-   * job appeared is cheap, but asking it continuously is a busy loop, which is
-   * exactly what happens if the next beat is laid at the current instant while
-   * the active window is open.
+   * which is what the operator set the two numbers for. A missing extension is
+   * not a block that happened, so it is not paid for with a rest — it is looked
+   * at again shortly. Anything else waits one rest before looking again: asking
+   * the database whether a job appeared is cheap, but asking it continuously is
+   * a busy loop, which is exactly what happens if the next beat is laid at the
+   * current instant while the active window is open.
    */
-  function beatAfter(startedRun: boolean, schedule: CollectionSchedule, nowMs: number): number {
-    const occupied = startedRun ? schedule.workBlockMinutes + schedule.restMinutes : schedule.restMinutes
-    return nowMs + occupied * MINUTE_MS
+  function beatAfter(
+    result: CollectionStartResult | null,
+    schedule: CollectionSchedule,
+    nowMs: number,
+  ): number {
+    if (result?.kind === 'started') {
+      return nowMs + (schedule.workBlockMinutes + schedule.restMinutes) * MINUTE_MS
+    }
+    if (result?.kind === 'refused' && result.reason === 'BRIDGE_OFFLINE') {
+      return nowMs + BRIDGE_RETRY_MINUTES * MINUTE_MS
+    }
+    return nowMs + schedule.restMinutes * MINUTE_MS
   }
 
   function lay(from: number): void {
@@ -80,24 +102,26 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
 
   async function beat(plannedFor: number): Promise<void> {
     const schedule = deps.schedule()
-    let startedRun = false
+    /** How the start went, or null when this beat did not try to start one. */
+    let attempted: CollectionStartResult | null = null
 
     // Re-read rather than trusting the beat that was laid: the operator may
     // have switched the collection off while this timer was pending.
     if (schedule.enabled) {
       try {
         const repository = deps.repository()
-        // Only an existing job is continued. A beat never starts one, so an
-        // install with nothing to collect makes no request to the cafe at all.
+        // Only an unfinished job is continued. A beat never starts one, so an
+        // install with nothing to collect makes no request to the cafe at all —
+        // and neither does one whose period has already been walked to its end.
         const state = repository === null ? null : await repository.readFeedState(deps.feed)
-        if (state !== null) {
+        if (state !== null && !state.complete) {
           const result = deps.runner.start({
             range: { startMs: state.targetStartMs, endMs: state.targetEndMs },
             kind: 'incremental',
             maxPages: pagesPerWorkBlock(schedule.workBlockMinutes),
             resumeFromCheckpoint: true,
           })
-          startedRun = result.kind === 'started'
+          attempted = result
           deps.onStarted?.(result, plannedFor)
         }
       } catch (error) {
@@ -109,7 +133,7 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
 
     // The next beat is laid whether or not this one ran: a browser that was
     // closed at one block is no reason to stop collecting at the next.
-    lay(beatAfter(startedRun, schedule, deps.clock.now()))
+    lay(beatAfter(attempted, schedule, deps.clock.now()))
   }
 
   return {

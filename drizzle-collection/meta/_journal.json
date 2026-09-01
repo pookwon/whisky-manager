@@ -8,6 +8,13 @@
       "when": 1788191613727,
       "tag": "0000_wise_silvermane",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788223019575,
+      "tag": "0001_magenta_the_liberteens",
+      "breakpoints": true
     }
   ]
 }
