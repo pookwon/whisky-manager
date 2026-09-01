@@ -198,9 +198,33 @@ describe('collection loop', () => {
     // A browser that was closed is no reason to stop collecting at the next block.
     const h = harness(enabled, job(), { kind: 'refused', reason: 'BRIDGE_OFFLINE' })
     h.loop.refresh()
-    await h.advance(12 * HOUR)
+    // Just past the window opening. A missing extension is looked at every
+    // couple of minutes, so the day the other tests advance would only be
+    // counting those.
+    await h.advance(1 * HOUR + 10 * MINUTE)
 
     expect(h.started.length).toBeGreaterThan(1)
+  })
+
+  it('looks again in a couple of minutes when the extension was not there', async () => {
+    // The app listens the instant it starts and beats at once, while the
+    // extension is still waiting on its own retry. Charging that a full rest
+    // would delay the first collection after every app start by the whole rest
+    // period — two hours on the operating defaults.
+    const h = harness(enabled, job(), { kind: 'refused', reason: 'BRIDGE_OFFLINE' })
+    h.loop.refresh()
+    await h.advance(1 * HOUR)
+
+    expect(h.pendingDelayMs()).toBe(2 * MINUTE)
+  })
+
+  it('still pays a rest for a refusal the extension cannot fix', async () => {
+    // A walk already in flight is not something a moment's wait resolves.
+    const h = harness(enabled, job(), { kind: 'refused', reason: 'ALREADY_RUNNING' })
+    h.loop.refresh()
+    await h.advance(1 * HOUR)
+
+    expect(h.pendingDelayMs()).toBe(enabled.restMinutes * MINUTE)
   })
 
   it('does not run a beat the operator switched off while it was pending', async () => {
