@@ -9,6 +9,7 @@ import { FakeClock, SequenceRandom } from '../fakes.js'
 // enough in the day that the run which closes it never claims these slots —
 // what these tests are about is the loop, not the boundary.
 const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0) - KST_OFFSET_MS
+const MON_23_30 = Date.UTC(2026, 7, 24, 23, 30, 0) - KST_OFFSET_MS
 const MID_INTERVAL_MS =
   (PROFILES.production.sessionIntervalMinMs + PROFILES.production.sessionIntervalMaxMs) / 2
 
@@ -316,6 +317,47 @@ describe('createSessionLoop', () => {
     expect(secondNext).toBeGreaterThan(firstNext!)
 
     loop.stop()
+  })
+
+  it('opens the run that settles a day in settle mode', () => {
+    const seen: (string | undefined)[] = []
+    const setTimer = vi.fn((_fn: () => void, _ms: number) => 1)
+    const loop = createSessionLoop(
+      loopDeps({
+        clock: new FakeClock(MON_23_30, KST_OFFSET_MS),
+        setTimer,
+        runSession: (request) => {
+          seen.push(request?.mode)
+          return Promise.resolve(idleOutcome)
+        },
+      }),
+    )
+
+    loop.start()
+    setTimer.mock.calls[0]?.[0]?.()
+    loop.stop()
+
+    expect(seen[0]).toBe('SETTLE')
+  })
+
+  it('opens an ordinary session in scheduled mode', () => {
+    const seen: (string | undefined)[] = []
+    const setTimer = vi.fn((_fn: () => void, _ms: number) => 1)
+    const loop = createSessionLoop(
+      loopDeps({
+        setTimer,
+        runSession: (request) => {
+          seen.push(request?.mode)
+          return Promise.resolve(idleOutcome)
+        },
+      }),
+    )
+
+    loop.start()
+    setTimer.mock.calls[0]?.[0]?.()
+    loop.stop()
+
+    expect(seen[0]).toBe('SCHEDULED')
   })
 })
 

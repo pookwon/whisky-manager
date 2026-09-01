@@ -459,3 +459,72 @@ describe('createSessionRunner', () => {
     expect(db.select().from(executions).all()[0]?.reason).toBe('ALREADY_COMMENTED')
   })
 })
+
+describe('the settled-day record', () => {
+  it('reads nothing when the setting has never been written', async () => {
+    // A fresh install has settled no days. Reading it as day zero would make
+    // every day since the epoch look owed.
+    const { run, repos, settings } = build([])
+    settings.remove(SETTING_KEYS.lastSettledDay)
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    await run({ mode: 'SCHEDULED' })
+    expect(settings.get(SETTING_KEYS.lastSettledDay)).toBeDefined()
+  })
+
+  it('writes the day it settled', async () => {
+    const { run, repos, settings } = build([])
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    await run({ mode: 'SCHEDULED' })
+    const written = Number(settings.get(SETTING_KEYS.lastSettledDay))
+    expect(written).toBe(kstDayStartMs(MON_10_00) - 86_400_000)
+  })
+
+  it('ignores a value that is not a number', async () => {
+    // A hand-edited or half-written setting must not stop the tool; the worst
+    // it should cost is one redundant collection.
+    const { run, repos, settings } = build([])
+    settings.set(SETTING_KEYS.lastSettledDay, 'yesterday-ish')
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    const outcome = await run({ mode: 'SCHEDULED' })
+    expect(outcome.opened).toBe(true)
+  })
+
+  it('refuses a settled day later than today', async () => {
+    // No day after today can have been settled, so a value from the future was
+    // never written by this tool — a hand-edited setting, or a clock that has
+    // since moved back. Believed, it would compare as already settled every day
+    // from here on and the tool would stop settling for good, without an error
+    // to read: the one failure this design cannot survive. Refusing it costs a
+    // redundant collection and nothing else, so the session still settles.
+    const { run, repos, settings } = build([])
+    settings.set(SETTING_KEYS.lastSettledDay, String(kstDayStartMs(MON_10_00) + 30 * 86_400_000))
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    await run({ mode: 'SCHEDULED' })
+
+    expect(Number(settings.get(SETTING_KEYS.lastSettledDay))).toBe(
+      kstDayStartMs(MON_10_00) - 86_400_000,
+    )
+  })
+
+  it('believes a settled day of today itself', async () => {
+    // Today's own midnight is a value this tool can legitimately have written —
+    // an operator's dated run on today, say — so the future check must sit
+    // strictly above it rather than swallowing the boundary.
+    const { run, repos, settings } = build([])
+    settings.set(SETTING_KEYS.lastSettledDay, String(kstDayStartMs(MON_10_00)))
+    enable(repos)
+    repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
+
+    await run({ mode: 'SCHEDULED' })
+
+    expect(Number(settings.get(SETTING_KEYS.lastSettledDay))).toBe(kstDayStartMs(MON_10_00))
+  })
+})

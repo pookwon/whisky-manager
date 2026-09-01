@@ -1,4 +1,4 @@
-import { nextDayClosing } from './dayClosing.js'
+import { nextDaySettle } from './daySettling.js'
 import type { Clock, Random } from './ports.js'
 import type { Limits } from './types.js'
 
@@ -60,40 +60,33 @@ function isWeekend(epochMs: number, clock: Clock): boolean {
   return dayOfWeek === SATURDAY || dayOfWeek === SUNDAY
 }
 
-/**
- * The longest a session can take: every execution it is allowed, each waiting
- * the widest gap before it. An estimate, and deliberately the pessimistic one —
- * the only question it answers is "would starting now still be running when the
- * day ends?", and guessing yes costs a wait while guessing no costs the day.
- */
-function longestSessionMs(limits: Limits): number {
-  return limits.perSessionCap * limits.actionIntervalMaxMs
+export interface NextSession {
+  readonly at: number
+  readonly mode: 'SCHEDULED' | 'SETTLE'
 }
 
 /**
- * No day goes unclosed. The tail of the day belongs to the run that settles it,
- * and a drawn interval either fits ahead of that run or gives way to it.
+ * When the next session opens, and what kind it is.
  *
  * Two calendars meet here, and they are meant to. The operating window is read
- * through the clock, which keeps the machine's day; the closing run is pinned to
+ * through the clock, which keeps the machine's day; the settle run is pinned to
  * the KST day, because that is the day collection floors at. On a machine
  * keeping the cafe's own time — the one this is built for — they are the same
- * day. On any other, the window is already answering for a day the cafe does
- * not have, and the closing run staying with the cafe is the half worth keeping.
+ * day.
  *
- * Both halves of the rule are needed. An interval left alone steps over midnight and the
- * day rolls over with its last arrivals unanswered — collection floors at the
- * new day's midnight, so nothing afterwards ever looks at them again. Clamping
- * it to the closing moment is not enough either: a session drawn at, say, 23:00
- * would still be working at 23:59, and the loop only asks for the next session
- * once the current one ends, so the closing run would simply never start.
+ * The earlier of the two wins, and that is the whole rule. A draw landing
+ * inside the operating window is an ordinary session; a draw that steps over
+ * midnight gives way to the run that settles the day it left behind. Nothing
+ * here has to reason about whether a session will still be running at the
+ * boundary: a settle run that a long session pushes past is picked up by the
+ * next session, which checks what is owed before it works its own day.
  */
 export function nextSessionStart(
   previousSessionEndMs: number,
   limits: Limits,
   clock: Clock,
   random: Random,
-): number {
+): NextSession {
   const base = random.intInclusive(limits.sessionIntervalMinMs, limits.sessionIntervalMaxMs)
   const multiplier = isWeekend(previousSessionEndMs, clock) ? limits.weekendIntervalMultiplier : 1
   const candidate = previousSessionEndMs + Math.round(base * multiplier)
@@ -102,8 +95,8 @@ export function nextSessionStart(
     ? candidate
     : nextOpeningStart(candidate, limits, clock, random)
 
-  const closing = nextDayClosing(previousSessionEndMs)
-  return drawn + longestSessionMs(limits) > closing ? closing : drawn
+  const settleAt = nextDaySettle(previousSessionEndMs, random)
+  return settleAt < drawn ? { at: settleAt, mode: 'SETTLE' } : { at: drawn, mode: 'SCHEDULED' }
 }
 
 export function nextActionDelayMs(limits: Limits, random: Random): number {

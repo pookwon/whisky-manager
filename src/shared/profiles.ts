@@ -16,7 +16,10 @@ const SHARED = {
   activeHourStart: 10,
   activeHourEnd: 24,
   weekendIntervalMultiplier: 1.5,
-  backlogMaxAgeMs: 24 * HOUR,
+  // Two days, because that is how much a session works: it settles yesterday
+  // before it works today. A day-wide window would read yesterday morning's
+  // unresolved post as a sign something is broken and stop the automation.
+  backlogMaxAgeMs: 48 * HOUR,
   approvalTtlMs: 48 * HOUR,
   maxAttempts: 3,
 } as const

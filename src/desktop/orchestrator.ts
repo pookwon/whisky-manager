@@ -7,6 +7,7 @@ import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../
 import { initialStatus, transition } from '../shared/statusMachine.js'
 import type { RenderOutcome } from '../shared/templates.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor, Limits, RunMode } from '../shared/types.js'
+import { kstDayStartMs } from '../shared/kst.js'
 import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
@@ -53,6 +54,18 @@ export interface SessionDeps {
    * a different rule.
    */
   readonly dayStartMs?: number
+  /**
+   * Midnight KST of the last day worked to its end, or null when none has
+   * been. Read rather than stored so a session sees what the last one recorded
+   * without either of them holding the file open.
+   */
+  readonly lastSettledDay: () => number | null
+  /**
+   * Records that a finished day has been worked to its end. Called only for a
+   * day the schedule chose, never for one an operator named: a dated run is a
+   * person asking about one day, not a claim that the day is now retired.
+   */
+  readonly onDaySettled: (dayStartMs: number) => void
   /** Reports what the session is doing. Nothing about a run depends on anyone listening. */
   readonly onProgress?: (progress: SessionProgress) => void
 }
@@ -112,6 +125,77 @@ interface ExecutionJob {
 }
 
 type JobResult = 'EXECUTED' | 'SKIPPED' | 'FAILED' | 'RETRY' | 'STOP'
+
+type DayResult = 'DONE' | 'COLLECT_FAILED' | 'STOP'
+
+const MS_PER_DAY = 86_400_000
+
+/**
+ * Which days this session works, oldest first.
+ *
+ * An operator who named a day gets that day and nothing else — widening it
+ * would answer a different question than the one asked. Otherwise the session
+ * settles yesterday when nobody has, and then works its own day.
+ *
+ * Only yesterday. A greeting three days late is worse than none, and a week
+ * away from the machine should not end with a week of greetings arriving at
+ * once. Those days stay the operator's to run by hand, where they see what is
+ * about to go out before it does.
+ */
+function daysToWork(deps: SessionDeps, openedAt: number): number[] {
+  if (deps.dayStartMs !== undefined) return [deps.dayStartMs]
+
+  const today = kstDayStartMs(openedAt)
+  const yesterday = today - MS_PER_DAY
+  const settled = deps.lastSettledDay()
+  const owed = settled === null || settled < yesterday
+
+  // A settle run opens minutes past midnight, when its own day holds nothing
+  // and the board is empty. It settles what is owed and stops there.
+  if (deps.runMode === 'SETTLE') return owed ? [yesterday] : []
+  return owed ? [yesterday, today] : [today]
+}
+
+/**
+ * What the session has done so far, across every day it works.
+ *
+ * One object rather than five counters, because the days share it. The session
+ * cap counts `attempted`, so a settle pass that spends the allowance leaves the
+ * session's own day with none — which is the intent: it is one session knocking
+ * on the cafe, whichever day's post it is knocking about.
+ */
+interface Tally {
+  executed: number
+  skipped: number
+  awaitingApproval: number
+  failed: number
+  /** Requests that actually reached naver. Caps count attempts, not successes. */
+  attempted: number
+}
+
+function record(tally: Tally, result: JobResult): void {
+  // EXECUTED, FAILED and RETRY all mean a request reached naver.
+  if (result === 'EXECUTED' || result === 'FAILED' || result === 'RETRY') {
+    tally.attempted += 1
+  }
+  if (result === 'EXECUTED') {
+    tally.executed += 1
+  } else if (result === 'SKIPPED') {
+    tally.skipped += 1
+  } else if (result === 'FAILED') {
+    tally.failed += 1
+  }
+}
+
+function summarise(tally: Tally): SessionOutcome {
+  return {
+    opened: true,
+    executed: tally.executed,
+    skipped: tally.skipped,
+    awaitingApproval: tally.awaitingApproval,
+    failed: tally.failed,
+  }
+}
 
 /**
  * What the cafe has heard from us in the hour ending now. Read fresh at every
@@ -271,104 +355,13 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, sessionCount: number
   return nextStatus === 'FAILED' ? 'FAILED' : 'RETRY'
 }
 
-export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
-  if (deps.isKilled()) {
-    return { opened: false, reason: 'KILLED' }
-  }
-
-  if (!deps.isEnabled()) {
-    return { opened: false, reason: 'DISABLED' }
-  }
-
-  // Refusing loudly beats skipping every candidate: an operator who forgot to
-  // register a template should see a reason, not silence.
-  if (!deps.hasTemplate()) {
-    return { opened: false, reason: 'NO_TEMPLATE' }
-  }
-
-  const openedAt = deps.clock.now()
-  const forced = deps.runMode === 'FORCED'
-  if (!forced && !isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
-    return { opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' }
-  }
-
-  const login = await checkLogin(deps)
-  if (login === 'OUT') return { opened: false, reason: 'NOT_LOGGED_IN' }
-  if (login === 'UNKNOWN') return { opened: false, reason: 'LOGIN_CHECK_FAILED' }
-
-  // Maintenance runs before the brake on purpose. A stale RETRY_WAIT row would
-  // otherwise trip the brake every session, and the sweep that retires it would
-  // never get to run — a permanent deadlock.
-  sweepApprovals(deps.repo, deps.automationId, deps.limits, openedAt)
-  promoteRetries(deps.repo, deps.automationId, deps.limits, openedAt)
-
-  // The brake reads a days-old backlog as a sign something is broken and stops.
-  // A forced run is an operator saying they have looked and want it to go
-  // anyway; the schedule can never make that call for itself.
-  const unresolved = deps.repo.listUnresolved(deps.automationId)
-  if (!forced && hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
-    return { opened: false, reason: 'STALE_BACKLOG' }
-  }
-
-  let executed = 0
-  let skipped = 0
-  let awaitingApproval = 0
-  let failed = 0
-  /** Requests actually sent this session. Caps count attempts, not successes. */
-  let attempted = 0
-
-  const tally = (result: JobResult): void => {
-    // EXECUTED, FAILED and RETRY all mean a request reached naver.
-    if (result === 'EXECUTED' || result === 'FAILED' || result === 'RETRY') {
-      attempted += 1
-    }
-    if (result === 'EXECUTED') {
-      executed += 1
-    } else if (result === 'SKIPPED') {
-      skipped += 1
-    } else if (result === 'FAILED') {
-      failed += 1
-    }
-  }
-
-  const summary = (): SessionOutcome => ({
-    opened: true,
-    executed,
-    skipped,
-    awaitingApproval,
-    failed,
-  })
-
-  // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
-  // older than anything we are about to collect.
-  const queued = deps.repo.listQueued(deps.automationId)
-
-  // Indexes rather than a counter: every `continue` below would be a chance for
-  // a hand-kept tally to drift away from where the walk actually is.
-  for (const [index, row] of queued.entries()) {
-    deps.onProgress?.({
-      phase: 'BACKLOG',
-      done: index,
-      total: queued.length,
-      nickname: row.targetAuthor,
-    })
-    const result = await runJob(
-      deps,
-      {
-        executionId: row.id,
-        cafeId: row.cafeId,
-        boardId: row.boardId,
-        postId: row.targetPostId,
-        body: row.renderedText,
-        templateId: row.templateId,
-        priorAttempts: row.attempts,
-      },
-      attempted,
-    )
-    if (result === 'STOP') return summary()
-    tally(result)
-  }
-
+/**
+ * One day, end to end: collect it, judge every post in it, act on the ones that
+ * pass. Separated from the session because a session may work two of them, and
+ * both must reach the board through this one door — a second copy of this walk
+ * would be a second set of rules nobody remembered to keep in step.
+ */
+async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Promise<DayResult> {
   // The whole day, every session. A post passed over earlier has to come back
   // into view, because what disqualified it can change on the cafe's side.
   deps.onProgress?.({ phase: 'COLLECTING' })
@@ -377,14 +370,16 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     automationId: deps.automationId,
     source: { cafeId: deps.cafeId, boardId: deps.boardId },
     newRequestId: deps.newRequestId,
-    dayStartMs: deps.dayStartMs ?? openedAt,
+    dayStartMs,
     onProgress: (pagesRead, collected) =>
       deps.onProgress?.({ phase: 'COLLECTING', pagesRead, collected }),
   })
-  if (raws === null) return { opened: false, reason: 'COLLECT_FAILED' }
+  if (raws === null) return 'COLLECT_FAILED'
 
-  // Fixed for the whole walk, and the same context the count shown before this
-  // run was reached through.
+  // Fixed for this day's walk, and the same context the count shown before this
+  // run was reached through. Computed per day rather than once per session, so
+  // a person who wrote last thing yesterday and again today is the earliest in
+  // each set and is answered in each.
   const screening: ScreeningContext = {
     automationId: deps.automationId,
     source: { cafeId: deps.cafeId, boardId: deps.boardId },
@@ -407,12 +402,19 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
     // lookup. runJob checks again for the backlog walk, which does not come
     // through here.
     const gate = checkGates(
-      { killed: deps.isKilled(), hourlyCount: sentWithinTheHour(deps, deps.clock.now()), sessionCount: attempted },
+      {
+        killed: deps.isKilled(),
+        hourlyCount: sentWithinTheHour(deps, deps.clock.now()),
+        sessionCount: tally.attempted,
+      },
       deps.limits,
       deps.runMode,
     )
     if (!gate.allowed) {
-      break
+      // Out of room, not out of days. Stopping the session rather than this day
+      // alone is the same call the single-day walk made: the next day would
+      // meet the same closed gate on its first candidate.
+      return 'STOP'
     }
 
     const now = deps.clock.now()
@@ -444,13 +446,13 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         riskFlags: evaluation.flags,
         resolvedAt: now,
       })
-      skipped += 1
+      tally.skipped += 1
       continue
     }
 
     if (status === 'AWAITING_APPROVAL') {
       deps.repo.applyPatch(executionId, { status, riskFlags: evaluation.flags })
-      awaitingApproval += 1
+      tally.awaitingApproval += 1
       continue
     }
 
@@ -479,11 +481,105 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
         templateId: rendered.templateId,
         priorAttempts: 0,
       },
-      attempted,
+      tally.attempted,
     )
-    if (result === 'STOP') break
-    tally(result)
+    if (result === 'STOP') return 'STOP'
+    record(tally, result)
   }
 
-  return summary()
+  return 'DONE'
+}
+
+export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
+  if (deps.isKilled()) {
+    return { opened: false, reason: 'KILLED' }
+  }
+
+  if (!deps.isEnabled()) {
+    return { opened: false, reason: 'DISABLED' }
+  }
+
+  // Refusing loudly beats skipping every candidate: an operator who forgot to
+  // register a template should see a reason, not silence.
+  if (!deps.hasTemplate()) {
+    return { opened: false, reason: 'NO_TEMPLATE' }
+  }
+
+  const openedAt = deps.clock.now()
+  // A forced run is an operator who was shown what they were overriding. A
+  // settle run is the schedule finishing a day that has already ended, which
+  // the window was never drawn to prevent.
+  const bypassesWindow = deps.runMode === 'FORCED' || deps.runMode === 'SETTLE'
+  if (!bypassesWindow && !isWithinActiveHours(openedAt, deps.limits, deps.clock)) {
+    return { opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' }
+  }
+
+  const login = await checkLogin(deps)
+  if (login === 'OUT') return { opened: false, reason: 'NOT_LOGGED_IN' }
+  if (login === 'UNKNOWN') return { opened: false, reason: 'LOGIN_CHECK_FAILED' }
+
+  // Maintenance runs before the brake on purpose. A stale RETRY_WAIT row would
+  // otherwise trip the brake every session, and the sweep that retires it would
+  // never get to run — a permanent deadlock.
+  sweepApprovals(deps.repo, deps.automationId, deps.limits, openedAt)
+  promoteRetries(deps.repo, deps.automationId, deps.limits, openedAt)
+
+  // The brake reads a days-old backlog as a sign something is broken and stops.
+  // A forced run is an operator saying they have looked and want it to go
+  // anyway; the schedule can never make that call for itself.
+  const unresolved = deps.repo.listUnresolved(deps.automationId)
+  if (deps.runMode !== 'FORCED' && hasStaleBacklog(unresolved.map((r) => ({ postedAt: r.targetPostedAt })), openedAt, deps.limits)) {
+    return { opened: false, reason: 'STALE_BACKLOG' }
+  }
+
+  const tally: Tally = { executed: 0, skipped: 0, awaitingApproval: 0, failed: 0, attempted: 0 }
+
+  // Backlog first: rows revived from RETRY_WAIT or approved by an operator are
+  // older than anything we are about to collect.
+  const queued = deps.repo.listQueued(deps.automationId)
+
+  // Indexes rather than a counter: every `continue` below would be a chance for
+  // a hand-kept tally to drift away from where the walk actually is.
+  for (const [index, row] of queued.entries()) {
+    deps.onProgress?.({
+      phase: 'BACKLOG',
+      done: index,
+      total: queued.length,
+      nickname: row.targetAuthor,
+    })
+    const result = await runJob(
+      deps,
+      {
+        executionId: row.id,
+        cafeId: row.cafeId,
+        boardId: row.boardId,
+        postId: row.targetPostId,
+        body: row.renderedText,
+        templateId: row.templateId,
+        priorAttempts: row.attempts,
+      },
+      tally.attempted,
+    )
+    if (result === 'STOP') return summarise(tally)
+    record(tally, result)
+  }
+
+  const ownDay = kstDayStartMs(openedAt)
+  // A day an operator named is theirs, not the schedule's. Recording it as
+  // settled would retire a day on the strength of a question someone asked.
+  const isNamedDay = deps.dayStartMs !== undefined
+
+  for (const day of daysToWork(deps, openedAt)) {
+    const result = await workDay(deps, day, tally)
+    if (result === 'STOP') return summarise(tally)
+    // A named day is the only case where one failed read is the whole session's
+    // answer: there is no other day to carry on to.
+    if (isNamedDay && result === 'COLLECT_FAILED') return { opened: false, reason: 'COLLECT_FAILED' }
+    // A failed read is not an empty day. The day stays owed and the next
+    // session tries again — and it must not cost the day this session came for,
+    // so the loop carries on either way.
+    if (result === 'DONE' && !isNamedDay && day !== ownDay) deps.onDaySettled(day)
+  }
+
+  return summarise(tally)
 }

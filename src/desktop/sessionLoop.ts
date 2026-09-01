@@ -120,8 +120,8 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
 
   function schedule(): void {
     const now = deps.clock.now()
-    const at = nextSessionStart(now, deps.limits, deps.clock, deps.random)
-    nextScheduledAt = at
+    const next = nextSessionStart(now, deps.limits, deps.clock, deps.random)
+    nextScheduledAt = next.at
     timer = deps.setTimer(() => {
       // The handle is spent the moment it fires, and the session it starts
       // outlives it by the better part of an hour. Letting go of it here is
@@ -129,8 +129,8 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
       // session below tell a schedule it still owns from one that a restart
       // has already replaced.
       timer = null
-      const wake: WakeRecord = { scheduledFor: at, wokeAt: deps.clock.now() }
-      void runOnceInternal({ mode: 'SCHEDULED' }, wake).finally(() => {
+      const wake: WakeRecord = { scheduledFor: next.at, wokeAt: deps.clock.now() }
+      void runOnceInternal({ mode: next.mode }, wake).finally(() => {
         // Stopping mid-session means stopped: the operator's switch outranks a
         // session that was already under way. A restart inside that same
         // session has already laid the next beat, and the session must not add
@@ -138,7 +138,7 @@ export function createSessionLoop(deps: SessionLoopDeps): SessionLoop {
         // asked, and stopping only ever clears the newer of them.
         if (running && timer === null) schedule()
       })
-    }, Math.max(0, at - now))
+    }, Math.max(0, next.at - now))
   }
 
   return {

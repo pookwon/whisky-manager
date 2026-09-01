@@ -16,11 +16,14 @@ import { firstPostOnlyGuard } from '../../src/shared/automations/welcome-comment
 import { PROFILES } from '../../src/shared/profiles.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { FakeClock, SequenceRandom } from '../fakes.js'
-import { kstDayStartMs } from '../../src/shared/kst.js'
+import { KST_OFFSET_MS, kstDayStartMs } from '../../src/shared/kst.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
 const HOUR = 3_600_000
+const DAY = 86_400_000
 const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
+const TODAY = kstDayStartMs(MON_10_00)
+const YESTERDAY = TODAY - DAY
 
 interface FakeTransportOptions {
   loggedIn?: boolean
@@ -124,6 +127,8 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
     newRequestId: () => `req-${++idCounter}`,
     commentAuthors: defaultLookup,
     runMode: 'SCHEDULED',
+    lastSettledDay: () => YESTERDAY,
+    onDaySettled: () => {},
     ...overrides,
   }
 }
@@ -341,8 +346,10 @@ describe('runSession — caps and failures', () => {
   it('does not open when an approval request has gone stale', async () => {
     // A retry that ages out is retired by the sweep, so the brake never sees it.
     // What the brake is actually for is work a human has left sitting: an
-    // approval request older than the backlog limit but younger than its TTL.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
+    // approval request whose postedAt is older than backlogMaxAgeMs (48h) but
+    // whose detectedAt is recent (measured by sweepApprovals, which uses
+    // approvalTtlMs). The backlog brake looks at postedAt, not detectedAt.
+    const old = { ...candidate('5001', MON_10_00 - 50 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -825,9 +832,10 @@ describe('runSession — forced runs', () => {
   })
 
   it('opens despite a backlog old enough to stop the schedule', async () => {
-    // Same shape the brake was built for: an approval a human left sitting,
-    // older than the backlog limit but younger than its own expiry.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
+    // Same shape the brake was built for: an approval a human left sitting.
+    // Its postedAt is older than backlogMaxAgeMs (48h), but its detectedAt is
+    // recent, so sweepApprovals (which uses approvalTtlMs) has not yet expired it.
+    const old = { ...candidate('5001', MON_10_00 - 50 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -1120,5 +1128,226 @@ describe('runSession — comment author resolution', () => {
     expect(lookup.checked).not.toContain('8051')
     expect(lookup.checked).not.toContain('8052')
     expect(repo.listUnresolved('welcome-comment')).toHaveLength(0)
+  })
+})
+
+describe('settling the previous day', () => {
+  /** Records the floor each COLLECT asked for, in the order they were asked. */
+  function collectingTransport(byFloor: Map<number, RawCandidate[]>, asked: number[]) {
+    const base = fakeTransport()
+    return {
+      isConnected: () => true,
+      request(message: AppMessage): Promise<ExtensionMessage> {
+        if (message.type === 'COLLECT') {
+          asked.push(message.sincePostedAt)
+          return Promise.resolve({
+            type: 'COLLECTED',
+            requestId: message.requestId,
+            candidates: byFloor.get(message.sincePostedAt) ?? [],
+          })
+        }
+        return base.request(message)
+      },
+    }
+  }
+
+  it('works yesterday before today when yesterday is unsettled', async () => {
+    const asked: number[] = []
+    const transport = collectingTransport(
+      new Map([
+        [YESTERDAY, [candidate('9001', YESTERDAY + 23 * HOUR + 55 * 60_000)]],
+        [TODAY, [candidate('9002', MON_10_00 - 60_000)]],
+      ]),
+      asked,
+    )
+
+    const outcome = await runSession(deps({ transport, lastSettledDay: () => null }))
+
+    expect(asked).toEqual([YESTERDAY, TODAY])
+    expect(outcome).toMatchObject({ opened: true, executed: 2 })
+  })
+
+  it('collects once when yesterday is already settled', async () => {
+    const asked: number[] = []
+    const transport = collectingTransport(new Map([[TODAY, [candidate('9002')]]]), asked)
+
+    await runSession(deps({ transport, lastSettledDay: () => YESTERDAY }))
+
+    expect(asked).toEqual([TODAY])
+  })
+
+  it('records the day it settled', async () => {
+    const settled: number[] = []
+    const transport = collectingTransport(new Map(), [])
+
+    await runSession(
+      deps({ transport, lastSettledDay: () => null, onDaySettled: (d) => settled.push(d) }),
+    )
+
+    expect(settled).toEqual([YESTERDAY])
+  })
+
+  it('does not record a day whose collection failed', async () => {
+    // A failed read is not an empty day. Recording it would retire a day nobody
+    // ever looked at.
+    const settled: number[] = []
+    const transport = {
+      isConnected: () => true,
+      request(message: AppMessage): Promise<ExtensionMessage> {
+        if (message.type === 'COLLECT') {
+          return Promise.resolve({ type: 'ERROR', requestId: message.requestId, code: 'COLLECT_FAILED', message: 'collection failed' })
+        }
+        return fakeTransport().request(message)
+      },
+    }
+
+    await runSession(
+      deps({ transport, lastSettledDay: () => null, onDaySettled: (d) => settled.push(d) }),
+    )
+
+    expect(settled).toEqual([])
+  })
+
+  it('works today even when settling yesterday failed', async () => {
+    let first = true
+    const asked: number[] = []
+    const transport = {
+      isConnected: () => true,
+      request(message: AppMessage): Promise<ExtensionMessage> {
+        if (message.type === 'COLLECT') {
+          asked.push(message.sincePostedAt)
+          if (first) {
+            first = false
+            return Promise.resolve({ type: 'ERROR', requestId: message.requestId, code: 'COLLECT_FAILED', message: 'collection failed' })
+          }
+          return Promise.resolve({
+            type: 'COLLECTED',
+            requestId: message.requestId,
+            candidates: [candidate('9002')],
+          })
+        }
+        return fakeTransport().request(message)
+      },
+    }
+
+    const outcome = await runSession(deps({ transport, lastSettledDay: () => null }))
+
+    expect(asked).toEqual([YESTERDAY, TODAY])
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+  })
+
+  it('judges each day on its own set', async () => {
+    // The same person wrote last thing yesterday and again today. Each post is
+    // the earliest that person made in its own day, so each is answered — which
+    // is the whole reason the two days are collected separately rather than as
+    // one widened window.
+    const asked: number[] = []
+    const yesterdayPost: RawCandidate = {
+      ...candidate('9001', YESTERDAY + 23 * HOUR + 55 * 60_000),
+      authorId: 'same-person',
+    }
+    const todayPost: RawCandidate = {
+      ...candidate('9002', MON_10_00 - 60_000),
+      authorId: 'same-person',
+    }
+    const transport = collectingTransport(
+      new Map([
+        [YESTERDAY, [yesterdayPost]],
+        [TODAY, [todayPost]],
+      ]),
+      asked,
+    )
+
+    const outcome = await runSession(deps({ transport, lastSettledDay: () => null }))
+
+    expect(outcome).toMatchObject({ opened: true, executed: 2, skipped: 0 })
+  })
+
+  it('costs nothing to walk a day that is already answered', async () => {
+    // What makes re-walking a settled day cheap: a finished row is terminal, so
+    // the claim turns it away before anything asks the cafe about it.
+    const post = candidate('9001', YESTERDAY + 23 * HOUR)
+    const transport = collectingTransport(new Map([[YESTERDAY, [post]]]), [])
+
+    await runSession(deps({ transport, lastSettledDay: () => null }))
+    const afterFirst = db.select().from(executions).all()
+    expect(afterFirst).toHaveLength(1)
+    expect(afterFirst[0]?.status).toBe('SUCCESS')
+
+    let asked = 0
+    const counting: CommentAuthorLookup = {
+      resolve: async () => {
+        asked += 1
+        return []
+      },
+    }
+    await runSession(
+      deps({ transport, lastSettledDay: () => null, commentAuthors: counting }),
+    )
+
+    expect(asked).toBe(0)
+    expect(db.select().from(executions).all()).toHaveLength(1)
+  })
+
+  it('settles only yesterday, never the day before it', async () => {
+    const asked: number[] = []
+    const transport = collectingTransport(new Map(), asked)
+
+    await runSession(deps({ transport, lastSettledDay: () => YESTERDAY - 5 * DAY }))
+
+    expect(asked).toEqual([YESTERDAY, TODAY])
+  })
+
+  it('works only yesterday in settle mode', async () => {
+    // The run that fires a few minutes past midnight has nothing to do with the
+    // day that is five minutes old. Greeting on an empty board is what the
+    // operating window exists to prevent.
+    const asked: number[] = []
+    const transport = collectingTransport(new Map(), asked)
+    const justAfterMidnight = TODAY + 5 * 60_000
+
+    await runSession(
+      deps({
+        transport,
+        runMode: 'SETTLE',
+        clock: new FakeClock(justAfterMidnight, KST_OFFSET_MS),
+        lastSettledDay: () => null,
+      }),
+    )
+
+    expect(asked).toEqual([YESTERDAY])
+  })
+
+  it('opens outside the operating window in settle mode', async () => {
+    const justAfterMidnight = TODAY + 5 * 60_000
+    const outcome = await runSession(
+      deps({
+        runMode: 'SETTLE',
+        clock: new FakeClock(justAfterMidnight, KST_OFFSET_MS),
+        lastSettledDay: () => null,
+      }),
+    )
+
+    expect(outcome.opened).toBe(true)
+  })
+
+  it('still refuses a scheduled session outside the operating window', async () => {
+    const justAfterMidnight = TODAY + 5 * 60_000
+    const outcome = await runSession(deps({ clock: new FakeClock(justAfterMidnight, KST_OFFSET_MS) }))
+
+    expect(outcome).toEqual({ opened: false, reason: 'OUTSIDE_ACTIVE_HOURS' })
+  })
+
+  it('works only the day it was told to when an operator names one', async () => {
+    // A dated run is the operator naming a day. Settling must not widen it.
+    const asked: number[] = []
+    const transport = collectingTransport(new Map(), asked)
+    const named = YESTERDAY - 3 * DAY
+
+    await runSession(
+      deps({ transport, runMode: 'FORCED', dayStartMs: named, lastSettledDay: () => null }),
+    )
+
+    expect(asked).toEqual([named])
   })
 })
