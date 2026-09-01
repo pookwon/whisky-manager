@@ -155,7 +155,7 @@ describe('hasStaleBacklog', () => {
   })
 
   it('is true when any unresolved post is older than the age limit', () => {
-    expect(hasStaleBacklog([{ postedAt: now - 6 * HOUR }, { postedAt: now - 30 * HOUR }], now, limits)).toBe(true)
+    expect(hasStaleBacklog([{ postedAt: now - 6 * HOUR }, { postedAt: now - 50 * HOUR }], now, limits)).toBe(true)
   })
 
   it('does not trip on a large but fresh backlog', () => {

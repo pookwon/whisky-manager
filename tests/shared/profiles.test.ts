@@ -26,6 +26,15 @@ describe('profiles', () => {
       expect(limits.actionIntervalMinMs).toBeLessThanOrEqual(limits.actionIntervalMaxMs)
     }
   })
+
+  it('gives the backlog brake room for the two days a session works', () => {
+    // A session settles yesterday before working today, so a post from yesterday
+    // morning is a day old by the time today's morning session sees it. A
+    // twenty-four hour window would read that as a broken tool and stop.
+    for (const profile of Object.values(PROFILES)) {
+      expect(profile.backlogMaxAgeMs).toBe(48 * 3_600_000)
+    }
+  })
 })
 
 describe('isUnresolved', () => {
