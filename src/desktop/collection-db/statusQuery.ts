@@ -68,7 +68,16 @@ export interface CollectionStatusQuery {
   read(feed: CollectionFeed): Promise<CollectionStatus>
 }
 
-const RECENT_RUN_LIMIT = 8
+/**
+ * A day's worth of blocks, not a screenful.
+ *
+ * The dashboard draws the blocks that ran today, and the shortest schedule the
+ * settings allow — thirty minutes of work, thirty of rest — fits twelve of them
+ * into a twelve-hour window. Eight would have cut the morning off the drawing
+ * and made the day look like it started at noon. Screens that want fewer take
+ * the head of the list.
+ */
+const RECENT_RUN_LIMIT = 24
 
 function epochMs(value: Date | null): number | null {
   return value === null ? null : value.getTime()

@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { TEXT } from '../../src/shared/text.js'
 import { WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import {
+  activeWindowLabel,
+  elapsedLabel,
+  kstHourOf,
   outcomeSummary,
   progressSummary,
   relativeTime,
   isRefusalStale,
   disabledAutomationNames,
-  formatNextSessionTime,
+  formatKstTime,
   getBridgeStatusText,
   getBridgeStatusTone,
   shouldOfferExtensionRecovery,
@@ -144,25 +147,20 @@ describe('isRefusalStale', () => {
   })
 })
 
-describe('formatNextSessionTime', () => {
-  it('returns null when nextSessionAt is null', () => {
-    expect(formatNextSessionTime(null)).toBe(null)
-  })
-
+describe('formatKstTime', () => {
   it('reads on the cafe\'s clock, which is the one the operator is watching', () => {
     // 2026-08-24 02:16 UTC is 11:16 in Seoul. Shown as 02:16 an operator reads
     // it as the small hours and concludes the tool is idle for the day.
-    expect(formatNextSessionTime(Date.UTC(2026, 7, 24, 2, 16))).toBe('11:16')
+    expect(formatKstTime(Date.UTC(2026, 7, 24, 2, 16))).toBe('11:16')
   })
 
   it('formats to the minute, dropping seconds', () => {
-    const nextSessionMs = NOW + (15 * MINUTE + 30 * 1000)
-    expect(formatNextSessionTime(nextSessionMs)).toBe('19:15')
+    expect(formatKstTime(NOW + (15 * MINUTE + 30 * 1000))).toBe('19:15')
   })
 
   it('wraps past midnight in Seoul, not past midnight in UTC', () => {
     // 15:30 UTC is 00:30 the next day in Seoul.
-    expect(formatNextSessionTime(Date.UTC(2026, 7, 24, 15, 30))).toBe('00:30')
+    expect(formatKstTime(Date.UTC(2026, 7, 24, 15, 30))).toBe('00:30')
   })
 })
 
@@ -281,5 +279,48 @@ describe('disabledAutomationNames', () => {
         { id: WELCOME_AUTOMATION_ID, enabled: false },
       ]),
     ).toEqual([TEXT.automation.welcomeComment])
+  })
+})
+
+describe('elapsedLabel', () => {
+  const AT_15_34 = Date.parse('2026-08-24T15:34:00+09:00')
+
+  it('says how long a block has been going, not when it started', () => {
+    // "22분 전" is past tense and reads as a block that already stopped.
+    expect(elapsedLabel(Date.parse('2026-08-24T15:12:00+09:00'), AT_15_34)).toBe('22분째')
+  })
+
+  it('breaks an hour out once there is one', () => {
+    expect(elapsedLabel(Date.parse('2026-08-24T14:29:00+09:00'), AT_15_34)).toBe('1시간 5분째')
+    expect(elapsedLabel(Date.parse('2026-08-24T13:34:00+09:00'), AT_15_34)).toBe('2시간째')
+  })
+
+  it('never says nought minutes for a block that has only just begun', () => {
+    expect(elapsedLabel(AT_15_34, AT_15_34)).toBe('1분째')
+  })
+
+  it('treats a start in the future as just begun rather than as negative', () => {
+    // Clocks disagree by seconds; a block reported as starting a moment from
+    // now must not come back as "-1분째".
+    expect(elapsedLabel(Date.parse('2026-08-24T15:40:00+09:00'), AT_15_34)).toBe('1분째')
+  })
+})
+
+describe('kstHourOf', () => {
+  it('reads the hour on the cafe clock, whatever the machine is set to', () => {
+    // 00:30 KST is 15:30 the previous day in UTC; reading UTC hours here would
+    // put a nought-thirty block in the middle of the previous afternoon.
+    expect(kstHourOf(Date.parse('2026-08-24T00:30:00+09:00'))).toBe(0)
+    expect(kstHourOf(Date.parse('2026-08-24T23:59:00+09:00'))).toBe(23)
+  })
+})
+
+describe('activeWindowLabel', () => {
+  it('names midnight as 24, which is how the end hour is stored and read', () => {
+    expect(activeWindowLabel(8, 24)).toBe('08~24시')
+  })
+
+  it('pads both hours so the two windows line up when read together', () => {
+    expect(activeWindowLabel(9, 21)).toBe('09~21시')
   })
 })

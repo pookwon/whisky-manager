@@ -57,6 +57,8 @@ const snapshot: DashboardSnapshot = {
   sessionProgress: null,
   lastWarm: null,
   withinActiveHours: true,
+  activeHourStart: 8,
+  activeHourEnd: 24,
   averageActionGapMs: 16_500,
   bridgeStatus: 'OFFLINE',
   extensionEverPaired: false,

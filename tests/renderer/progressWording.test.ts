@@ -54,7 +54,7 @@ describe('run confirmation wording', () => {
   /** Every line the confirmation panel can show, with the values it passes. */
   const LINES: readonly string[] = [
     TEXT.run.confirmHeading,
-    TEXT.run.outsideHours,
+    TEXT.run.outsideHours('08~24시'),
     TEXT.run.chosenDay('2026-08-20'),
     TEXT.run.bypasses,
     TEXT.run.counting,

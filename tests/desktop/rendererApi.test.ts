@@ -261,8 +261,20 @@ describe('getDashboard', () => {
       bridgeStatus: 'CONNECTED',
       extensionEverPaired: false,
       withinActiveHours: true,
+      activeHourStart: 10,
+      activeHourEnd: 24,
       averageActionGapMs: 40_000,
     })
+  })
+
+  it('carries the operating window itself, not only whether it is open now', async () => {
+    // The dashboard draws the window as a band, which needs both ends. Taken
+    // from the profile so the screen never works the hours out a second time.
+    const { api } = build()
+    const dashboard = await api.getDashboard()
+
+    expect(dashboard.activeHourStart).toBe(PROFILES.production.activeHourStart)
+    expect(dashboard.activeHourEnd).toBe(PROFILES.production.activeHourEnd)
   })
 
   it('carries the last naver session check to the screen', async () => {

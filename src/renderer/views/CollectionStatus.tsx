@@ -49,6 +49,9 @@ function Stat({ label, value }: { label: string; value: number }): React.JSX.Ele
   )
 }
 
+/** How many finished runs this screen lists before it stops being readable. */
+const RECENT_RUN_ROWS = 8
+
 const RUN_TONE: Record<CollectionRunSummary['status'], string> = {
   running: 'accent',
   succeeded: 'ok',
@@ -388,7 +391,9 @@ export function CollectionStatus(): React.JSX.Element {
         >
           {TEXT.collection.recent}
         </h2>
-        {recentRuns.map((run) => (
+        {/* The query keeps a day's worth so the dashboard can draw it; this
+            list is read, not scanned, and a screenful is what it wants. */}
+        {recentRuns.slice(0, RECENT_RUN_ROWS).map((run) => (
           <RunRow key={run.id} run={run} nowMs={nowMs} />
         ))}
       </section>

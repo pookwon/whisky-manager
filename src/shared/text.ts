@@ -153,12 +153,80 @@ export const TEXT = {
   },
   dashboard: {
     heading: '대시보드',
-    automations: '기능별 상태',
-    /** The collection is a feature of its own on this list, not an automation. */
-    collectionRunning: (pages: number, posts: number) => `${pages}쪽 저장 · 신규 ${posts}건`,
-    collectionIdle: (elapsed: string) => `마지막 수집 · ${elapsed}`,
+    /** What a run put away, said the same whether it has finished or not. */
+    collectionStored: (pages: number, posts: number) => `${pages}쪽 저장 · 신규 ${posts}건`,
     collectionNever: '수집 기록 없음',
-    awaitingShort: (count: number) => `대기 ${count}건`,
+    /**
+     * The day drawn as a band, which is the one place the screen can say
+     * "nothing is running right now, and that is the schedule working" without
+     * writing the sentence. The blocks that ran are filled; the rests are the
+     * gaps between them.
+     */
+    rhythm: {
+      heading: '오늘의 리듬 · KST',
+      now: (time: string) => `지금 ${time}`,
+      commentLane: '댓글',
+      collectionLane: '수집',
+      legendWindow: '활동 시간',
+      legendRan: '이미 돈 블록',
+      legendNext: (time: string) => `다음 블록 ${time}`,
+      legendRunning: '지금 도는 블록',
+      legendNoBlock: '예약된 블록 없음',
+      legendNow: '지금',
+      legendRest: '블록과 블록 사이의 빈칸이 휴식입니다',
+    },
+    /**
+     * The two jobs, named as jobs. They are different kinds of thing — one runs
+     * in sessions through the day, the other walks a fixed past period across
+     * many runs — and the screen says so before it says anything else.
+     */
+    job: {
+      comment: '댓글 작업',
+      commentHint: '가입인사 자동 댓글 · 세션 단위',
+      collection: '게시판 수집',
+      collectionHint: '과거 기간 DB화 · 작업 단위',
+      /** State words, kept apart from the buttons that change state. */
+      running: '진행 중',
+      waiting: '대기 중',
+      stopped: '정지',
+      off: '꺼짐',
+      unavailable: '쓸 수 없음',
+    },
+    /**
+     * Why it is quiet, said as present state rather than as the last refusal.
+     * A refusal is what happened; these are what is true now, which is the
+     * question an operator opens this window to answer.
+     */
+    quiet: {
+      sessionDisabled: '자동화가 꺼져 있습니다 — 자동화 설정에서 켜야 세션이 돕니다',
+      sessionStopped: '정지 상태입니다 — 시작을 눌러야 세션이 돕니다',
+      bridgeOffline: '확장이 연결되어 있지 않습니다 — 연결될 때까지 아무것도 돌지 않습니다',
+      sessionOutside: (window: string) => `운영 시간 ${window} 밖입니다`,
+      sessionOutsideUntil: (window: string, time: string) =>
+        `운영 시간 ${window} 밖입니다 — ${time}에 다음 세션이 잡혀 있습니다`,
+      sessionWaiting: (time: string, window: string) =>
+        `다음 세션 ${time} · 세션 사이 대기 — 운영 시간 ${window} 안입니다`,
+      sessionWaitingNoTime: '다음 세션을 기다리는 중입니다',
+      collectionRunning: (elapsed: string, rest: number) =>
+        `이번 블록 ${elapsed} — 끝나면 휴식 ${rest}분 뒤 다음 블록이 이어받습니다`,
+      collectionResting: (time: string) =>
+        `다음 블록 ${time} · 블록 사이 휴식 중입니다 — 작업은 그대로 남아 있습니다`,
+      collectionOutside: (window: string, time: string) =>
+        `활동 시간 ${window} 밖입니다 — ${time}에 다시 이어받습니다`,
+      collectionScheduleOff: '예약 수집이 꺼져 있습니다 — 직접 눌러야 한 블록씩 돕니다',
+      collectionNoJob: '이어받을 작업이 없습니다 — 수집 현황에서 기간을 골라 시작하세요',
+      collectionComplete: '이 기간은 끝까지 옮겼습니다 — 새 기간을 고르면 다시 시작합니다',
+      collectionNoNext: '예약이 켜져 있지만 다음 블록이 아직 잡히지 않았습니다',
+    },
+    /** The period as days, because a page number points elsewhere in an hour. */
+    period: {
+      heading: '대상 기간 · 하루 한 칸',
+      walked: (at: string, from: string, to: string) =>
+        `${at}까지 내려왔습니다 · 남은 구간 ${from} — ${to}`,
+      walkedNone: '아직 한 쪽도 옮기지 않았습니다',
+      direction: '왼쪽이 아직 남은 구간, 오른쪽이 옮긴 구간 — 새 글에서 옛 글 순으로 내려갑니다',
+      coverage: (percent: number) => `${percent}%`,
+    },
     /**
      * Said on the dashboard for as long as it is true, not once after an
      * import. A switched-off automation refuses every session and every forced
@@ -233,7 +301,7 @@ export const TEXT = {
     dayLabel: '처리할 날짜',
     dayRun: '이 날짜 처리',
     confirmHeading: '확인이 필요합니다',
-    outsideHours: '지금은 운영 시간(08~24시)이 아닙니다.',
+    outsideHours: (window: string) => `지금은 운영 시간(${window})이 아닙니다.`,
     chosenDay: (date: string) => `${date} 하루치를 처리합니다.`,
     bypasses: '운영 시간, 시간당 상한, 밀린 작업 브레이크를 넘깁니다. 전면 정지는 그대로 듣습니다.',
     counting: '대상을 세는 중…',
@@ -262,6 +330,10 @@ export const TEXT = {
     minutesAgo: (count: number) => `${count}분 전`,
     hoursAgo: (count: number) => `${count}시간 전`,
     daysAgo: (count: number) => `${count}일 전`,
+    /** Still going, as opposed to the `*Ago` line above, which has finished. */
+    minutesInto: (count: number) => `${count}분째`,
+    hoursInto: (count: number) => `${count}시간째`,
+    hoursMinutesInto: (hours: number, minutes: number) => `${hours}시간 ${minutes}분째`,
     lastSession: (elapsed: string) => `마지막 세션 · ${elapsed}`,
     nextSession: (time: string) => `다음 세션 · ${time}`,
     sessionKeptAlive: (time: string) => `네이버 세션 · ${time} 확인`,

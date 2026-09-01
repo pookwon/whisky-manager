@@ -114,6 +114,17 @@ export interface DashboardSnapshot {
    */
   readonly withinActiveHours: boolean
   /**
+   * The operating window itself, in KST hours — start inclusive, end exclusive.
+   *
+   * `withinActiveHours` answers "now", which is enough for a button but not for
+   * a screen that draws the day: a band has to start and end somewhere. Sent
+   * rather than restated in the renderer for the same reason as the boolean —
+   * the hours live in the profile, and a second copy is a second thing to
+   * disagree with it.
+   */
+  readonly activeHourStart: number
+  readonly activeHourEnd: number
+  /**
    * Midway between the shortest and longest gap the tool leaves between
    * comments. The screen estimates how long a run will take from it rather
    * than carrying its own copy of numbers the profile owns.

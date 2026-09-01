@@ -333,6 +333,8 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         bridgeStatus: calculateBridgeStatus(),
         extensionEverPaired: settings.get(BOUND_EXTENSION_ID_KEY) !== undefined,
         withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
+        activeHourStart: deps.limits.activeHourStart,
+        activeHourEnd: deps.limits.activeHourEnd,
         averageActionGapMs: Math.round(
           (deps.limits.actionIntervalMinMs + deps.limits.actionIntervalMaxMs) / 2,
         ),

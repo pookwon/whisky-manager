@@ -1,41 +1,25 @@
 import { useRef, useState } from 'react'
-import { WELCOME_AUTOMATION_ID, findAutomation } from '../../shared/automations/catalog.js'
+import { WELCOME_AUTOMATION_ID } from '../../shared/automations/catalog.js'
 import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import type { StartupPreview } from '../../desktop/preview.js'
+import type { StartCollectionResult } from '../../desktop/ipc.js'
 import {
+  activeWindowLabel,
   estimatedMinutes,
   outcomeSummary,
   progressSummary,
-  relativeTime,
   isRefusalStale,
   disabledAutomationNames,
-  formatNextSessionTime,
   warmSummary,
   getBridgeStatusText,
   getBridgeStatusTone,
 } from '../format.js'
 import { useApp } from '../store.js'
-import { CollectionRow, CollectionStrip } from './DashboardCollection.js'
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: number
-  tone: string | undefined
-}): React.JSX.Element {
-  return (
-    <div className="panel px-4 py-3.5">
-      <div className="text-[0.6875rem] font-medium uppercase tracking-wider" style={{ color: 'var(--ink-muted)' }}>
-        {label}
-      </div>
-      <div className={`mt-1 text-3xl font-bold tabular-nums leading-none ${tone ?? ''}`}>{value}</div>
-    </div>
-  )
-}
+import { CollectionJob } from './dashboard/CollectionJob.js'
+import { CommentJob } from './dashboard/CommentJob.js'
+import { DayRhythm } from './dashboard/DayRhythm.js'
+import { collectionJobState, commentJobState } from './dashboard/quiet.js'
 
 /** A run described to the operator and waiting on their answer. */
 interface PendingRun {
@@ -54,14 +38,33 @@ function kstMidnightOf(value: string): number {
   return Date.parse(`${value}T00:00:00+09:00`)
 }
 
+/** Why a press to collect did nothing, in the words of the thing to fix. */
+function collectionRefusalText(result: StartCollectionResult): string | null {
+  if (result.kind === 'refused') return TEXT.collection.refused[result.reason]
+  if (result.kind === 'rejected') return TEXT.collection.rejected[result.problem]
+  return null
+}
+
+/**
+ * The dashboard, organised by job.
+ *
+ * Two things run here and they are not the same kind of thing: greetings go out
+ * in sessions through the day, while the collection walks a fixed past period
+ * across many runs and many days. The screen is laid out to say which is which
+ * before it says anything else — the day band on top shows both at once, and
+ * below it each job owns one panel and nothing outside it.
+ */
 export function Dashboard(): React.JSX.Element {
   const dashboard = useApp((s) => s.dashboard)
   const collection = useApp((s) => s.collection)
+  const schedule = useApp((s) => s.collectionSchedule)
   const setRoute = useApp((s) => s.setRoute)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
   const [day, setDay] = useState(() => kstDateValue(Date.now()))
   const [pending, setPending] = useState<PendingRun | null>(null)
+  /** What the last press to collect answered, until the next one. */
+  const [collectionRefusal, setCollectionRefusal] = useState<string | null>(null)
   /**
    * Which confirmation the counts coming back belong to. Counting reaches the
    * cafe and takes seconds, so a panel opened, dismissed and opened again on a
@@ -73,8 +76,10 @@ export function Dashboard(): React.JSX.Element {
 
   if (dashboard === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
-  const running = dashboard.loopRunning
-  const preview = dashboard.startupPreview
+  const nowMs = Date.now()
+  const progress =
+    dashboard.sessionProgress === null ? null : progressSummary(dashboard.sessionProgress)
+
   /**
    * Shows the run before it happens, then counts what it would answer. The
    * panel opens on the first line rather than after the count, because
@@ -115,15 +120,6 @@ export function Dashboard(): React.JSX.Element {
     </dl>
   )
 
-  /** Non-null exactly while a session is in flight. */
-  const progress =
-    dashboard.sessionProgress === null ? null : progressSummary(dashboard.sessionProgress)
-
-  // Determine the main outcome display
-  const summary = outcomeSummary(dashboard.lastOutcome)
-  let outcomeTone = summary.tone
-  let outcomeText = summary.text
-
   // The banner's outcome is the welcome automation's, picked by name where it
   // is assembled. Its switch has to be picked the same way: reading position 0
   // pairs one automation's result with another's state the day a second exists.
@@ -131,13 +127,36 @@ export function Dashboard(): React.JSX.Element {
     (automation) => automation.id === WELCOME_AUTOMATION_ID,
   )
   const automationIsEnabled = welcome?.enabled ?? true
-  if (isRefusalStale(dashboard.lastOutcome, automationIsEnabled)) {
-    outcomeText = TEXT.outcome.neverWithCurrentConfig
-    outcomeTone = 'idle'
-  }
 
-  // Show startup preview banner only when it's READY and loop is not running
-  const showStartupBanner = preview?.kind === 'READY' && !running
+  const summary = outcomeSummary(dashboard.lastOutcome)
+  const lastOutcomeText = isRefusalStale(dashboard.lastOutcome, automationIsEnabled)
+    ? TEXT.outcome.neverWithCurrentConfig
+    : summary.text
+
+  const commentState = commentJobState({
+    loopRunning: dashboard.loopRunning,
+    automationEnabled: automationIsEnabled,
+    withinActiveHours: dashboard.withinActiveHours,
+    activeHourStart: dashboard.activeHourStart,
+    activeHourEnd: dashboard.activeHourEnd,
+    nextSessionAt: dashboard.nextSessionAt,
+    bridgeStatus: dashboard.bridgeStatus,
+    progress,
+  })
+
+  const collectionState =
+    collection === null
+      ? null
+      : collectionJobState({ nowMs, collection, schedule, bridgeStatus: dashboard.bridgeStatus })
+
+  const ready = collection?.kind === 'ready' ? collection.status : null
+  const collectionWindow =
+    schedule === null
+      ? null
+      : {
+          startHour: schedule.schedule.activeWindowStartHourKst,
+          endHour: schedule.schedule.activeWindowEndHourKst,
+        }
 
   /**
    * Not hidden while the loop runs: a running loop with a switched-off
@@ -147,27 +166,39 @@ export function Dashboard(): React.JSX.Element {
    */
   const disabledNames = disabledAutomationNames(dashboard.automations)
 
+  const collectNow = (): void => {
+    setCollectionRefusal(null)
+    void act(async () => {
+      const result = await api.startCollection()
+      setCollectionRefusal(collectionRefusalText(result))
+    })
+  }
+
   return (
-    <div className="flex flex-col gap-6">
-      <header>
+    <div className="flex flex-col gap-3">
+      {/* The extension and the naver login are what both jobs stand on and
+          neither of them owns, so they ride the heading rather than taking a
+          panel that would have to belong to one of the two. */}
+      <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-lg font-bold tracking-tight">{TEXT.dashboard.heading}</h1>
-      </header>
+        <div className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+          <span className={`font-medium tone-${getBridgeStatusTone(dashboard.bridgeStatus)}`}>
+            {getBridgeStatusText(dashboard.bridgeStatus)}
+          </span>
+          {' · '}
+          <span className="tabular-nums">{warmSummary(dashboard.lastWarm)}</span>
+        </div>
+      </div>
 
       {disabledNames.length > 0 && (
         <section className="panel overflow-hidden">
           <div className="flex">
             <div className="w-1 shrink-0 bar-warn" />
-            <div className="flex-1 px-5 py-4">
-              <div
-                className="text-[0.6875rem] font-medium uppercase tracking-wider"
-                style={{ color: 'var(--ink-muted)' }}
-              >
-                {TEXT.dashboard.disabledHeading}
-              </div>
-              <div className="mt-1 text-lg font-semibold tone-warn">
+            <div className="flex-1 px-5 py-3.5">
+              <div className="text-sm font-semibold tone-warn">
                 {TEXT.dashboard.disabled(disabledNames.join(', '))}
               </div>
-              <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
+              <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
                 {TEXT.dashboard.disabledHow}
               </p>
             </div>
@@ -175,154 +206,60 @@ export function Dashboard(): React.JSX.Element {
         </section>
       )}
 
-      {/* Startup preview banner: shows today's greeting target count when the
-          app starts and the bridge connects. Helps the operator decide whether
-          to trigger the automation. Hidden once the loop is running. */}
-      {showStartupBanner && (
-        <section className="panel overflow-hidden">
-          <div className="flex">
-            <div className="w-1 shrink-0 bar-accent" />
-            <div className="flex flex-1 items-center gap-6 px-5 py-4">
-              <div>
-                <div
-                  className="text-[0.6875rem] font-medium uppercase tracking-wider"
-                  style={{ color: 'var(--ink-muted)' }}
-                >
-                  {TEXT.startup.heading}
-                </div>
-                <div className="mt-1 text-lg font-semibold tone-accent">
-                  {TEXT.startup.count(preview.count)}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Preview unavailable banner: shown when the startup count could not be
-          determined. Visibly different from the ready state to avoid confusion. */}
-      {preview?.kind === 'UNAVAILABLE' && !running && (
-        <section className="panel overflow-hidden">
-          <div className="flex">
-            <div className="w-1 shrink-0 bar-warn" />
-            <div className="flex flex-1 items-center gap-6 px-5 py-4">
-              <div>
-                <div
-                  className="text-[0.6875rem] font-medium uppercase tracking-wider"
-                  style={{ color: 'var(--ink-muted)' }}
-                >
-                  {TEXT.startup.heading}
-                </div>
-                <div className="mt-1 text-lg font-semibold tone-warn">
-                  {TEXT.startup.unavailable[preview.reason]}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* The banner comes first because "why is it quiet?" is the question an
-          operator opens this window to answer. While a session is in flight the
-          answer is "it isn't", so present progress takes the slot over from the
-          last session's result — a run can take the better part of an hour. */}
-      <section className="panel overflow-hidden">
-        <div className="flex">
-          <div className={`w-1 shrink-0 ${progress === null ? `bar-${outcomeTone}` : 'bar-accent'}`} />
-          <div className="flex flex-1 items-center justify-between gap-6 px-5 py-4">
-            <div className="flex-1">
-              <div
-                className="text-[0.6875rem] font-medium uppercase tracking-wider"
-                style={{ color: 'var(--ink-muted)' }}
-              >
-                {progress === null ? TEXT.outcome.heading : TEXT.progress.heading}
-              </div>
-              {progress === null ? (
-                <div className={`mt-1 text-lg font-semibold tone-${outcomeTone}`}>
-                  {dashboard.lastOutcomeAt !== null ? (
-                    <>
-                      {TEXT.time.lastSession(relativeTime(dashboard.lastOutcomeAt, Date.now()))}
-                      <span style={{ color: 'var(--ink-muted)' }} className="text-sm">
-                        {' · '}
-                        {outcomeText}
-                      </span>
-                    </>
-                  ) : (
-                    outcomeText
-                  )}
-                </div>
-              ) : (
-                <div className="mt-1 text-lg font-semibold tone-accent">{progress}</div>
-              )}
-
-              {running && dashboard.nextSessionAt !== null && (
-                <div className="mt-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
-                  {TEXT.time.nextSession(formatNextSessionTime(dashboard.nextSessionAt) ?? '—')}
-                </div>
-              )}
-
-              {/*
-                Shown while the loop runs, because that is exactly when the
-                login is being kept warm. A lapsed one is the reason the next
-                session will refuse, so it is not muted like the rest.
-              */}
-              {running && (
-                <div
-                  className="mt-1 text-sm"
-                  style={{
-                    color:
-                      dashboard.lastWarm?.loggedIn === false ? 'var(--warn)' : 'var(--ink-muted)',
-                  }}
-                >
-                  {warmSummary(dashboard.lastWarm)}
-                </div>
-              )}
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                className="btn"
-                disabled={busy || progress !== null}
-                onClick={() => {
-                  if (dashboard.withinActiveHours) {
-                    void act(() => api.runOnce())
-                    return
-                  }
-                  void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
-                }}
-              >
-                {TEXT.status.runOnce}
-              </button>
-              <button
-                type="button"
-                className={running ? 'btn' : 'btn btn-primary'}
-                disabled={busy}
-                onClick={() => void act(() => (running ? api.stopAutomation() : api.startAutomation()))}
-              >
-                {running ? TEXT.status.stop : TEXT.status.start}
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                disabled={busy}
-                onClick={() => void act(() => api.killSwitch())}
-              >
-                {TEXT.status.kill}
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Below the session banner, above everything else: a collection under
-          way is present state, and it belongs where the eye already looks for
-          what the app is doing. */}
-      <CollectionStrip
-        collection={collection}
-        nowMs={Date.now()}
-        onOpen={() => setRoute({ kind: 'collection', panel: 'status' })}
+      <DayRhythm
+        nowMs={nowMs}
+        commentWindow={{ startHour: dashboard.activeHourStart, endHour: dashboard.activeHourEnd }}
+        lastSessionAt={dashboard.lastOutcomeAt}
+        nextSessionAt={dashboard.nextSessionAt}
+        collectionWindow={collectionWindow}
+        finishedRuns={ready?.recentRuns.filter((run) => run.status !== 'running') ?? []}
+        runningStartedAtMs={ready?.running?.startedAtMs ?? null}
+        nextRunAtMs={schedule?.nextRunAtMs ?? null}
+        workBlockMs={schedule === null ? null : schedule.schedule.workBlockMinutes * 60_000}
       />
+
+      <CommentJob
+        state={commentState}
+        executedToday={dashboard.executedToday}
+        succeededToday={dashboard.succeededToday}
+        failedToday={dashboard.failedToday}
+        awaitingApproval={dashboard.awaitingApproval}
+        lastOutcomeText={lastOutcomeText}
+        lastOutcomeAt={dashboard.lastOutcomeAt}
+        startupPreview={dashboard.startupPreview}
+        nowMs={nowMs}
+        loopRunning={dashboard.loopRunning}
+        sessionInFlight={progress !== null}
+        busy={busy}
+        day={day}
+        maxDay={kstDateValue(nowMs)}
+        onDayChange={setDay}
+        onRunOnce={() => {
+          if (dashboard.withinActiveHours) {
+            void act(() => api.runOnce())
+            return
+          }
+          void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
+        }}
+        onRunDay={() => void openConfirmation({ dayStartMs: kstMidnightOf(day), reason: 'CHOSEN_DAY' })}
+        onToggleLoop={() =>
+          void act(() => (dashboard.loopRunning ? api.stopAutomation() : api.startAutomation()))
+        }
+        onKill={() => void act(() => api.killSwitch())}
+      />
+
+      {collection !== null && collectionState !== null && (
+        <CollectionJob
+          state={collectionState}
+          collection={collection}
+          refusal={collectionRefusal}
+          nowMs={nowMs}
+          busy={busy}
+          onCollectNow={collectNow}
+          onStop={() => void act(() => api.stopCollection())}
+          onOpenStatus={() => setRoute({ kind: 'collection', panel: 'status' })}
+        />
+      )}
 
       {pending !== null && (
         <section className="panel overflow-hidden">
@@ -337,7 +274,9 @@ export function Dashboard(): React.JSX.Element {
               </div>
               <p className="mt-1 text-sm font-semibold tone-warn">
                 {pending.reason === 'OUTSIDE_HOURS'
-                  ? TEXT.run.outsideHours
+                  ? TEXT.run.outsideHours(
+                      activeWindowLabel(dashboard.activeHourStart, dashboard.activeHourEnd),
+                    )
                   : TEXT.run.chosenDay(day)}
               </p>
               <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
@@ -380,116 +319,6 @@ export function Dashboard(): React.JSX.Element {
           </div>
         </section>
       )}
-
-      <section className="panel flex flex-wrap items-end gap-3 px-5 py-4">
-        <div>
-          <label
-            className="block text-[0.6875rem] font-medium uppercase tracking-wider"
-            style={{ color: 'var(--ink-muted)' }}
-            htmlFor="run-day"
-          >
-            {TEXT.run.dayLabel}
-          </label>
-          <input
-            id="run-day"
-            type="date"
-            className="field mt-1"
-            value={day}
-            max={kstDateValue(Date.now())}
-            onChange={(event) => setDay(event.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || progress !== null}
-          onClick={() =>
-            void openConfirmation({ dayStartMs: kstMidnightOf(day), reason: 'CHOSEN_DAY' })
-          }
-        >
-          {TEXT.run.dayRun}
-        </button>
-      </section>
-
-      <section className="grid grid-cols-4 gap-3">
-        <Stat label={TEXT.stats.executedToday} value={dashboard.executedToday} tone={undefined} />
-        <Stat label={TEXT.stats.succeededToday} value={dashboard.succeededToday} tone="tone-ok" />
-        <Stat
-          label={TEXT.stats.failedToday}
-          value={dashboard.failedToday}
-          tone={dashboard.failedToday > 0 ? 'tone-alarm' : undefined}
-        />
-        <Stat
-          label={TEXT.stats.awaiting}
-          value={dashboard.awaitingApproval}
-          tone={dashboard.awaitingApproval > 0 ? 'tone-warn' : undefined}
-        />
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h2
-            className="text-[0.6875rem] font-medium uppercase tracking-wider"
-            style={{ color: 'var(--ink-muted)' }}
-          >
-            {TEXT.dashboard.automations}
-          </h2>
-          <span className={`text-xs font-medium tone-${getBridgeStatusTone(dashboard.bridgeStatus)}`}>
-            {getBridgeStatusText(dashboard.bridgeStatus)}
-          </span>
-        </div>
-        {dashboard.automations.map((automation) => {
-          const descriptor = findAutomation(automation.id)
-          const rowSummary = outcomeSummary(automation.lastOutcome)
-          let rowTone = rowSummary.tone
-          let rowText = rowSummary.text
-
-          // Check if this automation's last refusal is stale
-          if (isRefusalStale(automation.lastOutcome, automation.enabled)) {
-            rowText = TEXT.outcome.neverWithCurrentConfig
-            rowTone = 'idle'
-          }
-
-          return (
-            <button
-              key={automation.id}
-              type="button"
-              className="panel flex items-center justify-between gap-4 px-4 py-3 text-left"
-              onClick={() => setRoute({ kind: 'automation', id: automation.id, panel: 'settings' })}
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className={`inline-block h-1.5 w-1.5 rounded-full bar-${rowTone}`} />
-                  <span className="text-sm font-semibold">
-                    {descriptor === undefined
-                      ? automation.id
-                      : TEXT.automation[descriptor.labelKey]}
-                  </span>
-                </div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  {rowText}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3 text-xs">
-                {automation.awaitingApproval > 0 && (
-                  <span className="chip tone-warn">
-                    {TEXT.dashboard.awaitingShort(automation.awaitingApproval)}
-                  </span>
-                )}
-                <span className={automation.enabled ? 'tone-ok' : 'tone-idle'}>
-                  {automation.enabled ? TEXT.status.running : TEXT.status.stopped}
-                </span>
-              </div>
-            </button>
-          )
-        })}
-
-        <CollectionRow
-          collection={collection}
-          nowMs={Date.now()}
-          onOpen={() => setRoute({ kind: 'collection', panel: 'status' })}
-        />
-      </section>
     </div>
   )
 }

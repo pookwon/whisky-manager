@@ -152,6 +152,44 @@ export function formatKstTime(epochMs: number): string {
 }
 
 /**
+ * How long something still going has been going — `22분째`, `1시간 5분째`.
+ *
+ * `relativeTime` is past tense by construction: it answers when something
+ * happened. Used on a block that has not ended it produces "22분 전 진행 중",
+ * which reads as a block that started and stopped twenty-two minutes ago.
+ */
+export function elapsedLabel(fromMs: number, nowMs: number): string {
+  const minutes = Math.max(1, Math.floor(Math.max(0, nowMs - fromMs) / MINUTE))
+  if (minutes < 60) return TEXT.time.minutesInto(minutes)
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest === 0 ? TEXT.time.hoursInto(hours) : TEXT.time.hoursMinutesInto(hours, rest)
+}
+
+/**
+ * The hour of the day on the cafe's clock, 0–23.
+ *
+ * Same shifted-then-read-UTC trick as `formatKstTime`, and here for the same
+ * reason: the screen decides whether an operating window is open by comparing
+ * this against hours that were written in KST.
+ */
+export function kstHourOf(epochMs: number): number {
+  return new Date(epochMs + KST_OFFSET_MS).getUTCHours()
+}
+
+/**
+ * An operating window as the operator reads it — `08~24시`.
+ *
+ * The end hour is exclusive everywhere it is stored, and it is named directly
+ * here anyway: `08~23시` would be read as closing an hour early, where `24시`
+ * is how a person says midnight.
+ */
+export function activeWindowLabel(startHour: number, endHour: number): string {
+  const pad = (hour: number): string => String(hour).padStart(2, '0')
+  return `${pad(startHour)}~${pad(endHour)}시`
+}
+
+/**
  * What the dashboard says about the reads that keep the browser's login in use.
  *
  * Silence would be indistinguishable from the feature not existing, so this
@@ -218,11 +256,6 @@ export function collectionCoveragePercent(run: {
   if (span <= 0) return null
   const walked = run.targetEndMs - run.cursorPostedAtMs
   return Math.min(100, Math.max(0, Math.round((walked / span) * 100)))
-}
-
-/** The next session on that same clock, or null when none is due. */
-export function formatNextSessionTime(nextSessionAt: number | null): string | null {
-  return nextSessionAt === null ? null : formatKstTime(nextSessionAt)
 }
 
 /**
