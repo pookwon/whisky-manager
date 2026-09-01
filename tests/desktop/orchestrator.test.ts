@@ -346,8 +346,10 @@ describe('runSession — caps and failures', () => {
   it('does not open when an approval request has gone stale', async () => {
     // A retry that ages out is retired by the sweep, so the brake never sees it.
     // What the brake is actually for is work a human has left sitting: an
-    // approval request older than the backlog limit but younger than its TTL.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
+    // approval request whose postedAt is older than backlogMaxAgeMs (48h) but
+    // whose detectedAt is recent (measured by sweepApprovals, which uses
+    // approvalTtlMs). The backlog brake looks at postedAt, not detectedAt.
+    const old = { ...candidate('5001', MON_10_00 - 50 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
@@ -830,9 +832,10 @@ describe('runSession — forced runs', () => {
   })
 
   it('opens despite a backlog old enough to stop the schedule', async () => {
-    // Same shape the brake was built for: an approval a human left sitting,
-    // older than the backlog limit but younger than its own expiry.
-    const old = { ...candidate('5001', MON_10_00 - 30 * HOUR), commentCount: null }
+    // Same shape the brake was built for: an approval a human left sitting.
+    // Its postedAt is older than backlogMaxAgeMs (48h), but its detectedAt is
+    // recent, so sweepApprovals (which uses approvalTtlMs) has not yet expired it.
+    const old = { ...candidate('5001', MON_10_00 - 50 * HOUR), commentCount: null }
     await runSession(deps({ transport: fakeTransport({ candidates: [old] }), policy: 'SEMI' }))
     expect(repo.listUnresolved('welcome-comment')[0]?.status).toBe('AWAITING_APPROVAL')
 
