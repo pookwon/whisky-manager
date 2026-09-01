@@ -38,7 +38,9 @@ const token = existsSync(TOKEN_FILE)
   ? readFileSync(TOKEN_FILE, 'utf8').trim()
   : (() => {
       const fresh = randomBytes(24).toString('base64url')
-      writeFileSync(TOKEN_FILE, `${fresh}\n`)
+      // Owner-only: this pairs a browser to the probe, and it is written into
+      // the working tree where the default umask would leave it world-readable.
+      writeFileSync(TOKEN_FILE, `${fresh}\n`, { mode: 0o600 })
       return fresh
     })()
 
