@@ -105,7 +105,8 @@ export const TEXT = {
      * answers: one is a choice, the other is something to fix.
      */
     disabledHeading: '수집 저장소가 설정되지 않았습니다',
-    disabledHow: 'DATABASE_URL을 지정하면 수집한 글이 이 화면에 쌓입니다. 가입인사 자동화는 이것 없이도 그대로 동작합니다.',
+    disabledHow:
+      '트레이 메뉴의 "수집 저장소 설정 열기"로 파일을 열어 수집 DB 주소를 적고 앱을 다시 시작하면, 수집한 글이 이 화면에 쌓입니다. 가입인사 자동화는 이것 없이도 그대로 동작합니다.',
     collectNow: '이어서 수집',
     stop: '중지',
     /** A window the operator picks, as opposed to the schedule's own. */
@@ -507,6 +508,7 @@ export const TEXT = {
     startAutomation: '자동화 시작',
     stopAutomation: '자동화 중지',
     kill: '전면 정지 (킬 스위치)',
+    openCollectionConfig: '수집 저장소 설정 열기',
     quit: '종료',
   },
 } as const

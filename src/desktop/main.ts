@@ -15,6 +15,7 @@ import {
 } from './extensionSetup.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
 import { readLocalConfig } from './localConfig.js'
+import { ensureCollectionDatabaseConfig } from './collectionDatabaseConfig.js'
 import { createRendererApi } from './rendererApi.js'
 import { systemClock } from './runtime.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
@@ -28,6 +29,17 @@ const BRIDGE_PORT = 39_217
  * the same real directory on every run.
  */
 const STAGED_EXTENSION_DIRNAME = 'chrome-extension'
+
+/**
+ * The installed build's only way to be told where the collection database is.
+ * It sits beside the SQLite database rather than inside the bundle: an update
+ * replaces the bundle, and the operator would have to enter it again.
+ */
+const COLLECTION_CONFIG_FILENAME = 'collection-db.json'
+
+function collectionConfigPath(): string {
+  return join(app.getPath('userData'), COLLECTION_CONFIG_FILENAME)
+}
 
 /**
  * Where the data lives is fixed, not derived. Electron takes this directory
@@ -83,6 +95,17 @@ function refreshTray(ctx: AppContext): void {
         click: () => {
           ctx.automation.kill()
           refreshTray(ctx)
+        },
+      },
+      { type: 'separator' },
+      {
+        label: TEXT.tray.openCollectionConfig,
+        click: () => {
+          const path = collectionConfigPath()
+          // Written empty when absent so the operator opens the shape to fill
+          // in rather than a missing-file error from the editor.
+          ensureCollectionDatabaseConfig(path)
+          void shell.openPath(path)
         },
       },
       { type: 'separator' },
@@ -211,6 +234,7 @@ void app.whenReady().then(async () => {
     refusalLogPath: join(app.getPath('userData'), 'refused-sessions.log'),
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
     collectionMigrationsFolder: join(app.getAppPath(), 'drizzle-collection'),
+    collectionConfigPath: collectionConfigPath(),
     profile,
     bridgePort: BRIDGE_PORT,
     // Only an unpackaged run looks for it, and only to spare a developer
