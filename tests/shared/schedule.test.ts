@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { nextDaySettle } from '../../src/shared/daySettling.js'
 import { KST_OFFSET_MS, kstDayRange } from '../../src/shared/kst.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import {
@@ -18,9 +17,9 @@ const HOUR = 3_600_000
 
 /**
  * Every time here is KST, on both calendars the scheduler reads: the operating
- * window through the clock, and the day boundary through `nextDayClosing`. The
- * operator's machine keeps KST, so the two agree — and a test clock that did
- * not would be testing a machine nobody runs.
+ * window through the clock, and the day boundary through `nextDaySettle`, which
+ * lands after midnight. The operator's machine keeps KST, so the two agree — and
+ * a test clock that did not would be testing a machine nobody runs.
  */
 function kst(day: number, hour: number, minute = 0): number {
   return Date.UTC(2026, 7, day, hour, minute) - KST_OFFSET_MS
@@ -32,7 +31,6 @@ function clockAt(epochMs: number): FakeClock {
 
 // 2026-08-24 is a Monday.
 const MON_10_00 = kst(24, 10)
-const MON_22_00 = kst(24, 22)
 const MON_23_30 = kst(24, 23, 30)
 const MON_03_00 = kst(24, 3)
 const SAT_10_00 = kst(29, 10)

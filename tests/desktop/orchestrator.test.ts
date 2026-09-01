@@ -1195,7 +1195,7 @@ describe('settling the previous day', () => {
       isConnected: () => true,
       request(message: AppMessage): Promise<ExtensionMessage> {
         if (message.type === 'COLLECT') {
-          return Promise.resolve({ type: 'ERROR', requestId: message.requestId, reason: 'boom' })
+          return Promise.resolve({ type: 'ERROR', requestId: message.requestId, code: 'COLLECT_FAILED', message: 'collection failed' })
         }
         return fakeTransport().request(message)
       },
@@ -1218,7 +1218,7 @@ describe('settling the previous day', () => {
           asked.push(message.sincePostedAt)
           if (first) {
             first = false
-            return Promise.resolve({ type: 'ERROR', requestId: message.requestId, reason: 'boom' })
+            return Promise.resolve({ type: 'ERROR', requestId: message.requestId, code: 'COLLECT_FAILED', message: 'collection failed' })
           }
           return Promise.resolve({
             type: 'COLLECTED',
