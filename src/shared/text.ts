@@ -109,6 +109,10 @@ export const TEXT = {
       '트레이 메뉴의 "수집 저장소 설정 열기"로 파일을 열어 수집 DB 주소를 적고 앱을 다시 시작하면, 수집한 글이 이 화면에 쌓입니다. 가입인사 자동화는 이것 없이도 그대로 동작합니다.',
     collectNow: '이어서 수집',
     stop: '중지',
+    /** Ignoring the operating hours for the job in hand, and saying so. */
+    force: '활동 시간 무시',
+    forceRelease: '활동 시간 지키기',
+    forcedOn: '활동 시간을 무시하고 있습니다. 이 기간을 다 옮기면 저절로 풀립니다.',
     /** A window the operator picks, as opposed to the schedule's own. */
     periodHeading: '기간 지정 수집',
     periodFrom: '시작 날짜',

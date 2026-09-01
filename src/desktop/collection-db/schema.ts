@@ -138,6 +138,16 @@ export const feedState = pgTable(
      * rest period for as long as the app runs.
      */
     completedAt: observedTimestamp('completed_at'),
+    /**
+     * When the operator asked for this job to ignore the operating hours.
+     *
+     * It belongs to the job rather than to the schedule because that is what
+     * makes it let go of itself: the period it was turned on for finishes, and
+     * with it the reason to be reading at three in the morning. A switch in the
+     * settings would keep running the next period too, on a night nobody asked
+     * about.
+     */
+    forcedAt: observedTimestamp('forced_at'),
     updatedAt: observedTimestamp('updated_at').notNull(),
   },
   (table) => [

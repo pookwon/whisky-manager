@@ -46,7 +46,7 @@ describe('collection schedule', () => {
     // Last run ended at 21:00 KST, rest is 120 minutes → 23:00 KST
     // That is past today's window, so it jumps to tomorrow 09:00
     const lastRunEnd = NOW + 12 * HOUR // 21:00 KST
-    const result = nextCollectionRunTime(NOW, enabled, lastRunEnd)
+    const result = nextCollectionRunTime(NOW, enabled, { lastRunEndMs: lastRunEnd })
     expect(kst(result ?? 0)).toBe('2026-09-01 09:00')
   })
 
@@ -55,7 +55,7 @@ describe('collection schedule', () => {
     // Let me recalculate: NOW + 9*HOUR = 18:00 KST
     // 18:00 + 120 min rest = 20:00, still in 09:00-21:00 window
     const lastRunEnd = NOW + 9 * HOUR // 18:00 KST
-    const result = nextCollectionRunTime(NOW, enabled, lastRunEnd)
+    const result = nextCollectionRunTime(NOW, enabled, { lastRunEndMs: lastRunEnd })
     expect(kst(result ?? 0)).toBe('2026-08-31 20:00')
   })
 

@@ -344,6 +344,59 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     // mark the period it holds now.
     await repository.finishRun(nextPeriodRunId, 'interrupted', 'TEST_DONE', new Date(now.getTime() + 27_000))
 
+    // Forcing rides on the job so that it lets go of itself: the period it was
+    // turned on for finishes, and nothing is left reading at three in the
+    // morning because somebody forgot a switch.
+    const forcedFeed = { feedKind: 'all_articles' as const, menuId: '0' }
+    const forcedRange = { targetStartMs: Date.UTC(2026, 3, 1, 15), targetEndMs: Date.UTC(2026, 3, 2, 15) }
+    const forcedRunId = randomUUID()
+    await repository.startRun({
+      ...forcedFeed,
+      ...forcedRange,
+      id: forcedRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: false,
+      startedAt: new Date(now.getTime() + 30_000),
+    })
+    expect((await repository.readFeedState(forcedFeed))?.forced).toBe(false)
+
+    await repository.setForced(forcedFeed, new Date(now.getTime() + 31_000))
+    expect((await repository.readFeedState(forcedFeed))?.forced).toBe(true)
+
+    // A block that ran out of pages leaves the job unfinished, so the force
+    // has to survive it — that is the whole point of running through a night.
+    await repository.finishRun(forcedRunId, 'partial', 'PAGE_BUDGET_SPENT', new Date(now.getTime() + 32_000))
+    expect((await repository.readFeedState(forcedFeed))?.forced).toBe(true)
+
+    const forcedLastRunId = randomUUID()
+    await repository.startRun({
+      ...forcedFeed,
+      ...forcedRange,
+      id: forcedLastRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: true,
+      startedAt: new Date(now.getTime() + 33_000),
+    })
+    await repository.finishRun(forcedLastRunId, 'succeeded', null, new Date(now.getTime() + 34_000))
+    const finished = await repository.readFeedState(forcedFeed)
+    expect(finished?.complete).toBe(true)
+    expect(finished?.forced).toBe(false)
+
+    // And a period the operator swaps in starts inside the hours again.
+    await repository.setForced(forcedFeed, new Date(now.getTime() + 35_000))
+    const swappedRunId = randomUUID()
+    await repository.startRun({
+      ...forcedFeed,
+      id: swappedRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: false,
+      targetStartMs: Date.UTC(2026, 2, 1, 15),
+      targetEndMs: Date.UTC(2026, 2, 2, 15),
+      startedAt: new Date(now.getTime() + 36_000),
+    })
+    expect((await repository.readFeedState(forcedFeed))?.forced).toBe(false)
+    await repository.finishRun(swappedRunId, 'interrupted', 'TEST_DONE', new Date(now.getTime() + 37_000))
+
     await pool.query(`update drizzle.__drizzle_migrations set hash = 'intentionally-wrong'`)
     const mismatch = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
     expect(mismatch).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_SCHEMA_MISMATCH' })

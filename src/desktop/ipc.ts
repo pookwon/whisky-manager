@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   setCollectionSchedule: 'wm:setCollectionSchedule',
   startCollection: 'wm:startCollection',
   stopCollection: 'wm:stopCollection',
+  setCollectionForced: 'wm:setCollectionForced',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -176,6 +177,18 @@ export type StartCollectionResult =
   /** A different period was asked for while this job is unfinished. */
   | { readonly kind: 'needs_replace'; readonly job: CollectionJob }
 
+/**
+ * Whether the job now runs around the clock. A refusal is an ordinary answer:
+ * there has to be a job to hold the force, and a finished one has nothing left
+ * to stay up for.
+ */
+export type SetCollectionForcedResult =
+  | { readonly kind: 'set'; readonly forced: boolean }
+  | {
+      readonly kind: 'refused'
+      readonly reason: Extract<CollectionStartRefusal, 'NO_STORAGE' | 'NO_JOB' | 'JOB_FINISHED'>
+    }
+
 export interface AwaitingItem {
   readonly id: string
   readonly postId: string
@@ -242,6 +255,12 @@ export interface RendererApi {
   startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult>
   /** Asks a walk in flight to end at its next page boundary. */
   stopCollection(): Promise<void>
+  /**
+   * Lets the job in hand keep to its rhythm outside the operating hours, or
+   * puts it back inside them. It releases itself: the period finishing clears
+   * the force with it, so nobody has to remember to switch it off.
+   */
+  setCollectionForced(forced: boolean): Promise<SetCollectionForcedResult>
   listAwaiting(automationId: string): Promise<AwaitingItem[]>
   approve(id: string): Promise<void>
   reject(id: string): Promise<void>

@@ -96,6 +96,7 @@ const JOB: CollectionJob = {
   cursorPostedAtMs: kst('2026-08-13T04:12:00'),
   cursorUpdatedAtMs: kst('2026-08-24T13:42:00'),
   complete: false,
+      forced: false,
 }
 
 function running(startedAtMs: number): CollectionRunSummary {

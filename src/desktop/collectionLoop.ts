@@ -54,6 +54,12 @@ export interface CollectionLoop {
 export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
   let timer: TimerHandle | null = null
   let scheduledFor: number | null = null
+  /**
+   * Whether the stored job is running around the clock. Cached because laying
+   * the next beat is synchronous while reading the job is not; every beat
+   * refreshes it from the state it has just read, and `refresh` primes it.
+   */
+  let forced = false
 
   function clear(): void {
     if (timer !== null) {
@@ -91,7 +97,7 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
   function lay(from: number): void {
     clear()
     const schedule = deps.schedule()
-    const at = nextCollectionRunTime(from, schedule)
+    const at = nextCollectionRunTime(from, schedule, { ignoreActiveWindow: forced })
     if (at === null) return
     scheduledFor = at
     timer = deps.setTimer(() => {
@@ -114,6 +120,7 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
         // install with nothing to collect makes no request to the cafe at all —
         // and neither does one whose period has already been walked to its end.
         const state = repository === null ? null : await repository.readFeedState(deps.feed)
+        forced = state?.forced ?? false
         if (state !== null && !state.complete) {
           const result = deps.runner.start({
             range: { startMs: state.targetStartMs, endMs: state.targetEndMs },
@@ -136,9 +143,28 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
     lay(beatAfter(attempted, schedule, deps.clock.now()))
   }
 
+  /**
+   * Reads whether the job is running around the clock, and re-lays if that
+   * changes what was already laid. The first lay happens without waiting so
+   * the screen always has a next-run time to show.
+   */
+  async function prime(): Promise<void> {
+    const was = forced
+    try {
+      const repository = deps.repository()
+      const state = repository === null ? null : await repository.readFeedState(deps.feed)
+      forced = state?.forced ?? false
+    } catch (error) {
+      deps.onError?.(error)
+      return
+    }
+    if (forced !== was) lay(deps.clock.now())
+  }
+
   return {
     refresh() {
       lay(deps.clock.now())
+      void prime()
     },
     stop() {
       clear()

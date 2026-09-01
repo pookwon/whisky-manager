@@ -229,6 +229,9 @@ export function CollectionStatus(): React.JSX.Element {
                     : TEXT.collection.nextRunAt(formatKstTime(schedule.nextRunAtMs))}
                 </div>
               )}
+              {job?.forced === true && (
+                <div className="mt-2 text-sm tone-warn">{TEXT.collection.forcedOn}</div>
+              )}
               {refusal !== null && <div className="mt-2 text-sm tone-warn">{refusal}</div>}
             </div>
 
@@ -249,6 +252,25 @@ export function CollectionStatus(): React.JSX.Element {
               >
                 {TEXT.collection.stop}
               </button>
+              {/* Only the hours give way, and only for the job in hand — which
+                  is why this sits with the job's own controls rather than in
+                  the schedule settings. */}
+              {job !== null && !job.complete && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => {
+                    setRefusal(null)
+                    void act(async () => {
+                      const result = await api.setCollectionForced(!job.forced)
+                      if (result.kind === 'refused') setRefusal(TEXT.collection.refused[result.reason])
+                    })
+                  }}
+                >
+                  {job.forced ? TEXT.collection.forceRelease : TEXT.collection.force}
+                </button>
+              )}
             </div>
           </div>
         </div>

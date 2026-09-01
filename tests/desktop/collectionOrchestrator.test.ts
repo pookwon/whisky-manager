@@ -32,9 +32,14 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
     persisted,
     finished,
     repo: {
-      readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
+      setForced: () => {
+      throw new Error('the walk never turns the operating hours on or off')
+    },
+    readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
+    forced: false,
     cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
       startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
+    forced: false,
     cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
       recordPageRequest: async () => undefined,
       finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
@@ -61,12 +66,16 @@ function repositoryWithCheckpoint(checkpoint: {
   let state = {
     ...checkpoint,
     complete: false,
+    forced: false,
     cursorUpdatedAtMs: 1_000,
     pageIdentity: 'previous',
     targetStartMs: run.targetStartMs,
     targetEndMs: run.targetEndMs,
   }
   const repo: CollectionRepository = {
+    setForced: () => {
+      throw new Error('the walk never turns the operating hours on or off')
+    },
     readFeedState: async () => state,
     startRun: async () => state,
     recordPageRequest: async () => undefined,

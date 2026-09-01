@@ -182,6 +182,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
             anchorPostId: stored.anchorPostId,
             // A page just landed, so the walk is by definition not finished.
             complete: false,
+            forced: state.forced,
             referencePage: pageNumber,
             pageIdentity: page.pageIdentity,
             anchorPostedAtMs: committed?.postedAt ?? null,

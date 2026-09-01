@@ -58,6 +58,11 @@ export interface CollectionRepository {
    * a fact they cannot disagree about.
    */
   finishRun(id: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
+  /**
+   * Turns the operating hours off, or back on, for the job as it stands. Only
+   * the hours: a collection switched off stays off.
+   */
+  setForced(feed: CollectionFeed, forcedAt: Date | null): Promise<void>
   /** Marks runs left `running` by an abnormal exit as interrupted so the feed's single-running-run constraint stops blocking new runs. */
   reconcileOrphanedRuns(finishedAt: Date): Promise<number>
   persistPage(input: PersistCollectedPageInput): Promise<PersistCollectedPageResult>
@@ -76,6 +81,8 @@ export interface CollectionFeedState extends FeedStateExpectation {
   readonly cursorUpdatedAtMs: number
   /** Whether a run has reached the period's start. Written, never inferred. */
   readonly complete: boolean
+  /** Whether this job was asked to keep going outside the operating hours. */
+  readonly forced: boolean
 }
 
 /** Thrown inside the transaction so every page write rolls back on CAS failure. */
@@ -132,6 +139,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           referencePage: feedState.referencePage,
           pageIdentity: feedState.pageIdentity,
           completedAt: feedState.completedAt,
+          forcedAt: feedState.forcedAt,
           updatedAt: feedState.updatedAt,
         })
         .from(feedState)
@@ -144,7 +152,15 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null,
         cursorUpdatedAtMs: row.updatedAt.getTime(),
         complete: row.completedAt !== null,
+        forced: row.forcedAt !== null,
       }
+    },
+
+    async setForced(feed, forcedAt) {
+      await db
+        .update(feedState)
+        .set({ forcedAt })
+        .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
     },
 
     async startRun(input) {
@@ -166,7 +182,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         if (input.resumeFromCheckpoint && rangeChanged) throw new Error('cannot resume a checkpoint for a different target range')
         const reset = !input.resumeFromCheckpoint && inserted.length === 0
         const state = reset
-          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
+          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, forcedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
           : current
         if (state === undefined) throw new Error('collection feed reset failed')
         await tx.insert(collectionRuns).values({
@@ -189,6 +205,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           pageIdentity: state.pageIdentity,
           cursorUpdatedAtMs: state.updatedAt.getTime(),
           complete: state.completedAt !== null,
+          forced: state.forcedAt !== null,
         }
       })
     },
@@ -225,7 +242,9 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         if (status !== 'succeeded' || run === undefined) return
         await tx
           .update(feedState)
-          .set({ completedAt: finishedAt })
+          // The force goes with it: the period it was turned on for is done,
+          // and nothing should still be reading at three in the morning.
+          .set({ completedAt: finishedAt, forcedAt: null })
           .where(
             and(
               eq(feedState.feedKind, run.feedKind),

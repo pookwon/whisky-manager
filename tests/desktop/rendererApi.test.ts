@@ -63,6 +63,10 @@ interface CollectionOverrides {
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
   /** Every start the api asked for, so the resume flag can be read back. */
   const started: CollectionStartRequest[] = []
+  /** What the api wrote as the force, newest last; null means released. */
+  const forcedCalls: (Date | null)[] = []
+  /** Counts re-lays, since forcing is pointless if the beat is not moved. */
+  const refreshes = { count: 0 }
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -118,11 +122,12 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
             close: () => Promise.resolve(),
             // Reading is all the api does with storage; a repository that
             // throws on any touch proves that rather than assuming it.
-            repository: new Proxy({} as CollectionRepository, {
-              get: () => {
-                throw new Error('the renderer api must not reach the collection repository')
+            repository: {
+              setForced: (_feed: unknown, forcedAt: Date | null) => {
+                forcedCalls.push(forcedAt)
+                return Promise.resolve()
               },
-            }),
+            } as unknown as CollectionRepository,
             status: {
               read: () =>
                 Promise.resolve({
@@ -141,7 +146,13 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       stop: () => undefined,
       isRunning: () => collection.runnerBusy ?? false,
     },
-    collectionLoop: { refresh: () => undefined, stop: () => undefined, nextRunAt: () => null },
+    collectionLoop: {
+      refresh: () => {
+        refreshes.count += 1
+      },
+      stop: () => undefined,
+      nextRunAt: () => null,
+    },
     automation,
     lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
     lastOutcomeAt: () => null,
@@ -194,7 +205,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes }
 }
 
 async function seedAwaiting(
@@ -754,6 +765,7 @@ describe('asking for a period while a job is unfinished', () => {
       cursorPostedAtMs: targetStartMs + DAY,
       cursorUpdatedAtMs: MON_10_00 - 3_600_000,
       complete: false,
+      forced: false,
       ...overrides,
     }
   }
@@ -870,5 +882,61 @@ describe('asking for a period while a job is unfinished', () => {
 
     expect(result).toEqual({ kind: 'started' })
     expect(started[0]?.resumeFromCheckpoint).toBe(false)
+  })
+})
+
+describe('running the collection around the clock', () => {
+  const DAY = 86_400_000
+  const firstDayMs = Date.UTC(2026, 7, 19, 15, 0, 0)
+
+  function job(overrides: Partial<CollectionJob> = {}): CollectionJob {
+    return {
+      targetStartMs: firstDayMs,
+      targetEndMs: firstDayMs + 3 * DAY,
+      cursorPostedAtMs: firstDayMs + DAY,
+      cursorUpdatedAtMs: MON_10_00 - 3_600_000,
+      complete: false,
+      forced: false,
+      ...overrides,
+    }
+  }
+
+  it('marks the job forced and moves the beat that was already laid', async () => {
+    const { api, forcedCalls, refreshes } = build(MON_10_00, {}, { job: job() })
+
+    expect(await api.setCollectionForced(true)).toEqual({ kind: 'set', forced: true })
+    expect(forcedCalls).toHaveLength(1)
+    expect(forcedCalls[0]).toBeInstanceOf(Date)
+    // Without this the force changes nothing until the next beat, which under
+    // the old rule may be nine o'clock tomorrow — the very thing it is for.
+    expect(refreshes.count).toBe(1)
+  })
+
+  it('releases the job and moves the beat back', async () => {
+    const { api, forcedCalls, refreshes } = build(MON_10_00, {}, { job: job({ forced: true }) })
+
+    expect(await api.setCollectionForced(false)).toEqual({ kind: 'set', forced: false })
+    expect(forcedCalls).toEqual([null])
+    expect(refreshes.count).toBe(1)
+  })
+
+  it('has nothing to force before a period has been asked for', async () => {
+    const { api, forcedCalls } = build(MON_10_00, {}, { job: null })
+
+    expect(await api.setCollectionForced(true)).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(forcedCalls).toEqual([])
+  })
+
+  it('refuses to stay up for a period already walked to its end', async () => {
+    const { api, forcedCalls } = build(MON_10_00, {}, { job: job({ complete: true }) })
+
+    expect(await api.setCollectionForced(true)).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+    expect(forcedCalls).toEqual([])
+  })
+
+  it('names the missing database rather than the missing job', async () => {
+    const { api } = build()
+
+    expect(await api.setCollectionForced(true)).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
   })
 })

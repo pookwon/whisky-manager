@@ -53,6 +53,8 @@ export interface CollectionJob {
   readonly cursorPostedAtMs: number | null
   readonly cursorUpdatedAtMs: number
   readonly complete: boolean
+  /** Whether this job was told to keep going outside the operating hours. */
+  readonly forced: boolean
 }
 
 export interface CollectionStatus {
@@ -140,6 +142,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
             targetEndMs: feedState.targetEndMs,
             anchorPostedAt: feedState.anchorPostedAt,
             completedAt: feedState.completedAt,
+            forcedAt: feedState.forcedAt,
             updatedAt: feedState.updatedAt,
           })
           .from(feedState)
@@ -178,6 +181,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
               // deriving completion from it makes every finished job look
               // unfinished, and the scheduler re-walks it forever.
               complete: jobRow.completedAt !== null,
+              forced: jobRow.forcedAt !== null,
             }
 
       const totalsRow = postTotals[0]

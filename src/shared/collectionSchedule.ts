@@ -97,12 +97,30 @@ export function pagesPerWorkBlock(workBlockMinutes: number): number {
  * Previous run timing is not considered here; the caller supplies the last run
  * end time and rest duration if a resume is in progress.
  */
-export function nextCollectionRunTime(nowMs: number, schedule: CollectionSchedule, lastRunEndMs?: number): number | null {
+export interface NextRunOptions {
+  /** When the last block ended, so the next one comes a rest later. */
+  readonly lastRunEndMs?: number
+  /**
+   * Runs the rhythm around the clock. Only the hours give way: a collection
+   * switched off stays off, and the work and rest lengths are untouched, so
+   * the cafe sees the same pacing at four in the morning as at noon.
+   */
+  readonly ignoreActiveWindow?: boolean
+}
+
+export function nextCollectionRunTime(
+  nowMs: number,
+  schedule: CollectionSchedule,
+  options: NextRunOptions = {},
+): number | null {
   if (!schedule.enabled) return null
 
   // If we just finished a run, the next one comes after the rest period.
-  const candidateMs = lastRunEndMs ? lastRunEndMs + schedule.restMinutes * MINUTE_MS : nowMs
+  const candidateMs = options.lastRunEndMs
+    ? options.lastRunEndMs + schedule.restMinutes * MINUTE_MS
+    : nowMs
 
+  if (options.ignoreActiveWindow === true) return candidateMs
   // Clamp to the next active window start if needed.
   return clampToNextActiveWindow(candidateMs, schedule)
 }

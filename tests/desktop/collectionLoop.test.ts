@@ -28,6 +28,7 @@ function job(overrides: Partial<CollectionFeedState> = {}): CollectionFeedState 
     anchorPostId: '900000',
     anchorPostedAtMs: Date.UTC(2026, 6, 20),
     complete: false,
+    forced: false,
     cursorUpdatedAtMs: NOW - 2 * HOUR,
     referencePage: 120,
     pageIdentity: 'fnv1a64:0000000000000001',
@@ -52,8 +53,9 @@ function harness(
   let current = schedule
   let handles = 0
 
+  let currentState = feedState
   const repository = {
-    readFeedState: () => Promise.resolve(feedState),
+    readFeedState: () => Promise.resolve(currentState),
   } as unknown as CollectionRepository
 
   const loop = createCollectionLoop({
@@ -105,6 +107,10 @@ function harness(
     },
     setSchedule: (next: CollectionSchedule) => {
       current = next
+    },
+    /** Stands in for the operator turning the force on or off mid-run. */
+    setFeedState: (next: CollectionFeedState | null) => {
+      currentState = next
     },
   }
 }
@@ -184,6 +190,50 @@ describe('collection loop', () => {
 
     expect(fired).toBeGreaterThan(0)
     expect(h.started).toHaveLength(0)
+  })
+
+  it('keeps to the rhythm through the night when the job says to', async () => {
+    // The whole point of forcing, said as the difference it makes: the same
+    // day, the same work and rest, and the only change is whether the hours
+    // are allowed to interrupt. Compared rather than counted, so the numbers
+    // stay right if the default block lengths ever change.
+    const held = harness(enabled, job({ forced: false }))
+    held.loop.refresh()
+    await held.advance(DAY)
+
+    const h = harness(enabled, job({ forced: true }))
+    h.loop.refresh()
+    await h.advance(DAY)
+
+    // A 09:00-21:00 window fits three four-hour blocks; the clock fits six.
+    expect(held.started).toHaveLength(3)
+    expect(h.started.length).toBeGreaterThan(held.started.length)
+  })
+
+  it('goes back inside the hours as soon as the force is released', async () => {
+    const h = harness(enabled, job({ forced: true }))
+    h.loop.refresh()
+    await h.advance(6 * HOUR)
+    const forcedCount = h.started.length
+
+    h.setFeedState(job({ forced: false }))
+    await h.advance(6 * HOUR)
+
+    // 08:00 + 12h is 20:00, still inside the window, so this is not the window
+    // doing the work — it is the released job resting the normal way.
+    expect(h.started.length).toBeGreaterThan(forcedCount)
+    expect(h.pendingDelayMs()).not.toBe(2 * MINUTE)
+  })
+
+  it('does not run at all through the night when the collection is switched off', async () => {
+    // Forcing gives way on the hours only. An operator who switched collection
+    // off has said something else entirely.
+    const h = harness({ ...enabled, enabled: false }, job({ forced: true }))
+    h.loop.refresh()
+    await h.advance(DAY)
+
+    expect(h.started).toHaveLength(0)
+    expect(h.loop.nextRunAt()).toBeNull()
   })
 
   it('waits one rest before looking again when nothing was started', async () => {

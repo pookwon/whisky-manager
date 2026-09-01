@@ -30,6 +30,7 @@ import type { ExtensionTransport } from './ws/server.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
+  SetCollectionForcedResult,
   BridgeStatus,
   CollectionRunRequest,
   CollectionScheduleView,
@@ -276,6 +277,27 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       // read it over — starts afresh, resetting the cursor without touching
       // the posts already collected.
       return startFor(range, samePeriod && !inProgress.complete)
+    },
+
+    async setCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+
+      const stored = await collection.status.read(ALL_ARTICLES_FEED)
+      // The force rides on the job, so there has to be one — and a period
+      // already walked to its end has nothing left to stay up for.
+      if (stored.job === null) return { kind: 'refused', reason: 'NO_JOB' }
+      if (stored.job.complete) return { kind: 'refused', reason: 'JOB_FINISHED' }
+
+      await collection.repository.setForced(
+        ALL_ARTICLES_FEED,
+        forced ? new Date(deps.clock.now()) : null,
+      )
+      // The beat already laid was placed under the old rule; re-laying is what
+      // turns "tomorrow at nine" into "after this rest" while the night is
+      // still young.
+      deps.collectionLoop.refresh()
+      return { kind: 'set', forced }
     },
 
     stopCollection(): Promise<void> {
