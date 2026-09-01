@@ -34,7 +34,10 @@ export function checkGates(
   if (mode !== 'FORCED' && ctx.hourlyCount >= limits.hourlyCap) {
     return { allowed: false, reason: 'HOURLY_CAP_REACHED' }
   }
-  if (mode === 'SCHEDULED' && ctx.sessionCount >= limits.perSessionCap) {
+  // Manual and forced runs are an operator clearing a backlog in one sitting.
+  // A settle run is not: it is the schedule's own work on a finished day, so it
+  // shares the allowance every scheduled session has.
+  if ((mode === 'SCHEDULED' || mode === 'SETTLE') && ctx.sessionCount >= limits.perSessionCap) {
     return { allowed: false, reason: 'SESSION_CAP_REACHED' }
   }
   return { allowed: true }

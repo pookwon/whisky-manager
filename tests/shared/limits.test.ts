@@ -109,6 +109,40 @@ describe('checkGates', () => {
   })
 })
 
+describe('checkGates in settle mode', () => {
+  const limits = PROFILES.production
+
+  it('stops at the hourly cap like a scheduled run', () => {
+    const verdict = checkGates(
+      { killed: false, hourlyCount: limits.hourlyCap, sessionCount: 0 },
+      limits,
+      'SETTLE',
+    )
+    expect(verdict).toEqual({ allowed: false, reason: 'HOURLY_CAP_REACHED' })
+  })
+
+  it('stops at the session cap like a scheduled run', () => {
+    // Settling yesterday is still this session knocking on the cafe, so the two
+    // passes share one session's allowance rather than each getting its own.
+    const verdict = checkGates(
+      { killed: false, hourlyCount: 0, sessionCount: limits.perSessionCap },
+      limits,
+      'SETTLE',
+    )
+    expect(verdict).toEqual({ allowed: false, reason: 'SESSION_CAP_REACHED' })
+  })
+
+  it('stops on the kill switch', () => {
+    const verdict = checkGates({ killed: true, hourlyCount: 0, sessionCount: 0 }, limits, 'SETTLE')
+    expect(verdict).toEqual({ allowed: false, reason: 'KILLED' })
+  })
+
+  it('allows a run under both caps', () => {
+    const verdict = checkGates({ killed: false, hourlyCount: 0, sessionCount: 0 }, limits, 'SETTLE')
+    expect(verdict).toEqual({ allowed: true })
+  })
+})
+
 describe('hasStaleBacklog', () => {
   const now = Date.UTC(2026, 7, 24, 10, 0, 0)
 

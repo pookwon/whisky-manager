@@ -34,9 +34,10 @@ export type SkipReason = 'ALREADY_COMMENTED' | 'RISK_FLAGGED' | 'REJECTED_BY_OPE
  * `SCHEDULED` obeys everything. `MANUAL` is an operator pressing run, and may
  * pass the per-session cap because that cap exists to spread automated work
  * out, not to limit a person. `FORCED` is an operator who has been told what
- * they are overriding and said yes anyway.
+ * they are overriding and said yes anyway. `SETTLE` is the schedule's own work
+ * on a finished day and obeys caps like `SCHEDULED` but skips the operating window.
  */
-export type RunMode = 'SCHEDULED' | 'MANUAL' | 'FORCED'
+export type RunMode = 'SCHEDULED' | 'MANUAL' | 'FORCED' | 'SETTLE'
 
 export type GateBlockReason = 'KILLED' | 'HOURLY_CAP_REACHED' | 'SESSION_CAP_REACHED'
 
