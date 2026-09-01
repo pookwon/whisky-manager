@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
-import { collectionDatabaseUrl, openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
+import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createCollectionRepository, type CollectionRepository } from './collection-db/repository.js'
 import { createCollectionStatusQuery, type CollectionStatusQuery } from './collection-db/statusQuery.js'
 
@@ -26,6 +26,14 @@ export type OptionalCollectionContext =
       retry(): Promise<OptionalCollectionContext>
       close(): Promise<void>
     }
+
+/**
+ * Where the connection string comes from, asked again on every retry so an
+ * operator who has just written one down does not have to restart to be heard.
+ * The context is deliberately not the thing that knows: an installed build
+ * reads a file, a development run reads the environment.
+ */
+export type CollectionDatabaseUrlSource = () => string | null
 
 const noOpClose = async (): Promise<void> => undefined
 
@@ -65,10 +73,10 @@ function expectedMigration(migrationsFolder: string | undefined): { hash: string
  * This verifies the exact packaged migration and never invokes migrate.
  */
 export async function openOptionalCollectionContext(
-  environment: NodeJS.ProcessEnv = process.env,
+  databaseUrlSource: CollectionDatabaseUrlSource,
   migrationsFolder?: string,
 ): Promise<OptionalCollectionContext> {
-  const databaseUrl = collectionDatabaseUrl(environment)
+  const databaseUrl = databaseUrlSource()
   if (databaseUrl === null) return { kind: 'disabled', close: noOpClose }
 
   let expected: { hash: string; createdAt: number }
@@ -78,7 +86,7 @@ export async function openOptionalCollectionContext(
     const code = classifyCollectionContextError(error)
     return {
       kind: 'unavailable', code, close: noOpClose,
-      retry: () => openOptionalCollectionContext(environment, migrationsFolder),
+      retry: () => openOptionalCollectionContext(databaseUrlSource, migrationsFolder),
     }
   }
 
@@ -114,7 +122,7 @@ export async function openOptionalCollectionContext(
     const code = classifyCollectionContextError(error)
     return {
       kind: 'unavailable', code, close: noOpClose,
-      retry: () => openOptionalCollectionContext(environment, migrationsFolder),
+      retry: () => openOptionalCollectionContext(databaseUrlSource, migrationsFolder),
     }
   }
 }

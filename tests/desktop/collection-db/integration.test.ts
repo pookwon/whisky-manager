@@ -259,7 +259,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       targetEndMs: Date.UTC(2026, 7, 1, 15),
       startedAt: new Date(now.getTime() + 12_000),
     })
-    const reopened = await openOptionalCollectionContext({ DATABASE_URL: testDatabaseUrl }, migrationsFolder)
+    const reopened = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
     try {
       expect(reopened.kind).toBe('ready')
       const orphan = await pool.query<{ status: string; stop_reason: string | null; finished_at: Date | null }>(
@@ -345,7 +345,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     await repository.finishRun(nextPeriodRunId, 'interrupted', 'TEST_DONE', new Date(now.getTime() + 27_000))
 
     await pool.query(`update drizzle.__drizzle_migrations set hash = 'intentionally-wrong'`)
-    const mismatch = await openOptionalCollectionContext({ DATABASE_URL: testDatabaseUrl }, migrationsFolder)
+    const mismatch = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
     expect(mismatch).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_SCHEMA_MISMATCH' })
     await mismatch.close()
   })

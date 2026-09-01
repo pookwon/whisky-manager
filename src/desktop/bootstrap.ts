@@ -31,6 +31,7 @@ import { createNaverReadGate } from './naverReadGate.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, ALL_ARTICLES_FEED, type CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule } from './collectionSettings.js'
+import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
 import { appendRefusal } from './refusalLog.js'
 import {
   openOptionalCollectionContext,
@@ -46,6 +47,11 @@ export interface AppContextOptions {
   readonly migrationsFolder: string
   /** Packaged Drizzle migrations for the optional PostgreSQL collection DB. */
   readonly collectionMigrationsFolder?: string
+  /**
+   * Where the installed build is told which collection database to open.
+   * `DATABASE_URL` still wins; an app launched from Finder never has one.
+   */
+  readonly collectionConfigPath?: string
   /**
    * Where refused sessions are written down. Omitted means they are not: a
    * dev run or a test has the outcome in front of it already.
@@ -127,7 +133,10 @@ export interface AppContext {
 export async function createAppContext(options: AppContextOptions): Promise<AppContext> {
   const db = openDatabase(options.databasePath, { migrationsFolder: options.migrationsFolder })
   const settings = createSettingsRepo(db)
-  const collection = await openOptionalCollectionContext(process.env, options.collectionMigrationsFolder)
+  const collection = await openOptionalCollectionContext(
+    () => resolveCollectionDatabaseUrl(process.env, options.collectionConfigPath),
+    options.collectionMigrationsFolder,
+  )
   if (collection.kind === 'unavailable') options.onCollectionUnavailable?.(collection.code)
 
   let token = settings.get('pairingToken')

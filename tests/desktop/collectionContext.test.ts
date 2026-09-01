@@ -5,15 +5,15 @@ import {
 } from '../../src/desktop/collectionContext.js'
 
 describe('optional collection context', () => {
-  it('leaves the existing application path enabled without DATABASE_URL', async () => {
-    const context = await openOptionalCollectionContext({})
+  it('leaves the existing application path enabled when no URL was configured', async () => {
+    const context = await openOptionalCollectionContext(() => null)
     expect(context.kind).toBe('disabled')
     await expect(context.close()).resolves.toBeUndefined()
   })
 
   it('reports missing packaged migrations before attempting a connection', async () => {
     const context = await openOptionalCollectionContext(
-      { DATABASE_URL: 'postgresql://127.0.0.1/not-contacted' },
+      () => 'postgresql://127.0.0.1/not-contacted',
       '/definitely/missing/drizzle-collection',
     )
     expect(context).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_MIGRATION_FILES_MISSING' })
