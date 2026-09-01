@@ -140,7 +140,15 @@ export function createSessionRunner(
         // A setting that is not a number is a setting nobody can act on. Reading
         // it as null costs one redundant collection; reading it as NaN would
         // make every comparison against it false and settle nothing, ever.
-        return Number.isFinite(parsed) ? parsed : null
+        if (!Number.isFinite(parsed)) return null
+        // No day after today can have been settled, so a value later than today
+        // is not a day this ever wrote — a hand-edited setting, a clock that has
+        // since moved back, a half-written file. It has to be refused rather
+        // than believed, because believing it is the one failure this whole
+        // branch cannot survive: every day would compare as already settled and
+        // the tool would stop settling for good, silently, with the greetings it
+        // exists to send simply never going out.
+        return parsed > kstDayStartMs(options.clock.now()) ? null : parsed
       },
       onDaySettled: (dayStartMs) => {
         settings.set(SETTING_KEYS.lastSettledDay, String(dayStartMs))
