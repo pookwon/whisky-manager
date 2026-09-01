@@ -51,6 +51,12 @@ export interface CollectionRepository {
   readFeedState(feed: CollectionFeed): Promise<CollectionFeedState | null>
   startRun(input: CreateCollectionRunInput): Promise<CollectionFeedState>
   recordPageRequest(id: string, phase: 'probe' | 'collection'): Promise<void>
+  /**
+   * Ends a run, and — when it ended by reaching the period's start — records
+   * that on the feed in the same transaction. Two readers ask whether the job
+   * is done (the scheduler and the screens), and a fact written in one place is
+   * a fact they cannot disagree about.
+   */
   finishRun(id: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
   /** Marks runs left `running` by an abnormal exit as interrupted so the feed's single-running-run constraint stops blocking new runs. */
   reconcileOrphanedRuns(finishedAt: Date): Promise<number>
@@ -68,6 +74,8 @@ export interface CollectionFeedState extends FeedStateExpectation {
    * has to look for its place: the feed drifts about eight pages a day.
    */
   readonly cursorUpdatedAtMs: number
+  /** Whether a run has reached the period's start. Written, never inferred. */
+  readonly complete: boolean
 }
 
 /** Thrown inside the transaction so every page write rolls back on CAS failure. */
@@ -123,6 +131,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           anchorPostedAt: feedState.anchorPostedAt,
           referencePage: feedState.referencePage,
           pageIdentity: feedState.pageIdentity,
+          completedAt: feedState.completedAt,
           updatedAt: feedState.updatedAt,
         })
         .from(feedState)
@@ -134,6 +143,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         ...row,
         anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null,
         cursorUpdatedAtMs: row.updatedAt.getTime(),
+        complete: row.completedAt !== null,
       }
     },
 
@@ -156,7 +166,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         if (input.resumeFromCheckpoint && rangeChanged) throw new Error('cannot resume a checkpoint for a different target range')
         const reset = !input.resumeFromCheckpoint && inserted.length === 0
         const state = reset
-          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
+          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
           : current
         if (state === undefined) throw new Error('collection feed reset failed')
         await tx.insert(collectionRuns).values({
@@ -178,6 +188,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           referencePage: state.referencePage,
           pageIdentity: state.pageIdentity,
           cursorUpdatedAtMs: state.updatedAt.getTime(),
+          complete: state.completedAt !== null,
         }
       })
     },
@@ -195,12 +206,37 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
     },
 
     async finishRun(id, status, stopReason, finishedAt) {
-      const updated = await db
-        .update(collectionRuns)
-        .set({ status, stopReason, finishedAt })
-        .where(and(eq(collectionRuns.id, id), eq(collectionRuns.status, 'running')))
-        .returning({ id: collectionRuns.id })
-      if (updated.length !== 1) throw new Error('collection run is not running')
+      await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(collectionRuns)
+          .set({ status, stopReason, finishedAt })
+          .where(and(eq(collectionRuns.id, id), eq(collectionRuns.status, 'running')))
+          .returning({
+            feedKind: collectionRuns.feedKind,
+            menuId: collectionRuns.menuId,
+            targetStartMs: collectionRuns.targetStartMs,
+            targetEndMs: collectionRuns.targetEndMs,
+          })
+        if (updated.length !== 1) throw new Error('collection run is not running')
+        // Only `succeeded` means the walk reached the period's start; `partial`
+        // spent its page budget and `interrupted` was stopped, and both leave
+        // the job with work in it.
+        const run = updated[0]
+        if (status !== 'succeeded' || run === undefined) return
+        await tx
+          .update(feedState)
+          .set({ completedAt: finishedAt })
+          .where(
+            and(
+              eq(feedState.feedKind, run.feedKind),
+              eq(feedState.menuId, run.menuId),
+              // A run that finished against a period the feed has since moved
+              // off says nothing about the period it holds now.
+              eq(feedState.targetStartMs, run.targetStartMs),
+              eq(feedState.targetEndMs, run.targetEndMs),
+            ),
+          )
+      })
     },
 
     async reconcileOrphanedRuns(finishedAt) {

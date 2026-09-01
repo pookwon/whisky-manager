@@ -87,10 +87,11 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
     if (schedule.enabled) {
       try {
         const repository = deps.repository()
-        // Only an existing job is continued. A beat never starts one, so an
-        // install with nothing to collect makes no request to the cafe at all.
+        // Only an unfinished job is continued. A beat never starts one, so an
+        // install with nothing to collect makes no request to the cafe at all —
+        // and neither does one whose period has already been walked to its end.
         const state = repository === null ? null : await repository.readFeedState(deps.feed)
-        if (state !== null) {
+        if (state !== null && !state.complete) {
           const result = deps.runner.start({
             range: { startMs: state.targetStartMs, endMs: state.targetEndMs },
             kind: 'incremental',

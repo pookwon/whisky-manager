@@ -840,6 +840,17 @@ describe('asking for a period while a job is unfinished', () => {
     expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
   })
 
+  it('reads a finished period over again rather than resuming a cursor at its end', async () => {
+    const { api, started } = build(MON_10_00, {}, { job: job({ complete: true }) })
+
+    const result = await api.startCollection({ firstDayMs, lastDayMs })
+
+    expect(result).toEqual({ kind: 'started' })
+    // Asking for the same period again is a request to read it over; resuming
+    // would start at the end of it and finish having stored nothing.
+    expect(started[0]?.resumeFromCheckpoint).toBe(false)
+  })
+
   it('starts fresh when no period has ever been asked for', async () => {
     const { api, started } = build(MON_10_00, {}, { job: null })
 

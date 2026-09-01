@@ -285,6 +285,65 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       await reopened.close()
     }
 
+    // Finishing a job is a fact the database has to hold. It cannot be worked
+    // out from the cursor — the cursor is always the time of a post inside the
+    // period, so it never crosses the period's start — and a scheduler that
+    // infers it re-walks a finished period forever.
+    const completionFeed = { feedKind: 'all_articles' as const, menuId: '0' }
+    const completionRange = { targetStartMs: Date.UTC(2026, 5, 1, 15), targetEndMs: Date.UTC(2026, 5, 2, 15) }
+    const spentRunId = randomUUID()
+    await repository.startRun({
+      ...completionFeed,
+      ...completionRange,
+      id: spentRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: false,
+      startedAt: new Date(now.getTime() + 20_000),
+    })
+    await repository.finishRun(spentRunId, 'partial', 'PAGE_BUDGET_SPENT', new Date(now.getTime() + 21_000))
+    expect((await repository.readFeedState(completionFeed))?.complete).toBe(false)
+
+    const stoppedRunId = randomUUID()
+    await repository.startRun({
+      ...completionFeed,
+      ...completionRange,
+      id: stoppedRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: true,
+      startedAt: new Date(now.getTime() + 22_000),
+    })
+    await repository.finishRun(stoppedRunId, 'interrupted', 'ABORTED', new Date(now.getTime() + 23_000))
+    expect((await repository.readFeedState(completionFeed))?.complete).toBe(false)
+
+    const finishedRunId = randomUUID()
+    await repository.startRun({
+      ...completionFeed,
+      ...completionRange,
+      id: finishedRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: true,
+      startedAt: new Date(now.getTime() + 24_000),
+    })
+    await repository.finishRun(finishedRunId, 'succeeded', null, new Date(now.getTime() + 25_000))
+    expect((await repository.readFeedState(completionFeed))?.complete).toBe(true)
+
+    // A different period is a different job, and it starts unfinished however
+    // thoroughly the last one was walked.
+    const nextPeriodRunId = randomUUID()
+    await repository.startRun({
+      ...completionFeed,
+      id: nextPeriodRunId,
+      runKind: 'backfill',
+      resumeFromCheckpoint: false,
+      targetStartMs: Date.UTC(2026, 4, 1, 15),
+      targetEndMs: Date.UTC(2026, 4, 2, 15),
+      startedAt: new Date(now.getTime() + 26_000),
+    })
+    expect((await repository.readFeedState(completionFeed))?.complete).toBe(false)
+    // A run that ends against a period the feed has since moved off must not
+    // mark the period it holds now.
+    await repository.finishRun(nextPeriodRunId, 'interrupted', 'TEST_DONE', new Date(now.getTime() + 27_000))
+
     await pool.query(`update drizzle.__drizzle_migrations set hash = 'intentionally-wrong'`)
     const mismatch = await openOptionalCollectionContext({ DATABASE_URL: testDatabaseUrl }, migrationsFolder)
     expect(mismatch).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_SCHEMA_MISMATCH' })

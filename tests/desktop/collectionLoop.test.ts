@@ -27,6 +27,7 @@ function job(overrides: Partial<CollectionFeedState> = {}): CollectionFeedState 
     targetEndMs: Date.UTC(2026, 7, 1),
     anchorPostId: '900000',
     anchorPostedAtMs: Date.UTC(2026, 6, 20),
+    complete: false,
     cursorUpdatedAtMs: NOW - 2 * HOUR,
     referencePage: 120,
     pageIdentity: 'fnv1a64:0000000000000001',
@@ -166,6 +167,20 @@ describe('collection loop', () => {
     const h = harness(enabled, null)
     h.loop.refresh()
     const fired = await h.advance(12 * HOUR)
+
+    expect(fired).toBeGreaterThan(0)
+    expect(h.started).toHaveLength(0)
+  })
+
+  it('leaves a finished job alone instead of re-walking it every rest', async () => {
+    // The failure this guards is quiet and endless: a job whose period has been
+    // walked to its end still has a row, and a beat that only checks for the
+    // row starts a run every rest period for as long as the app runs. Each one
+    // spends a handful of requests on the cafe searching for a place to resume
+    // and stores nothing.
+    const h = harness(enabled, job({ complete: true }))
+    h.loop.refresh()
+    const fired = await h.advance(24 * HOUR)
 
     expect(fired).toBeGreaterThan(0)
     expect(h.started).toHaveLength(0)

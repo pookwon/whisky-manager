@@ -130,6 +130,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
             targetStartMs: feedState.targetStartMs,
             targetEndMs: feedState.targetEndMs,
             anchorPostedAt: feedState.anchorPostedAt,
+            completedAt: feedState.completedAt,
             updatedAt: feedState.updatedAt,
           })
           .from(feedState)
@@ -163,10 +164,11 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
               targetEndMs: jobRow.targetEndMs,
               cursorPostedAtMs,
               cursorUpdatedAtMs: jobRow.updatedAt.getTime(),
-              // Walked past the period's start, so there is nothing older left
-              // to read. Kept as a derived answer rather than a stored flag: a
-              // second place to write it is a second place to disagree.
-              complete: cursorPostedAtMs !== null && cursorPostedAtMs <= jobRow.targetStartMs,
+              // Read, not derived. The cursor is always the time of a post
+              // inside the period, so it never crosses the period's start —
+              // deriving completion from it makes every finished job look
+              // unfinished, and the scheduler re-walks it forever.
+              complete: jobRow.completedAt !== null,
             }
 
       const totalsRow = postTotals[0]

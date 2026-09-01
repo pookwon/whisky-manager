@@ -1,0 +1,1 @@
+ALTER TABLE "feed_state" ADD COLUMN "completed_at" timestamp (3) with time zone;
