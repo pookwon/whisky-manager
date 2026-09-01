@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextDayClosing } from '../../src/shared/dayClosing.js'
+import { nextDaySettle } from '../../src/shared/daySettling.js'
 import { KST_OFFSET_MS, kstDayRange } from '../../src/shared/kst.js'
 import { PROFILES } from '../../src/shared/profiles.js'
 import {
@@ -70,19 +70,17 @@ describe('nextActiveStart', () => {
 
 describe('nextSessionStart', () => {
   it('adds a jittered interval inside the configured range', () => {
-    // Drawn from the profile's own band: a literal outside it would be clamped
-    // and the assertion would then be about the clamp, not the jitter.
     const drawn = limits.sessionIntervalMinMs
     const clock = clockAt(MON_10_00)
     const random = new SequenceRandom([drawn])
-    expect(nextSessionStart(MON_10_00, limits, clock, random)).toBe(MON_10_00 + drawn)
+    expect(nextSessionStart(MON_10_00, limits, clock, random).at).toBe(MON_10_00 + drawn)
   })
 
   it('stretches the interval by the weekend multiplier on Saturday', () => {
     const drawn = limits.sessionIntervalMinMs
     const clock = clockAt(SAT_10_00)
     const random = new SequenceRandom([drawn])
-    expect(nextSessionStart(SAT_10_00, limits, clock, random)).toBe(
+    expect(nextSessionStart(SAT_10_00, limits, clock, random).at).toBe(
       SAT_10_00 + drawn * limits.weekendIntervalMultiplier,
     )
   })
@@ -93,7 +91,7 @@ describe('nextSessionStart', () => {
     // interval, then how far into the window the opening session lands.
     const at = kst(25, 0, 30)
     const random = new SequenceRandom([HOUR, 5 * 60_000])
-    expect(nextSessionStart(at, limits, clockAt(at), random)).toBe(kst(25, 10, 5))
+    expect(nextSessionStart(at, limits, clockAt(at), random).at).toBe(kst(25, 10, 5))
   })
 
   it('never opens the day on the instant the window opens', () => {
@@ -105,7 +103,7 @@ describe('nextSessionStart', () => {
     const boundary = nextActiveStart(kst(25, 4), limits, clockAt(at))
     for (const jitter of [0, 1, 30_000, 60_000, 9 * 60_000, HOUR]) {
       const random = new SequenceRandom([HOUR, jitter])
-      expect(nextSessionStart(at, limits, clockAt(at), random)).toBeGreaterThan(boundary)
+      expect(nextSessionStart(at, limits, clockAt(at), random).at).toBeGreaterThan(boundary)
     }
   })
 
@@ -113,81 +111,85 @@ describe('nextSessionStart', () => {
     const at = kst(25, 0, 30)
     for (const jitter of [0, 60_000, 9 * 60_000, HOUR]) {
       const random = new SequenceRandom([HOUR, jitter])
-      const opening = nextSessionStart(at, limits, clockAt(at), random)
-      expect(isWithinActiveHours(opening, limits, clockAt(opening))).toBe(true)
+      const next = nextSessionStart(at, limits, clockAt(at), random)
+      expect(isWithinActiveHours(next.at, limits, clockAt(next.at))).toBe(true)
       // Late enough to have margin, early enough that the morning is not spent
       // waiting for it.
-      expect(opening - nextActiveStart(kst(25, 4), limits, clockAt(at))).toBeLessThanOrEqual(15 * 60_000)
+      expect(next.at - nextActiveStart(kst(25, 4), limits, clockAt(at))).toBeLessThanOrEqual(15 * 60_000)
     }
   })
 
-  it('closes the day rather than deferring past it', () => {
-    // Half an hour of the day is left. Tomorrow's window is further away than
-    // the run that settles today, so today's is what comes next.
-    const random = new SequenceRandom([HOUR])
-    expect(nextSessionStart(MON_23_30, limits, clockAt(MON_23_30), random)).toBe(
-      nextDayClosing(MON_23_30),
-    )
-  })
-
-  it('closes the day when the drawn interval would carry the session past it', () => {
-    // 22:00, and four hours from here is tomorrow's business. Left alone the
-    // day would roll over with its last arrivals unanswered.
-    const random = new SequenceRandom([4 * HOUR])
-    expect(nextSessionStart(MON_22_00, limits, clockAt(MON_22_00), random)).toBe(
-      nextDayClosing(MON_22_00),
-    )
-  })
-
-  it('gives way to the closing run rather than start a session it would outlast', () => {
-    // The draw lands inside the operating window and before the closing run,
-    // and is still refused: a session starting here is still working when the
-    // day ends, and the loop asks for the next one only once it stops.
-    const at = kst(24, 20)
-    const random = new SequenceRandom([3 * HOUR + 30 * 60_000])
-    const drawn = at + 3 * HOUR + 30 * 60_000
-    expect(drawn).toBeLessThan(nextDayClosing(at))
-    expect(nextSessionStart(at, limits, clockAt(at), random)).toBe(nextDayClosing(at))
-  })
-
-  it('leaves a draw that finishes inside the day alone', () => {
+  it('leaves a draw inside the day alone', () => {
     const random = new SequenceRandom([limits.sessionIntervalMinMs])
-    expect(nextSessionStart(MON_10_00, limits, clockAt(MON_10_00), random)).toBe(
-      MON_10_00 + limits.sessionIntervalMinMs,
-    )
+    const next = nextSessionStart(MON_10_00, limits, clockAt(MON_10_00), random)
+    expect(next.mode).toBe('SCHEDULED')
+    expect(next.at).toBe(MON_10_00 + limits.sessionIntervalMinMs)
+  })
+})
+
+describe('nextSessionStart and the settle run', () => {
+  it('settles the day at the boundary rather than waiting for the morning', () => {
+    // 23:30. The next normal session is tomorrow morning; the run that settles
+    // today comes first, a few minutes after midnight.
+    const random = new SequenceRandom([HOUR, 5 * 60_000, 5 * 60_000])
+    const next = nextSessionStart(MON_23_30, limits, clockAt(MON_23_30), random)
+    expect(next.mode).toBe('SETTLE')
+    expect(next.at).toBe(kst(25, 0, 5))
   })
 
-  it('gives every day exactly one closing run, weekends included', () => {
-    // The guarantee itself, run out over a week rather than asserted a case at
-    // a time: whatever the draws and the weekend stretch do in between, each
-    // day ends with the run that settles it, and ends with only one.
+  it('leaves a draw inside the day alone', () => {
+    const random = new SequenceRandom([limits.sessionIntervalMinMs])
+    const next = nextSessionStart(MON_10_00, limits, clockAt(MON_10_00), random)
+    expect(next.mode).toBe('SCHEDULED')
+    expect(next.at).toBe(MON_10_00 + limits.sessionIntervalMinMs)
+  })
+
+  it('does not draw a session that would outlast the day any differently', () => {
+    // The old clamp pulled this back to just before midnight so the closing run
+    // could still fit. It no longer has to fit: the settle run is after the day
+    // ends, and a long session simply delays it.
+    const at = kst(24, 22)
+    const random = new SequenceRandom([4 * HOUR, 5 * 60_000, 5 * 60_000])
+    const next = nextSessionStart(at, limits, clockAt(at), random)
+    expect(next.mode).toBe('SETTLE')
+    expect(next.at).toBe(kst(25, 0, 5))
+  })
+
+  it('goes back to normal sessions once the day is settled', () => {
+    // Just after the settle run finished. The next boundary is a whole day
+    // away, so the morning session is what comes next.
+    const at = kst(25, 0, 20)
+    const random = new SequenceRandom([HOUR, 4 * 60_000, 5 * 60_000])
+    const next = nextSessionStart(at, limits, clockAt(at), random)
+    expect(next.mode).toBe('SCHEDULED')
+    expect(next.at).toBe(kst(25, 10, 4))
+  })
+
+  it('gives every day exactly one settle run, weekends included', () => {
+    // The guarantee run out over a week rather than asserted a case at a time.
     const SESSION_MS = 55 * 60_000
     const drawn = (limits.sessionIntervalMinMs + limits.sessionIntervalMaxMs) / 2
     const dayOf = (epochMs: number): number => kstDayRange(epochMs).startMs
 
-    const starts: number[] = []
+    const settled: number[] = []
+    const reached = new Set<number>()
     let previousEnd = MON_10_00
     for (let i = 0; i < 30; i += 1) {
-      const at = nextSessionStart(previousEnd, limits, clockAt(previousEnd), new SequenceRandom([drawn]))
-      starts.push(at)
-      previousEnd = at + SESSION_MS
+      const next = nextSessionStart(
+        previousEnd,
+        limits,
+        clockAt(previousEnd),
+        new SequenceRandom([drawn, 5 * 60_000, 5 * 60_000]),
+      )
+      reached.add(dayOf(next.at))
+      // A settle run belongs to the day before the one it lands in.
+      if (next.mode === 'SETTLE') settled.push(dayOf(next.at) - 86_400_000)
+      previousEnd = next.at + SESSION_MS
     }
 
-    // A session is the closing one when it sits on the moment its own day closes.
-    const closedDays = starts.filter((at) => at === nextDayClosing(at - 1)).map(dayOf)
-    const daysReached = [...new Set(starts.map(dayOf))]
-
-    // Every day but the last, which the loop leaves still in progress.
-    expect(closedDays).toEqual(daysReached.slice(0, -1))
-    expect(daysReached.length).toBeGreaterThan(7)
-  })
-
-  it('does not repeat a closing run it has just finished', () => {
-    // Handed back the instant it just ran, the schedule has to look past it:
-    // repeating it would fire the same boundary twice.
-    const closing = nextDayClosing(MON_22_00)
-    const random = new SequenceRandom([limits.sessionIntervalMinMs, 3 * 60_000])
-    expect(nextSessionStart(closing, limits, clockAt(closing), random)).toBe(kst(25, 10, 3))
+    expect(new Set(settled).size).toBe(settled.length)
+    expect(settled.length).toBeGreaterThanOrEqual(5)
+    expect(reached.size).toBeGreaterThan(7)
   })
 })
 
