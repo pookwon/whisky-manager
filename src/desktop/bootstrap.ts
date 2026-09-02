@@ -30,8 +30,9 @@ import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, ALL_ARTICLES_FEED, type CollectionRunner } from './collectionRunner.js'
+import { createMemberCollectionRunner, type MemberCollectionRunner } from './memberCollectionRunner.js'
 import { createCollectionLock } from './collectionLock.js'
-import { createArticleCollectionJob } from './collectionJob.js'
+import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
 import { appendRefusal } from './refusalLog.js'
@@ -102,6 +103,8 @@ export interface AppContext {
   readonly collection: OptionalCollectionContext
   /** Starts and stops one collection walk; the loop decides when scheduled ones happen. */
   readonly collectionRunner: CollectionRunner
+  /** Starts and stops one member collection walk; the loop decides when scheduled ones happen. */
+  readonly memberCollectionRunner: MemberCollectionRunner
   /** Re-read after the schedule is saved, so a change takes effect without a restart. */
   readonly collectionLoop: CollectionLoop
   readonly automation: AutomationControl
@@ -373,15 +376,31 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onError: (error) => console.error('[collection]', error),
   })
 
-  const articleJob = createArticleCollectionJob({
-    repository: () => (collection.kind === 'ready' ? collection.repository : null),
-    runner: collectionRunner,
-    feed: ALL_ARTICLES_FEED,
+  const memberCollectionRunner = createMemberCollectionRunner({
+    repository: () => (collection.kind === 'ready' ? collection.memberRepository : null),
+    transport,
+    clock: systemClock,
+    random: systemRandom,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    isSessionBusy: () => sessionProgress !== null,
+    lock: collectionLock,
+    newId: () => randomUUID(),
+    onError: (error) => console.error('[member-collection]', error),
   })
 
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
-    jobs: () => [articleJob],
+    jobs: () => [
+      createArticleCollectionJob({
+        repository: () => (collection.kind === 'ready' ? collection.repository : null),
+        runner: collectionRunner,
+        feed: ALL_ARTICLES_FEED,
+      }),
+      createMemberCollectionJob({
+        repository: () => (collection.kind === 'ready' ? collection.memberRepository : null),
+        runner: memberCollectionRunner,
+      }),
+    ],
     clock: systemClock,
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
@@ -500,6 +519,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     bridge,
     collection,
     collectionRunner,
+    memberCollectionRunner,
     collectionLoop,
     automation,
     resetExtensionPairing() {
@@ -556,6 +576,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       // A walk in flight is asked to end at its page boundary; the page it is
       // on is either committed whole or dropped whole, never half.
       collectionRunner.stop()
+      memberCollectionRunner.stop()
       warmer.stop()
       await bridge.close()
       await collection.close()

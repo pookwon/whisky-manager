@@ -96,14 +96,8 @@ export interface RendererApiDeps {
   readonly collection: () => OptionalCollectionContext
   /** Starts and stops one collection walk. */
   readonly collectionRunner: CollectionRunner
-  /**
-   * Starts and stops the member collection walk.
-   *
-   * Optional here because Task 10 wires it in bootstrap.ts/main.ts — until
-   * then the field is absent and the four member methods refuse with NO_STORAGE.
-   * Task 10 should make this required once the runner is part of AppContext.
-   */
-  readonly memberCollectionRunner?: MemberCollectionRunner
+  /** Starts and stops the member collection walk. */
+  readonly memberCollectionRunner: MemberCollectionRunner
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
@@ -332,14 +326,12 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     async startMemberCollection(): Promise<StartCollectionResult> {
       const collection = deps.collection()
       if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      const runner = deps.memberCollectionRunner
-      if (runner === undefined) return { kind: 'refused', reason: 'NO_STORAGE' }
       const state = await collection.memberRepository.readMemberFeedState()
       if (state?.complete === true) return { kind: 'refused', reason: 'JOB_FINISHED' }
       const schedule = readCollectionSchedule(settings)
       const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
       // First start walks from page 1; an existing unfinished row resumes.
-      const started = runner.start({
+      const started = deps.memberCollectionRunner.start({
         mode: state === null ? 'backfill' : 'incremental',
         maxPages,
         resumeFromCheckpoint: state !== null,
@@ -348,7 +340,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     },
 
     stopMemberCollection(): Promise<void> {
-      deps.memberCollectionRunner?.stop()
+      deps.memberCollectionRunner.stop()
       return Promise.resolve()
     },
 

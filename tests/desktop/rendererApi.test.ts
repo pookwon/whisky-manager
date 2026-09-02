@@ -65,8 +65,6 @@ interface CollectionOverrides {
   readonly memberFeedState?: MemberFeedState | null
   /** Override for what memberStatus.read() returns. */
   readonly memberStatus?: Partial<MemberCollectionStatus>
-  /** Whether the member runner is wired (default true). */
-  readonly memberRunnerWired?: boolean
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
@@ -184,18 +182,16 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       stop: () => undefined,
       isRunning: () => collection.runnerBusy ?? false,
     },
-    ...(collection.memberRunnerWired === false ? {} : {
-      memberCollectionRunner: {
-        start: (request: MemberCollectionStartRequest) => {
-          memberStarted.push(request)
-          return { kind: 'started' as const }
-        },
-        stop: () => {
-          memberStopped.push(true)
-        },
-        isRunning: () => false,
+    memberCollectionRunner: {
+      start: (request: MemberCollectionStartRequest) => {
+        memberStarted.push(request)
+        return { kind: 'started' as const }
       },
-    }),
+      stop: () => {
+        memberStopped.push(true)
+      },
+      isRunning: () => false,
+    },
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1
@@ -1049,10 +1045,6 @@ describe('startMemberCollection', () => {
     expect(await api.startMemberCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
   })
 
-  it('refuses with NO_STORAGE when the runner is not yet wired', async () => {
-    const { api } = build(MON_10_00, {}, { job: null, memberRunnerWired: false })
-    expect(await api.startMemberCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
-  })
 })
 
 describe('stopMemberCollection', () => {
@@ -1062,10 +1054,6 @@ describe('stopMemberCollection', () => {
     expect(memberStopped).toHaveLength(1)
   })
 
-  it('does not throw when the runner is not wired', async () => {
-    const { api } = build(MON_10_00, {}, { job: null, memberRunnerWired: false })
-    await expect(api.stopMemberCollection()).resolves.toBeUndefined()
-  })
 })
 
 describe('setMemberCollectionForced', () => {

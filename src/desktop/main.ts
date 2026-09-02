@@ -257,6 +257,7 @@ void app.whenReady().then(async () => {
       automation: appContext.automation,
       collection: () => appContext.collection,
       collectionRunner: appContext.collectionRunner,
+      memberCollectionRunner: appContext.memberCollectionRunner,
       collectionLoop: appContext.collectionLoop,
       // Only one automation has a runtime, so its outcome is the only one there
       // is to report. When a second runtime appears this becomes a lookup.
