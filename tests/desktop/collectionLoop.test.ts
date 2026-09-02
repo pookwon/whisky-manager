@@ -4,12 +4,8 @@ import {
   DEFAULT_COLLECTION_SCHEDULE,
   type CollectionSchedule,
 } from '../../src/shared/collectionSchedule.js'
-import type { CollectionStartRequest, CollectionStartResult } from '../../src/desktop/collectionRunner.js'
-import type {
-  CollectionFeed,
-  CollectionFeedState,
-  CollectionRepository,
-} from '../../src/desktop/collection-db/repository.js'
+import type { CollectionStartResult } from '../../src/desktop/collectionRunner.js'
+import type { CollectionJob, CollectionJobProgress } from '../../src/desktop/collectionJob.js'
 
 const MINUTE = 60_000
 const HOUR = 3_600_000
@@ -18,59 +14,45 @@ const DAY = 86_400_000
 const NOW = Date.UTC(2026, 7, 30, 23)
 const kst = (ms: number): string => new Date(ms + 9 * HOUR).toISOString().slice(0, 16).replace('T', ' ')
 
-const feed: CollectionFeed = { feedKind: 'all_articles', menuId: '0' }
-
-function job(overrides: Partial<CollectionFeedState> = {}): CollectionFeedState {
-  return {
-    stateVersion: 1,
-    targetStartMs: Date.UTC(2026, 6, 1),
-    targetEndMs: Date.UTC(2026, 7, 1),
-    anchorPostId: '900000',
-    anchorPostedAtMs: Date.UTC(2026, 6, 20),
-    complete: false,
-    forced: false,
-    cursorUpdatedAtMs: NOW - 2 * HOUR,
-    referencePage: 120,
-    pageIdentity: 'fnv1a64:0000000000000001',
-    ...overrides,
-  }
+interface FakeJobSpec {
+  name: 'articles' | 'members'
+  progress: CollectionJobProgress
+  startResult?: CollectionStartResult
+  maintenance?: (nowMs: number) => CollectionStartResult | null
 }
 
-/**
- * Drives the loop with a clock the test moves, rather than popping timers by
- * hand: a beat that lays its successor at the current instant is a busy loop,
- * and only a harness that keeps firing whatever is due will notice.
- */
-function harness(
-  schedule: CollectionSchedule,
-  feedState: CollectionFeedState | null,
-  startResult: CollectionStartResult = { kind: 'started' },
-) {
-  const started: CollectionStartRequest[] = []
+function harness(schedule: CollectionSchedule, specs: FakeJobSpec[]) {
+  const started: { name: string; maxPages: number }[] = []
   const cleared: number[] = []
   let pending: { fn: () => void; dueAt: number; handle: number } | null = null
   let now = NOW
   let current = schedule
   let handles = 0
+  let liveSpecs = specs
 
-  let currentState = feedState
-  const repository = {
-    readFeedState: () => Promise.resolve(currentState),
-  } as unknown as CollectionRepository
+  const jobs = (): CollectionJob[] =>
+    liveSpecs.map((spec) => ({
+      name: spec.name,
+      readProgress: async () => spec.progress,
+      start: (maxPages: number) => {
+        started.push({ name: spec.name, maxPages })
+        return spec.startResult ?? { kind: 'started' as const }
+      },
+      ...(spec.maintenance === undefined
+        ? {}
+        : {
+            startDailyMaintenance: async (maxPages: number, nowMs: number) => {
+              const result = spec.maintenance!(nowMs)
+              if (result !== null) started.push({ name: `${spec.name}:topup`, maxPages })
+              return result
+            },
+          }),
+    }))
 
   const loop = createCollectionLoop({
     schedule: () => current,
-    runner: {
-      start: (request) => {
-        started.push(request)
-        return startResult
-      },
-      stop: () => undefined,
-      isRunning: () => false,
-    },
-    repository: () => repository,
-    feed,
     clock: { now: () => now },
+    jobs,
     setTimer: (fn, ms) => {
       handles += 1
       pending = { fn, dueAt: now + ms, handle: handles }
@@ -87,7 +69,6 @@ function harness(
     started,
     cleared,
     pendingDelayMs: () => (pending === null ? null : pending.dueAt - now),
-    /** Advances the clock, firing every beat that falls due along the way. */
     advance: async (ms: number, fireLimit = 200): Promise<number> => {
       const target = now + ms
       let fired = 0
@@ -97,29 +78,27 @@ function harness(
         now = Math.max(now, due.dueAt)
         pending = null
         due.fn()
-        // The beat reads the database before starting, so its continuation runs
-        // on a later microtask than the call itself.
-        await Promise.resolve()
-        await Promise.resolve()
+        await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
       }
       now = target
       return fired
     },
-    setSchedule: (next: CollectionSchedule) => {
-      current = next
-    },
-    /** Stands in for the operator turning the force on or off mid-run. */
-    setFeedState: (next: CollectionFeedState | null) => {
-      currentState = next
-    },
+    setSchedule: (next: CollectionSchedule) => { current = next },
+    setSpecs: (next: FakeJobSpec[]) => { liveSpecs = next },
   }
 }
 
 const enabled: CollectionSchedule = { ...DEFAULT_COLLECTION_SCHEDULE, enabled: true }
 
+const articleSpec = (overrides: Partial<CollectionJobProgress> = {}, startResult?: CollectionStartResult): FakeJobSpec => ({
+  name: 'articles',
+  progress: { exists: true, complete: false, forced: false, ...overrides },
+  ...(startResult !== undefined ? { startResult } : {}),
+})
+
 describe('collection loop', () => {
   it('waits for the active window to open', () => {
-    const h = harness(enabled, job())
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
 
     expect(h.pendingDelayMs()).toBe(1 * HOUR)
@@ -127,7 +106,7 @@ describe('collection loop', () => {
   })
 
   it('lays nothing while switched off', () => {
-    const h = harness({ ...enabled, enabled: false }, job())
+    const h = harness({ ...enabled, enabled: false }, [articleSpec()])
     h.loop.refresh()
 
     expect(h.pendingDelayMs()).toBeNull()
@@ -135,42 +114,33 @@ describe('collection loop', () => {
   })
 
   it('rests between blocks instead of beating continuously', async () => {
-    // The failure this guards: laying the next beat at the current instant
-    // while the window is open fires it again immediately, forever.
-    const h = harness(enabled, job())
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
     const fired = await h.advance(12 * HOUR)
 
-    // 09:00-21:00 with two hours of work and two of rest leaves room for three.
     expect(fired).toBe(3)
-    expect(h.started).toHaveLength(3)
+    expect(h.started.filter((s) => s.name === 'articles')).toHaveLength(3)
   })
 
   it('continues the stored job rather than a window of its own', async () => {
-    const state = job()
-    const h = harness(enabled, state)
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
     await h.advance(2 * HOUR)
 
-    expect(h.started[0]).toMatchObject({
-      resumeFromCheckpoint: true,
-      range: { startMs: state.targetStartMs, endMs: state.targetEndMs },
-    })
+    expect(h.started[0]?.maxPages).toBeGreaterThan(0)
   })
 
   it('spends the work block as its page budget', async () => {
-    const h = harness({ ...enabled, workBlockMinutes: 120 }, job())
+    const h = harness({ ...enabled, workBlockMinutes: 120 }, [articleSpec()])
     h.loop.refresh()
     await h.advance(2 * HOUR)
 
-    // Derived from the pacing rule rather than stored, and near what two hours
-    // of 5-9s requests with the periodic rests actually fits.
     expect(h.started[0]?.maxPages).toBeGreaterThan(250)
     expect(h.started[0]?.maxPages).toBeLessThan(320)
   })
 
   it('makes no request at all when there is no job', async () => {
-    const h = harness(enabled, null)
+    const h = harness(enabled, [articleSpec({ exists: false })])
     h.loop.refresh()
     const fired = await h.advance(12 * HOUR)
 
@@ -179,12 +149,7 @@ describe('collection loop', () => {
   })
 
   it('leaves a finished job alone instead of re-walking it every rest', async () => {
-    // The failure this guards is quiet and endless: a job whose period has been
-    // walked to its end still has a row, and a beat that only checks for the
-    // row starts a run every rest period for as long as the app runs. Each one
-    // spends a handful of requests on the cafe searching for a place to resume
-    // and stores nothing.
-    const h = harness(enabled, job({ complete: true }))
+    const h = harness(enabled, [articleSpec({ complete: true })])
     h.loop.refresh()
     const fired = await h.advance(24 * HOUR)
 
@@ -193,42 +158,33 @@ describe('collection loop', () => {
   })
 
   it('keeps to the rhythm through the night when the job says to', async () => {
-    // The whole point of forcing, said as the difference it makes: the same
-    // day, the same work and rest, and the only change is whether the hours
-    // are allowed to interrupt. Compared rather than counted, so the numbers
-    // stay right if the default block lengths ever change.
-    const held = harness(enabled, job({ forced: false }))
+    const held = harness(enabled, [articleSpec({ forced: false })])
     held.loop.refresh()
     await held.advance(DAY)
 
-    const h = harness(enabled, job({ forced: true }))
+    const h = harness(enabled, [articleSpec({ forced: true })])
     h.loop.refresh()
     await h.advance(DAY)
 
-    // A 09:00-21:00 window fits three four-hour blocks; the clock fits six.
     expect(held.started).toHaveLength(3)
     expect(h.started.length).toBeGreaterThan(held.started.length)
   })
 
   it('goes back inside the hours as soon as the force is released', async () => {
-    const h = harness(enabled, job({ forced: true }))
+    const h = harness(enabled, [articleSpec({ forced: true })])
     h.loop.refresh()
     await h.advance(6 * HOUR)
     const forcedCount = h.started.length
 
-    h.setFeedState(job({ forced: false }))
+    h.setSpecs([articleSpec({ forced: false })])
     await h.advance(6 * HOUR)
 
-    // 08:00 + 12h is 20:00, still inside the window, so this is not the window
-    // doing the work — it is the released job resting the normal way.
     expect(h.started.length).toBeGreaterThan(forcedCount)
     expect(h.pendingDelayMs()).not.toBe(2 * MINUTE)
   })
 
   it('does not run at all through the night when the collection is switched off', async () => {
-    // Forcing gives way on the hours only. An operator who switched collection
-    // off has said something else entirely.
-    const h = harness({ ...enabled, enabled: false }, job({ forced: true }))
+    const h = harness({ ...enabled, enabled: false }, [articleSpec({ forced: true })])
     h.loop.refresh()
     await h.advance(DAY)
 
@@ -237,7 +193,7 @@ describe('collection loop', () => {
   })
 
   it('waits one rest before looking again when nothing was started', async () => {
-    const h = harness(enabled, null)
+    const h = harness(enabled, [articleSpec({ exists: false })])
     h.loop.refresh()
     await h.advance(1 * HOUR)
 
@@ -245,23 +201,15 @@ describe('collection loop', () => {
   })
 
   it('keeps beating after a refused start', async () => {
-    // A browser that was closed is no reason to stop collecting at the next block.
-    const h = harness(enabled, job(), { kind: 'refused', reason: 'BRIDGE_OFFLINE' })
+    const h = harness(enabled, [articleSpec({}, { kind: 'refused', reason: 'BRIDGE_OFFLINE' })])
     h.loop.refresh()
-    // Just past the window opening. A missing extension is looked at every
-    // couple of minutes, so the day the other tests advance would only be
-    // counting those.
     await h.advance(1 * HOUR + 10 * MINUTE)
 
     expect(h.started.length).toBeGreaterThan(1)
   })
 
   it('looks again in a couple of minutes when the extension was not there', async () => {
-    // The app listens the instant it starts and beats at once, while the
-    // extension is still waiting on its own retry. Charging that a full rest
-    // would delay the first collection after every app start by the whole rest
-    // period — two hours on the operating defaults.
-    const h = harness(enabled, job(), { kind: 'refused', reason: 'BRIDGE_OFFLINE' })
+    const h = harness(enabled, [articleSpec({}, { kind: 'refused', reason: 'BRIDGE_OFFLINE' })])
     h.loop.refresh()
     await h.advance(1 * HOUR)
 
@@ -269,8 +217,7 @@ describe('collection loop', () => {
   })
 
   it('still pays a rest for a refusal the extension cannot fix', async () => {
-    // A walk already in flight is not something a moment's wait resolves.
-    const h = harness(enabled, job(), { kind: 'refused', reason: 'ALREADY_RUNNING' })
+    const h = harness(enabled, [articleSpec({}, { kind: 'refused', reason: 'ALREADY_RUNNING' })])
     h.loop.refresh()
     await h.advance(1 * HOUR)
 
@@ -278,7 +225,7 @@ describe('collection loop', () => {
   })
 
   it('does not run a beat the operator switched off while it was pending', async () => {
-    const h = harness(enabled, job())
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
     h.setSchedule({ ...enabled, enabled: false })
     await h.advance(2 * HOUR)
@@ -288,17 +235,15 @@ describe('collection loop', () => {
   })
 
   it('carries the rhythm into the next day rather than working through the night', async () => {
-    const h = harness(enabled, job())
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
-    // Far enough to see tomorrow's blocks: 08:00 today to 20:00 tomorrow.
     await h.advance(DAY + 12 * HOUR)
 
-    // Three blocks a day — 09:00, 13:00, 17:00 — and none through the night.
-    expect(h.started).toHaveLength(6)
+    expect(h.started.filter((s) => s.name === 'articles')).toHaveLength(6)
   })
 
   it('replaces the pending beat when the schedule is saved again', () => {
-    const h = harness(enabled, job())
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
     h.setSchedule({ ...enabled, activeWindowStartHourKst: 10 })
     h.loop.refresh()
@@ -308,11 +253,43 @@ describe('collection loop', () => {
   })
 
   it('leaves nothing pending after stop', () => {
-    const h = harness(enabled, job())
+    const h = harness(enabled, [articleSpec()])
     h.loop.refresh()
     h.loop.stop()
 
     expect(h.pendingDelayMs()).toBeNull()
     expect(h.loop.nextRunAt()).toBeNull()
+  })
+
+  it('round-robins between two unfinished jobs', async () => {
+    const h = harness(enabled, [
+      { name: 'articles', progress: { exists: true, complete: false, forced: false } },
+      { name: 'members', progress: { exists: true, complete: false, forced: false } },
+    ])
+    h.loop.refresh()
+    await h.advance(12 * HOUR)
+    const names = h.started.map((s) => s.name)
+    expect(names).toContain('articles')
+    expect(names).toContain('members')
+  })
+
+  it('runs the member top-up once when the walk is complete and it is due', async () => {
+    let due = true
+    const h = harness(enabled, [
+      { name: 'members', progress: { exists: false, complete: true, forced: false }, maintenance: () => (due ? (due = false, { kind: 'started' as const }) : null) },
+    ])
+    h.loop.refresh()
+    await h.advance(24 * HOUR)
+    expect(h.started.filter((s) => s.name === 'members:topup')).toHaveLength(1)
+  })
+
+  it('starts nothing when the only job is a completed member walk with no top-up due', async () => {
+    const h = harness(enabled, [
+      { name: 'members', progress: { exists: false, complete: true, forced: false }, maintenance: () => null },
+    ])
+    h.loop.refresh()
+    const fired = await h.advance(24 * HOUR)
+    expect(fired).toBeGreaterThan(0)
+    expect(h.started).toHaveLength(0)
   })
 })

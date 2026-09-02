@@ -30,6 +30,8 @@ import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, ALL_ARTICLES_FEED, type CollectionRunner } from './collectionRunner.js'
+import { createCollectionLock } from './collectionLock.js'
+import { createArticleCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
 import { appendRefusal } from './refusalLog.js'
@@ -357,6 +359,8 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * uses, and yields to it: a session in flight has a person waiting on it,
    * where a backfill has hours to spare.
    */
+  const collectionLock = createCollectionLock()
+
   const collectionRunner = createCollectionRunner({
     repository: () => (collection.kind === 'ready' ? collection.repository : null),
     transport,
@@ -364,15 +368,20 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     random: systemRandom,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     isSessionBusy: () => sessionProgress !== null,
+    lock: collectionLock,
     newId: () => randomUUID(),
     onError: (error) => console.error('[collection]', error),
   })
 
+  const articleJob = createArticleCollectionJob({
+    repository: () => (collection.kind === 'ready' ? collection.repository : null),
+    runner: collectionRunner,
+    feed: ALL_ARTICLES_FEED,
+  })
+
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
-    runner: collectionRunner,
-    repository: () => (collection.kind === 'ready' ? collection.repository : null),
-    feed: ALL_ARTICLES_FEED,
+    jobs: () => [articleJob],
     clock: systemClock,
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),

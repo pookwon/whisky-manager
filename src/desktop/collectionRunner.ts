@@ -8,6 +8,7 @@ import {
   type CollectionClock,
   type CollectionRunResult,
 } from './collectionOrchestrator.js'
+import type { CollectionLock } from './collectionLock.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 /** The one feed Phase 1 reads, taken from the endpoint contract itself. */
@@ -55,6 +56,7 @@ export interface CollectionRunnerDeps {
   readonly sleep: (ms: number) => Promise<void>
   /** True while a greeting session holds the browser; the walk waits it out. */
   readonly isSessionBusy: () => boolean
+  readonly lock: CollectionLock
   readonly newId: () => string
   readonly onFinished?: (result: CollectionRunResult) => void
   readonly onError?: (error: unknown) => void
@@ -85,6 +87,10 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
       // there is nothing to read and a queued run would only fail later, out of
       // sight of whoever pressed the button.
       if (!deps.transport.isConnected()) return { kind: 'refused', reason: 'BRIDGE_OFFLINE' }
+      // The member walk shares this browser session, so only one walk runs at a
+      // time. A held lock reads as ALREADY_RUNNING, the same as this runner's own
+      // in-flight guard above.
+      if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
 
       abortRequested = false
       const orchestrator = createCollectionOrchestrator({
@@ -121,6 +127,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
         })
         .finally(() => {
           inFlight = null
+          deps.lock.release()
         })
 
       return { kind: 'started' }

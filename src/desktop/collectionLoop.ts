@@ -4,8 +4,8 @@ import {
   type CollectionSchedule,
 } from '../shared/collectionSchedule.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
-import type { CollectionRunner, CollectionStartResult } from './collectionRunner.js'
-import type { CollectionFeed, CollectionRepository } from './collection-db/repository.js'
+import type { CollectionStartResult } from './collectionRunner.js'
+import type { CollectionJob } from './collectionJob.js'
 
 export type TimerHandle = number
 
@@ -24,14 +24,10 @@ const MINUTE_MS = 60_000
 const BRIDGE_RETRY_MINUTES = 2
 
 export interface CollectionLoopDeps {
-  /** Read on every beat, so a saved change takes effect without a restart. */
   readonly schedule: () => CollectionSchedule
-  readonly runner: CollectionRunner
-  /** Only the instant matters here; the calendar is the schedule's business. */
   readonly clock: CollectionClock
-  /** Null while no collection database is usable, which is a normal install. */
-  readonly repository: () => CollectionRepository | null
-  readonly feed: CollectionFeed
+  /** The collectable jobs, read on every beat so a job that appears is picked up. */
+  readonly jobs: () => readonly CollectionJob[]
   readonly setTimer: (fn: () => void, ms: number) => TimerHandle
   readonly clearTimer: (handle: TimerHandle) => void
   readonly onStarted?: (result: CollectionStartResult, scheduledFor: number) => void
@@ -60,6 +56,7 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
    * refreshes it from the state it has just read, and `refresh` primes it.
    */
   let forced = false
+  let lastRunIndex = -1
 
   function clear(): void {
     if (timer !== null) {
@@ -108,52 +105,55 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
 
   async function beat(plannedFor: number): Promise<void> {
     const schedule = deps.schedule()
-    /** How the start went, or null when this beat did not try to start one. */
     let attempted: CollectionStartResult | null = null
 
-    // Re-read rather than trusting the beat that was laid: the operator may
-    // have switched the collection off while this timer was pending.
     if (schedule.enabled) {
       try {
-        const repository = deps.repository()
-        // Only an unfinished job is continued. A beat never starts one, so an
-        // install with nothing to collect makes no request to the cafe at all —
-        // and neither does one whose period has already been walked to its end.
-        const state = repository === null ? null : await repository.readFeedState(deps.feed)
-        forced = state?.forced ?? false
-        if (state !== null && !state.complete) {
-          const result = deps.runner.start({
-            range: { startMs: state.targetStartMs, endMs: state.targetEndMs },
-            kind: 'incremental',
-            maxPages: pagesPerWorkBlock(schedule.workBlockMinutes),
-            resumeFromCheckpoint: true,
-          })
-          attempted = result
-          deps.onStarted?.(result, plannedFor)
+        const jobs = deps.jobs()
+        const progress = await Promise.all(jobs.map((job) => job.readProgress()))
+        forced = progress.some((p) => p.forced)
+        const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
+
+        // Daily maintenance (the member top-up) is offered before the main walk
+        // and only starts when it is actually due.
+        for (let index = 0; index < jobs.length && attempted === null; index += 1) {
+          const maintenance = jobs[index]!.startDailyMaintenance
+          if (maintenance === undefined) continue
+          const result = await maintenance(maxPages, deps.clock.now())
+          if (result !== null) {
+            attempted = result
+            lastRunIndex = index
+          }
         }
+
+        // Otherwise round-robin over the unfinished jobs, starting after the one
+        // the previous beat ran, so two jobs share the blocks fairly.
+        if (attempted === null) {
+          const runnable = jobs
+            .map((job, index) => ({ job, index }))
+            .filter((entry) => progress[entry.index]!.exists && !progress[entry.index]!.complete)
+          if (runnable.length > 0) {
+            const ordered = [...runnable].sort((a, b) => a.index - b.index)
+            const next = ordered.find((entry) => entry.index > lastRunIndex) ?? ordered[0]!
+            attempted = next.job.start(maxPages)
+            lastRunIndex = next.index
+          }
+        }
+
+        if (attempted !== null) deps.onStarted?.(attempted, plannedFor)
       } catch (error) {
-        // A database that answered badly is no reason to stop the rhythm; the
-        // next beat asks again.
         deps.onError?.(error)
       }
     }
 
-    // The next beat is laid whether or not this one ran: a browser that was
-    // closed at one block is no reason to stop collecting at the next.
     lay(beatAfter(attempted, schedule, deps.clock.now()))
   }
 
-  /**
-   * Reads whether the job is running around the clock, and re-lays if that
-   * changes what was already laid. The first lay happens without waiting so
-   * the screen always has a next-run time to show.
-   */
   async function prime(): Promise<void> {
     const was = forced
     try {
-      const repository = deps.repository()
-      const state = repository === null ? null : await repository.readFeedState(deps.feed)
-      forced = state?.forced ?? false
+      const progress = await Promise.all(deps.jobs().map((job) => job.readProgress()))
+      forced = progress.some((p) => p.forced)
     } catch (error) {
       deps.onError?.(error)
       return
