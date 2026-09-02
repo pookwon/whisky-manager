@@ -261,14 +261,21 @@ describe('collection loop', () => {
     expect(h.loop.nextRunAt()).toBeNull()
   })
 
-  it('round-robins between two unfinished jobs', async () => {
+  it('round-robins between two unfinished jobs in alternating order', async () => {
     const h = harness(enabled, [
       { name: 'articles', progress: { exists: true, complete: false, forced: false } },
       { name: 'members', progress: { exists: true, complete: false, forced: false } },
     ])
     h.loop.refresh()
-    await h.advance(12 * HOUR)
+    // 09:00-21:00 window with 2h work + 2h rest = 3 beats; add a 4th by advancing further
+    await h.advance(DAY)
     const names = h.started.map((s) => s.name)
+    // Must alternate: articles, members, articles, members, …
+    for (let i = 1; i < names.length; i += 1) {
+      expect(names[i]).not.toBe(names[i - 1])
+    }
+    expect(names[0]).toBe('articles')
+    expect(names[1]).toBe('members')
     expect(names).toContain('articles')
     expect(names).toContain('members')
   })
