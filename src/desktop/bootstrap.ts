@@ -32,6 +32,7 @@ import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, ALL_ARTICLES_FEED, type CollectionRunner } from './collectionRunner.js'
 import { createMemberCollectionRunner, type MemberCollectionRunner } from './memberCollectionRunner.js'
 import { createCollectionLock } from './collectionLock.js'
+import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
@@ -386,27 +387,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     lock: collectionLock,
     newId: () => randomUUID(),
     onError: (error) => {
-      // Never log the full error object: a pg DatabaseError carries
-      // `detail: "Failing row contains (<member_key>, <nickname>, ...)"`.
-      // Log only safe, body-free fields.
-      if (error instanceof Error) {
-        // DrizzleQueryError builds its message from the SQL query with bound
-        // parameter values — member keys and nicknames. Drop message only for
-        // those. Plain Error subclasses from the repository carry value-free
-        // constant messages ("member run does not exist", etc.) that are safe
-        // and essential for diagnosis; keep them.
-        const pg = error as unknown as Record<string, unknown>
-        const isDrizzleQueryError =
-          error.constructor.name === 'DrizzleQueryError' || 'params' in pg
-        const safe: Record<string, unknown> = { name: error.name }
-        if (!isDrizzleQueryError) safe['message'] = error.message
-        if (typeof pg['code'] === 'string') safe['code'] = pg['code']
-        if (typeof pg['constraint'] === 'string') safe['constraint'] = pg['constraint']
-        if (typeof pg['query'] === 'string') safe['query'] = pg['query']
-        console.error('[member-collection]', safe)
-      } else {
-        console.error('[member-collection] non-Error thrown')
-      }
+      // Only the fields `safeMemberErrorFields` allows: a failing query's own
+      // message quotes the member rows it was inserting.
+      if (error instanceof Error) console.error('[member-collection]', safeMemberErrorFields(error))
+      else console.error('[member-collection] non-Error thrown')
     },
   })
 
