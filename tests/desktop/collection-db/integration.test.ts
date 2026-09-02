@@ -6,8 +6,10 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseCafeArticleListText } from '../../../src/shared/cafeArticleList.js'
+import { parseCafeMemberListText } from '../../../src/shared/cafeMemberList.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from '../../../src/desktop/collection-db/client.js'
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
+import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 
@@ -17,9 +19,12 @@ const migrationsFolder = fileURLToPath(new URL('../../../drizzle-collection', im
 const page = parseCafeArticleListText(
   readFileSync(fileURLToPath(new URL('../../fixtures/cafe-article-list-page-1.json', import.meta.url)), 'utf8'),
 )
+const memberPage = parseCafeMemberListText(
+  readFileSync(fileURLToPath(new URL('../../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
+)
 
-const COLLECTION_TABLES = ['posts', 'boards', 'feed_state', 'runs']
-const COLLECTION_TYPES = ['collection_feed_kind', 'collection_run_kind', 'collection_run_status']
+const COLLECTION_TABLES = ['members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
+const COLLECTION_TYPES = ['collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
 
 let pool: Pool
 let connection: CollectionDatabaseConnection
@@ -401,5 +406,32 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const mismatch = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
     expect(mismatch).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_SCHEMA_MISMATCH' })
     await mismatch.close()
+  })
+
+  it('persists a member page atomically, enforces the single-row state, rejects stale CAS, and preserves first_seen_at', async () => {
+    const repo = createMemberRepository(connection.db)
+    const run = { id: randomUUID(), runKind: 'backfill' as const, resumeFromCheckpoint: false, startedAt: new Date(1_000) }
+    const state = await repo.startRun(run)
+    expect(state.stateVersion).toBe(0)
+
+    const stored = await repo.persistPage({ runId: run.id, observedAt: new Date(1_000), referencePage: 1, expectedState: { stateVersion: 0, anchorMemberKey: null }, page: memberPage })
+    expect(stored.kind).toBe('stored')
+
+    // A second running run is refused by the whole-table partial unique index.
+    await expect(repo.startRun({ id: randomUUID(), runKind: 'incremental', resumeFromCheckpoint: true, startedAt: new Date(2_000) })).rejects.toThrow()
+    await repo.finishRun(run.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(2_000))
+
+    // Stale CAS (expects version 0, but it is now 1) conflicts rather than writing.
+    const run2 = { id: randomUUID(), runKind: 'incremental' as const, resumeFromCheckpoint: true, startedAt: new Date(3_000) }
+    await repo.startRun(run2)
+    const conflict = await repo.persistPage({ runId: run2.id, observedAt: new Date(3_000), referencePage: 1, expectedState: { stateVersion: 0, anchorMemberKey: null }, page: memberPage })
+    expect(conflict.kind).toBe('conflict')
+
+    // Re-reading the same page keeps first_seen_at and moves snapshot_at.
+    const latest = await repo.readMemberFeedState()
+    const reobserved = await repo.persistPage({ runId: run2.id, observedAt: new Date(4_000), referencePage: 1, expectedState: { stateVersion: latest!.stateVersion, anchorMemberKey: latest!.anchorMemberKey }, page: memberPage })
+    expect(reobserved.kind).toBe('stored')
+    const known = await repo.knownMemberKeys(memberPage.items.map((m) => m.memberKey))
+    expect(known.size).toBe(memberPage.items.length)
   })
 })
