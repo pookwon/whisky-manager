@@ -25,6 +25,7 @@
     "package:extension": "pnpm build:extension && node scripts/package-extension.mjs",
     "probe": "pnpm build && node scripts/probe.mjs",
     "capture:cafe-articles": "pnpm build && node scripts/capture-cafe-articles.mjs",
+    "capture:cafe-members": "pnpm build && node scripts/capture-cafe-members.mjs",
     "generate:cp949": "node scripts/generate-cp949.mjs",
     "dry-run": "pnpm build && node scripts/dry-run.mjs"
   },
