@@ -1,4 +1,5 @@
 import type { CollectionJob, CollectionStatus } from './collection-db/statusQuery.js'
+import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
 import type {
@@ -24,6 +25,10 @@ export const IPC_CHANNELS = {
   startCollection: 'wm:startCollection',
   stopCollection: 'wm:stopCollection',
   setCollectionForced: 'wm:setCollectionForced',
+  getMemberCollectionStatus: 'wm:getMemberCollectionStatus',
+  startMemberCollection: 'wm:startMemberCollection',
+  stopMemberCollection: 'wm:stopMemberCollection',
+  setMemberCollectionForced: 'wm:setMemberCollectionForced',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -132,6 +137,15 @@ export interface DashboardSnapshot {
    */
   readonly averageActionGapMs: number
 }
+
+/**
+ * Member collection storage is optional and follows the same three-state shape
+ * as the article collection: disabled, unavailable, or ready with status.
+ */
+export type MemberCollectionStatusView =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
+  | { readonly kind: 'ready'; readonly status: MemberCollectionStatus }
 
 /**
  * Collection storage is optional, so its screen has three answers rather than
@@ -243,6 +257,17 @@ export interface RendererApi {
   getDashboard(): Promise<DashboardSnapshot>
   /** Reads the collection database; answers `disabled` when there is none. */
   getCollectionStatus(): Promise<CollectionStatusView>
+  /** Reads the member collection status; answers `disabled` when there is no database. */
+  getMemberCollectionStatus(): Promise<MemberCollectionStatusView>
+  /** Starts a member collection walk. Mode is picked by whether a walk already exists. */
+  startMemberCollection(): Promise<StartCollectionResult>
+  /** Asks a member walk in flight to end at its next page boundary. */
+  stopMemberCollection(): Promise<void>
+  /**
+   * Lets the member walk keep going outside the operating hours, or puts it
+   * back inside them. Releases itself when the walk completes.
+   */
+  setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult>
   getCollectionSchedule(): Promise<CollectionScheduleView>
   /** Saves the schedule and re-lays the next beat; returns what was stored. */
   setCollectionSchedule(schedule: CollectionSchedule): Promise<CollectionScheduleView>

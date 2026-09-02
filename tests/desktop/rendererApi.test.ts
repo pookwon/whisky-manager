@@ -137,6 +137,25 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   recentRuns: [],
                 }),
             },
+            memberRepository: {
+              readMemberFeedState: () => Promise.resolve(null),
+              setForced: () => Promise.resolve(),
+            } as unknown as import('../../src/desktop/collection-db/memberRepository.js').MemberRepository,
+            memberStatus: {
+              read: () =>
+                Promise.resolve({
+                  memberCount: 0,
+                  pagesStored: 0,
+                  totalMemberCount: null,
+                  complete: false,
+                  forced: false,
+                  completedAtMs: null,
+                  toppedUpAtMs: null,
+                  running: false,
+                  authorCount: 0,
+                  matchedAuthorCount: 0,
+                }),
+            },
           },
     collectionRunner: {
       start: (request) => {

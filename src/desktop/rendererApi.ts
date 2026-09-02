@@ -27,9 +27,11 @@ import {
   parseOperatorAccounts,
 } from './session.js'
 import type { ExtensionTransport } from './ws/server.js'
+import type { MemberCollectionRunner } from './memberCollectionRunner.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
+  MemberCollectionStatusView,
   SetCollectionForcedResult,
   BridgeStatus,
   CollectionRunRequest,
@@ -94,6 +96,8 @@ export interface RendererApiDeps {
   readonly collection: () => OptionalCollectionContext
   /** Starts and stops one collection walk. */
   readonly collectionRunner: CollectionRunner
+  /** Starts and stops the member collection walk. Optional until Task 10 wires it. */
+  readonly memberCollectionRunner?: MemberCollectionRunner
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
@@ -310,6 +314,47 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
       return { kind: 'ready', status: await collection.status.read(ALL_ARTICLES_FEED) }
+    },
+
+    async getMemberCollectionStatus(): Promise<MemberCollectionStatusView> {
+      const collection = deps.collection()
+      if (collection.kind === 'disabled') return { kind: 'disabled' }
+      if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
+      return { kind: 'ready', status: await collection.memberStatus.read() }
+    },
+
+    async startMemberCollection(): Promise<StartCollectionResult> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const runner = deps.memberCollectionRunner
+      if (runner === undefined) return { kind: 'refused', reason: 'NO_STORAGE' }
+      const state = await collection.memberRepository.readMemberFeedState()
+      if (state?.complete === true) return { kind: 'refused', reason: 'JOB_FINISHED' }
+      const schedule = readCollectionSchedule(settings)
+      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
+      // First start walks from page 1; an existing unfinished row resumes.
+      const started = runner.start({
+        mode: state === null ? 'backfill' : 'incremental',
+        maxPages,
+        resumeFromCheckpoint: state !== null,
+      })
+      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
+    },
+
+    stopMemberCollection(): Promise<void> {
+      deps.memberCollectionRunner?.stop()
+      return Promise.resolve()
+    },
+
+    async setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const state = await collection.memberRepository.readMemberFeedState()
+      if (state === null) return { kind: 'refused', reason: 'NO_JOB' }
+      if (state.complete) return { kind: 'refused', reason: 'JOB_FINISHED' }
+      await collection.memberRepository.setForced(forced ? new Date(deps.clock.now()) : null)
+      deps.collectionLoop.refresh()
+      return { kind: 'set', forced }
     },
 
     getDashboard(): Promise<DashboardSnapshot> {

@@ -9,6 +9,10 @@ import type {
 const wm = {
   getDashboard: vi.fn(),
   getCollectionStatus: vi.fn(),
+  getMemberCollectionStatus: vi.fn(),
+  startMemberCollection: vi.fn(),
+  stopMemberCollection: vi.fn(),
+  setMemberCollectionForced: vi.fn(),
   getCollectionSchedule: vi.fn(),
   setCollectionSchedule: vi.fn(),
   startCollection: vi.fn(),

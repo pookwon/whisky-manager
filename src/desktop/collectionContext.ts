@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
+import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
+import { createMemberCollectionStatusQuery, type MemberCollectionStatusQuery } from './collection-db/memberStatusQuery.js'
 import { createCollectionRepository, type CollectionRepository } from './collection-db/repository.js'
 import { createCollectionStatusQuery, type CollectionStatusQuery } from './collection-db/statusQuery.js'
 
@@ -18,6 +20,8 @@ export type OptionalCollectionContext =
       readonly repository: CollectionRepository
       /** Reading for the screens, kept apart from the repository that writes pages. */
       readonly status: CollectionStatusQuery
+      readonly memberRepository: MemberRepository
+      readonly memberStatus: MemberCollectionStatusQuery
       close(): Promise<void>
     }
   | {
@@ -111,10 +115,14 @@ export async function openOptionalCollectionContext(
     // per-feed single-running-run constraint would then reject every new run.
     // Only this app writes runs, so app start is a safe reconciliation point.
     await repository.reconcileOrphanedRuns(new Date())
+    const memberRepository = createMemberRepository(connection.db)
+    await memberRepository.reconcileOrphanedRuns(new Date())
     return {
       kind: 'ready',
       repository,
       status: createCollectionStatusQuery(connection.db),
+      memberRepository,
+      memberStatus: createMemberCollectionStatusQuery(connection.db),
       close: connection.close,
     }
   } catch (error) {
