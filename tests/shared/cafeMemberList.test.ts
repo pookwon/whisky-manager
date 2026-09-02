@@ -9,14 +9,73 @@ import {
 } from '../../src/shared/cafeMemberList.js'
 import { cafeArticlePageIdentity } from '../../src/shared/cafeArticleList.js'
 
-const sample = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
-)
+function loadFixture(name: string): unknown {
+  return JSON.parse(
+    readFileSync(fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url)), 'utf8'),
+  )
+}
+
+const sample = loadFixture('cafe-member-list-sample.json')
+
+/** Marker pattern: any value the sanitizer left as a placeholder. */
+const MARKER_RE = /^<[A-Za-z0-9_/:]+>$/
+
+describe('real fixture sanity', () => {
+  const PARSER_KEYS = new Set(['memberKey', 'nickname', 'joinDate', 'memberLevelName', 'manager', 'staff'])
+  for (const name of ['cafe-member-list-page-1.json', 'cafe-member-list-page-1000.json', 'cafe-member-list-page-2096.json', 'cafe-member-list-page-2097.json', 'cafe-member-list-page-2098.json']) {
+    it(`${name} has no raw strings outside the six parser keys`, () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fixture: any = loadFixture(name)
+      const mems: unknown[] = fixture.result.members
+      for (const [i, m] of mems.entries()) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const [k, v] of Object.entries(m as any)) {
+          if (PARSER_KEYS.has(k)) continue
+          if (typeof v === 'string') {
+            expect(MARKER_RE.test(v), `[${i}].${k} = ${JSON.stringify(v)} is not a marker`).toBe(true)
+          }
+        }
+      }
+    })
+  }
+})
+
+describe('real fixture parsing', () => {
+  it('page 1 parses 100 items with totalMemberCount 209584 and decodes 비지터', () => {
+    const page = parseCafeMemberList(loadFixture('cafe-member-list-page-1.json'))
+    expect(page.items).toHaveLength(100)
+    expect(page.totalMemberCount).toBe(209584)
+    expect(page.items[0]?.levelName).toBe('비지터')
+  })
+
+  it('page 2097 parses 13 items (last real page)', () => {
+    const page = parseCafeMemberList(loadFixture('cafe-member-list-page-2097.json'))
+    expect(page.items).toHaveLength(13)
+    expect(page.totalMemberCount).toBe(209584)
+  })
+
+  it('page 2098 parses 1 item (past-end fallback repeats last member)', () => {
+    const page = parseCafeMemberList(loadFixture('cafe-member-list-page-2098.json'))
+    expect(page.items).toHaveLength(1)
+  })
+
+  for (const name of ['cafe-member-list-page-1.json', 'cafe-member-list-page-1000.json', 'cafe-member-list-page-2096.json', 'cafe-member-list-page-2097.json']) {
+    it(`${name} join dates are non-increasing`, () => {
+      const page = parseCafeMemberList(loadFixture(name))
+      let previous: string | null = null
+      for (const item of page.items) {
+        if (previous !== null) expect(item.joinDate <= previous).toBe(true)
+        previous = item.joinDate
+      }
+    })
+  }
+})
 
 describe('parseCafeMemberList', () => {
   it('parses members, decodes level names, and converts join dates', () => {
     const page = parseCafeMemberList(sample)
     expect(page.items).toHaveLength(3)
+    expect(page.totalMemberCount).toBe(12345)
     expect(page.items[0]).toEqual({
       memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       nickname: '새회원하나',

@@ -138,6 +138,7 @@ async function persistSlice(
     referencePage: pageNumber,
     expectedState: { stateVersion: state.stateVersion, anchorMemberKey: state.anchorMemberKey },
     page: slicedPage,
+    totalMemberCount: observedPage.totalMemberCount,
   })
   if (stored.kind === 'conflict') return { kind: 'conflict' }
   const tail = slicedPage.items.at(-1)

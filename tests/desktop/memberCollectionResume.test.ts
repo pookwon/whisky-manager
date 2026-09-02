@@ -6,7 +6,7 @@ function member(key: string, joinDate: string): CollectedMember {
   return { memberKey: key, nickname: null, joinDate, levelName: '', isManager: false, isStaff: false }
 }
 function page(items: CollectedMember[]): CollectedMemberPage {
-  return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}` }
+  return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}`, totalMemberCount: null }
 }
 function reader(pages: Record<number, CollectedMemberPage>): MemberScheduledReader {
   const fetch = async (n: number) => pages[n] ?? page([])

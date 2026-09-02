@@ -35,6 +35,11 @@ export interface PersistMemberPageInput {
   readonly referencePage: number
   readonly expectedState: MemberFeedStateExpectation
   readonly page: CollectedMemberPage
+  /**
+   * Approximate cafe total from the page's paging block; a null does not
+   * overwrite a previously stored value — use null when the page carries none.
+   */
+  readonly totalMemberCount: number | null
 }
 
 export type PersistMemberPageResult =
@@ -271,6 +276,7 @@ export function createMemberRepository(db: CollectionDatabase): MemberRepository
               referencePage: input.referencePage,
               lastRunId: input.runId,
               updatedAt: input.observedAt,
+              ...(input.totalMemberCount !== null ? { totalMemberCount: input.totalMemberCount } : {}),
             })
             .where(
               and(

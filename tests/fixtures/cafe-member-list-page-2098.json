@@ -1,0 +1,47 @@
+{
+  "result": {
+    "clubid": 14538121,
+    "members": [
+      {
+        "activityStop": "<bool>",
+        "ageGroup": "<string:6>",
+        "agreeManagerDelegate": "<bool>",
+        "articleCount": "<number>",
+        "circleProfileImageURL": "<string:317>",
+        "commentCount": "<number>",
+        "exceptAutoLevelUp": "<bool>",
+        "joinDate": "2007.10.03.",
+        "lastVisitDate": "<string:11>",
+        "levelIconImageURL": "<string:46>",
+        "levelUpApply": "<bool>",
+        "manager": true,
+        "maskedMemberId": "<string:8>",
+        "memberKey": "memberkey-07kolcnzn8822memberkey-07kolcnzn8",
+        "memberLevel": "<number>",
+        "memberLevelIconId": "<number>",
+        "memberLevelModifyDate": "<string:11>",
+        "memberLevelName": "&#52852;&#54168;&#47588;&#45768;&#51200;",
+        "memberTag": "<string:12>",
+        "nickname": "nickna",
+        "profileImageURL": "<string:312>",
+        "realName": "<string:3>",
+        "realNameUse": "<bool>",
+        "sex": "<string:1>",
+        "staff": false,
+        "visitCount": "<number>"
+      }
+    ],
+    "pageOption": {
+      "endPage": 2096,
+      "exceedCountLimit": false,
+      "memberLevel": 0,
+      "page": 2098,
+      "perPage": 100,
+      "sortType": 0,
+      "totalCount": 209584
+    },
+    "realNameCafe": false,
+    "totalCount": 1
+  },
+  "isSuccess": true
+}

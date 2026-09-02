@@ -8,11 +8,11 @@ const run = { id: '00000000-0000-4000-8000-000000000001', runKind: 'backfill' as
 function members(prefix: string, count: number, joinDate: string): CollectedMember[] {
   return Array.from({ length: count }, (_, i) => ({ memberKey: `${prefix}-${i}`, nickname: null, joinDate, levelName: '', isManager: false, isStaff: false }))
 }
-function page(items: CollectedMember[]): CollectedMemberPage {
-  return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}` }
+function page(items: CollectedMember[], totalMemberCount: number | null = null): CollectedMemberPage {
+  return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}`, totalMemberCount }
 }
-function fullPage(prefix: string, joinDate: string): CollectedMemberPage {
-  return page(members(prefix, MEMBERS_PER_PAGE, joinDate))
+function fullPage(prefix: string, joinDate: string, totalMemberCount: number | null = null): CollectedMemberPage {
+  return page(members(prefix, MEMBERS_PER_PAGE, joinDate), totalMemberCount)
 }
 
 function fakeRepo(overrides: Partial<MemberRepository> = {}) {
@@ -21,6 +21,7 @@ function fakeRepo(overrides: Partial<MemberRepository> = {}) {
   let completed = false
   let version = 0
   let anchor: string | null = null
+  let storedTotal: number | null = null
   const base: MemberRepository = {
     readMemberFeedState: async () => ({ stateVersion: version, anchorMemberKey: anchor, anchorJoinDate: null, referencePage: null, pageIdentity: null, totalMemberCount: null, cursorUpdatedAtMs: 1_000, complete: false, forced: false, toppedUpAtMs: null }),
     startRun: async () => ({ stateVersion: version, anchorMemberKey: anchor, anchorJoinDate: null, referencePage: null, pageIdentity: null, totalMemberCount: null, cursorUpdatedAtMs: 1_000, complete: false, forced: false, toppedUpAtMs: null }),
@@ -30,6 +31,8 @@ function fakeRepo(overrides: Partial<MemberRepository> = {}) {
       persisted.push(input)
       version += 1
       anchor = input.page.items.at(-1)?.memberKey ?? null
+      // Mirror the real repo: only record non-null totals.
+      if (input.totalMemberCount !== null) storedTotal = input.totalMemberCount
       return { kind: 'stored', insertedMemberCount: input.page.items.length, updatedMemberCount: 0, nextStateVersion: version, anchorMemberKey: anchor ?? '' }
     },
     markCompleted: async () => { completed = true },
@@ -39,7 +42,7 @@ function fakeRepo(overrides: Partial<MemberRepository> = {}) {
     knownMemberKeys: async () => new Set<string>(),
     ...overrides,
   }
-  return { repo: base, persisted, finished, isCompleted: () => completed }
+  return { repo: base, persisted, finished, isCompleted: () => completed, getStoredTotal: () => storedTotal }
 }
 
 const noBusy = { random: { intInclusive: (min: number) => min }, sleep: async () => undefined, clock: { now: () => 1_000 }, isSessionBusy: () => false, isAbortRequested: () => false }
@@ -135,8 +138,8 @@ describe('member collection orchestrator', () => {
       ...p1Items.slice(49, 98),         // a-49..a-97 (index 50–98)
       { memberKey: 'extra-0', nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false },
     ]
-    const p1Orig = { items: p1Items, pageIdentity: 'p1-orig' }
-    const p1Shifted = { items: shiftedItems, pageIdentity: 'p1-shifted' }
+    const p1Orig = { items: p1Items, pageIdentity: 'p1-orig', totalMemberCount: null }
+    const p1Shifted = { items: shiftedItems, pageIdentity: 'p1-shifted', totalMemberCount: null }
 
     let p1ReadCount = 0
     const fetcher = {
@@ -170,7 +173,7 @@ describe('member collection orchestrator', () => {
     const pageOf = (n: number): CollectedMemberPage => {
       const start = (n - 1) * (MEMBERS_PER_PAGE - 1)
       const items = flat.slice(start, start + MEMBERS_PER_PAGE)
-      return { items, pageIdentity: `fp${n}` }
+      return { items, pageIdentity: `fp${n}`, totalMemberCount: null }
     }
     let fetchCount = 0
     let toppedUpCount = 0
@@ -292,7 +295,7 @@ describe('member collection orchestrator', () => {
     // Rewound page 1 has a different identity and completely different member keys so
     // findIndex returns -1 (index < 0). Relocation probes (all reads after the third)
     // return empty pages, forcing locateMemberResumePosition to return 'unusable'.
-    const p1Rewound = { items: members('new', MEMBERS_PER_PAGE, '2026-08-23'), pageIdentity: 'p1-rewound' }
+    const p1Rewound = { items: members('new', MEMBERS_PER_PAGE, '2026-08-23'), pageIdentity: 'p1-rewound', totalMemberCount: null }
     let readCount = 0
     const orchestrator = createMemberCollectionOrchestrator({
       ...noBusy,
@@ -328,7 +331,7 @@ describe('member collection orchestrator', () => {
     const p2 = fullPage('p2', '2026-08-22')
     const p3 = page(members('p3', MEMBERS_PER_PAGE, '2026-08-21'))
     // p2 rewound: different identity, all older than p2tail.joinDate, tail absent
-    const p2Rewound = { ...page(members('p2r', MEMBERS_PER_PAGE, '2026-08-20')), pageIdentity: 'p2-rewound' }
+    const p2Rewound = { ...page(members('p2r', MEMBERS_PER_PAGE, '2026-08-20')), pageIdentity: 'p2-rewound', totalMemberCount: null }
     // p1 probe returned by overshoot: short page so the walk ends immediately after
     const p1Probe = page(members('p1p', 20, '2026-08-23'))
 
@@ -364,7 +367,7 @@ describe('member collection orchestrator', () => {
     const p1 = fullPage('p1', '2026-08-23')
     const p2 = fullPage('p2', '2026-08-22')
     const p3 = page(members('p3', MEMBERS_PER_PAGE, '2026-08-21'))
-    const p2Rewound = { ...page(members('p2r', MEMBERS_PER_PAGE, '2026-08-20')), pageIdentity: 'p2-rewound' }
+    const p2Rewound = { ...page(members('p2r', MEMBERS_PER_PAGE, '2026-08-20')), pageIdentity: 'p2-rewound', totalMemberCount: null }
     // p1 probe (full): after storing it the guard must be active again on the next page
     const p1Probe = fullPage('p1p', '2026-08-23')
     // collected at page 2 after the relocation: all members are newer than p1Probe's tail
@@ -394,6 +397,19 @@ describe('member collection orchestrator', () => {
     expect((result as { code: string }).code).toBe('MEMBER_PAGE_SILENT_FALLBACK')
   })
 
+  it('records totalMemberCount from the page and leaves the stored value alone when a page carries null', async () => {
+    const { repo, getStoredTotal } = fakeRepo()
+    const pages: Record<number, CollectedMemberPage> = {
+      1: fullPage('p1', '2026-08-23', 209584),
+      2: page(members('p2', 40, '2026-08-22'), null), // null: must not overwrite
+    }
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher: { read: async (n) => pages[n] ?? page([]) } })
+    const result = await orchestrator.run({ run, maxPages: 10, mode: 'backfill' })
+    expect(result.kind).toBe('succeeded')
+    // Page 1 wrote 209584; page 2 sent null so the stored value must still be 209584.
+    expect(getStoredTotal()).toBe(209584)
+  })
+
   it('fails with MEMBER_PAGE_DATE_ORDER when a fetched page has joinDate values out of order', async () => {
     const { repo } = fakeRepo()
     // Page 1 has a join date that increases (should be non-increasing).
@@ -403,6 +419,7 @@ describe('member collection orchestrator', () => {
         { memberKey: 'b', nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false }, // newer than previous → invalid
       ],
       pageIdentity: 'bad',
+      totalMemberCount: null,
     }
     const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher: { read: async () => badPage } })
     const result = await orchestrator.run({ run, maxPages: 10, mode: 'backfill' })

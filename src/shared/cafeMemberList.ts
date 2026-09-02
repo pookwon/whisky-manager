@@ -23,6 +23,12 @@ export interface CollectedMemberPage {
   readonly items: readonly CollectedMember[]
   /** Versioned identity of the page's sorted member keys. */
   readonly pageIdentity: string
+  /**
+   * Approximate cafe total from `result.pageOption.totalCount`; a progress
+   * denominator only — never used as a termination signal. Null when absent
+   * or not a non-negative integer.
+   */
+  readonly totalMemberCount: number | null
 }
 
 /** Stamped on every observation this parser produces; bump it when the mapping changes. */
@@ -133,7 +139,10 @@ export function parseCafeMemberList(value: unknown): CollectedMemberPage {
     if (keys.has(item.memberKey)) fail('DUPLICATE_MEMBER_KEY', `result.members has duplicate memberKey`)
     keys.add(item.memberKey)
   }
-  return { items, pageIdentity: cafeMemberPageIdentity(items.map((item) => item.memberKey)) }
+  const pageOption = value.result.pageOption
+  const rawTotal = isRecord(pageOption) ? pageOption.totalCount : undefined
+  const totalMemberCount = typeof rawTotal === 'number' && Number.isInteger(rawTotal) && rawTotal >= 0 ? rawTotal : null
+  return { items, pageIdentity: cafeMemberPageIdentity(items.map((item) => item.memberKey)), totalMemberCount }
 }
 
 /** Parses decoded response text without treating an HTML/login page as an empty list. */
