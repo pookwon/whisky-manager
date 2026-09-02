@@ -41,12 +41,11 @@ function epochMs(value: Date | null | undefined): number | null {
 export function createMemberCollectionStatusQuery(db: CollectionDatabase): MemberCollectionStatusQuery {
   return {
     async read() {
-      const [memberTotals, stateRows, runningRows, lastRunRows, match] = await Promise.all([
+      const [memberTotals, stateRows, runningRows, lastRunRows, walkPages, match] = await Promise.all([
         db.select({ members: sql<string>`count(*)` }).from(members),
         db
           .select({
             totalMemberCount: memberFeedState.totalMemberCount,
-            referencePage: memberFeedState.referencePage,
             completedAt: memberFeedState.completedAt,
             toppedUpAt: memberFeedState.toppedUpAt,
             forcedAt: memberFeedState.forcedAt,
@@ -60,6 +59,15 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
           .from(memberRuns)
           .orderBy(sql`${memberRuns.startedAt} desc`)
           .limit(1),
+        // Walk page count from the walk itself, not the shared cursor: the
+        // shared cursor resets to 1 on every top-up commit, so reading it
+        // after any top-up permanently collapses the stored-pages figure.
+        // max(last_committed_page) over non-topup runs is stable once the
+        // walk finishes and is not affected by later top-up runs.
+        db
+          .select({ maxPage: sql<string>`max(${memberRuns.lastCommittedPage})` })
+          .from(memberRuns)
+          .where(sql`${memberRuns.runKind} != 'topup'`),
         // Distinct post authors and how many exist in members. A low match ratio
         // is the health signal that the key contract changed.
         db.execute<{ authors: string; matched: string }>(sql`
@@ -77,9 +85,11 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
       const matchRow = match.rows[0]
       return {
         memberCount: count(memberTotals[0]?.members),
-        // Use the cursor page rather than a lifetime sum so the figure never
-        // drifts upward across rewinds and daily top-ups.
-        pagesStored: state?.referencePage ?? 0,
+        // Use the walk's own max page rather than the shared cursor: the cursor
+        // resets to 1 on every top-up commit, so it always reads 1 after any
+        // daily top-up. max(last_committed_page) over non-topup runs is stable
+        // once the walk finishes and is unaffected by subsequent top-ups.
+        pagesStored: count(walkPages[0]?.maxPage),
         totalMemberCount: state?.totalMemberCount ?? null,
         complete: state?.completedAt != null,
         forced: state?.forcedAt != null,

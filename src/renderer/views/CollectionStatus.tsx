@@ -8,6 +8,7 @@ import type {
   StartCollectionResult,
 } from '../../desktop/ipc.js'
 import { api } from '../api.js'
+import { progressLine, stopReasonLine } from './memberCollectionCard.js'
 import {
   collectionCoveragePercent,
   collectionRangeLabel,
@@ -143,32 +144,9 @@ function MemberCollectionCard({
   if (memberCollection === null || memberCollection.kind !== 'ready') return null
 
   const { status } = memberCollection
-  const { running, complete, forced, memberCount, pagesStored, totalMemberCount, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount, lastRunStatus, lastRunStopReason } = status
+  const { running, complete, forced, memberCount, pagesStored, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount, lastRunStatus } = status
 
-  const progressLine = (): string => {
-    if (totalMemberCount !== null && totalMemberCount > 0) {
-      // Estimated total pages = totalMemberCount / 100 (one page holds ~100 members).
-      const percent = Math.min(100, Math.max(0, Math.round((pagesStored / (totalMemberCount / 100)) * 100)))
-      return TEXT.memberCollection.progress(percent)
-    }
-    // No total available: show pages read so the card is never stuck on a
-    // placeholder that can never resolve.
-    return TEXT.memberCollection.pagesStored(pagesStored)
-  }
-
-  const stopReasonLine = (): string | null => {
-    if (running || lastRunStopReason === null) return null
-    const normal = new Set(['PAGE_BUDGET_SPENT', 'ABORTED'])
-    if (normal.has(lastRunStopReason)) {
-      return TEXT.memberCollection.stopReason[lastRunStopReason] ?? TEXT.memberCollection.stopReasonFallback(lastRunStopReason)
-    }
-    if (lastRunStatus === 'failed') {
-      return TEXT.memberCollection.stopReason[lastRunStopReason] ?? TEXT.memberCollection.stopReasonFallback(lastRunStopReason)
-    }
-    return null
-  }
-
-  const stopLine = stopReasonLine()
+  const stopLine = stopReasonLine(status)
 
   return (
     <section className="panel overflow-hidden">
@@ -196,7 +174,7 @@ function MemberCollectionCard({
               {' · '}
               {TEXT.memberCollection.pagesStored(pagesStored)}
               {' · '}
-              {progressLine()}
+              {progressLine(status)}
             </div>
             <div className="mt-0.5 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
               {completedAtMs !== null
@@ -211,7 +189,7 @@ function MemberCollectionCard({
               {TEXT.memberCollection.match(matchedAuthorCount, authorCount)}
             </div>
             {stopLine !== null && (
-              <div className={`mt-1 text-sm ${lastRunStatus === 'failed' ? 'tone-alarm' : 'tone-idle'}`}>{stopLine}</div>
+              <div className={`mt-1 text-sm ${lastRunStatus === 'failed' ? 'tone-alarm' : 'tone-warn'}`}>{stopLine}</div>
             )}
             {forced && (
               <div className="mt-1 text-sm tone-warn">{TEXT.memberCollection.forcedOn}</div>

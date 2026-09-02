@@ -125,3 +125,66 @@ describe('sanitizeCafeMemberFixture', () => {
     expect(keyA).toBe(keyB)
   })
 })
+
+describe('sanitizeCafeMemberFixture — envelope values', () => {
+  const fullPayload = {
+    isSuccess: true,
+    totalCount: 209653,
+    message: 'OK',
+    result: {
+      totalCount: 209653,
+      members: [
+        {
+          memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          nickname: '홍길동',
+          joinDate: '2026.08.01.',
+          memberLevelName: '정회원',
+          manager: false,
+          staff: false,
+          realName: '홍길동',
+          emailAddress: 'hong@example.com',
+          cellPhoneNo: '010-1234-5678',
+          naverId: 'honggildong',
+          birthday: '19900101',
+        },
+      ],
+    },
+  }
+
+  it('preserves boolean and number envelope fields so the fixture round-trips through the parser', () => {
+    const sanitized = sanitizeCafeMemberFixture(fullPayload) as Record<string, unknown>
+    // Envelope booleans and numbers must survive
+    expect(sanitized['isSuccess']).toBe(true)
+    expect(sanitized['totalCount']).toBe(209653)
+    // Non-allowlisted envelope strings still become shape markers
+    expect(sanitized['message']).not.toBe('OK')
+  })
+
+  it('still erases PII inside members even when envelope values are kept', () => {
+    const sanitized = sanitizeCafeMemberFixture(fullPayload) as Record<string, unknown>
+    const members = ((sanitized['result'] as Record<string, unknown>)['members'] as Record<string, unknown>[])
+    const member = members[0]!
+    expect(member['realName']).not.toBe('홍길동')
+    expect(member['emailAddress']).not.toBe('hong@example.com')
+    expect(member['cellPhoneNo']).not.toBe('010-1234-5678')
+    expect(member['naverId']).not.toBe('honggildong')
+    expect(member['birthday']).not.toBe('19900101')
+    // Allowlisted fields are preserved
+    expect(member['joinDate']).toBe('2026.08.01.')
+    expect(member['memberLevelName']).toBe('정회원')
+    expect(member['manager']).toBe(false)
+  })
+
+  it('round-trips through parseCafeMemberListText after sanitization', async () => {
+    const { sanitizeCafeMemberFixtureText } = await import('../../src/shared/cafeMemberFixture.js')
+    const { parseCafeMemberListText } = await import('../../src/shared/cafeMemberList.js')
+    const text = JSON.stringify(fullPayload)
+    const fixture = sanitizeCafeMemberFixtureText(text)
+    // Must parse without throwing
+    const page = parseCafeMemberListText(fixture)
+    expect(page.items).toHaveLength(1)
+    // memberKey is pseudonymized but still a string of the right length
+    expect(typeof page.items[0]!.memberKey).toBe('string')
+    expect(page.items[0]!.memberKey).toHaveLength(43)
+  })
+})

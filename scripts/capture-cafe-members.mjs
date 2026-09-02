@@ -14,7 +14,7 @@ import { createBridgeServer } from '../dist/desktop/ws/server.js'
 import {
   cafeMemberListUrl,
   isCafeMemberListTarget,
-  sanitizeCafeArticleFixtureText,
+  sanitizeCafeMemberFixtureText,
 } from '../dist/shared/cafeMemberFixture.js'
 
 const PORT = 39217
@@ -90,7 +90,7 @@ async function main() {
 
     // Do not log or persist reply.text. This is the only point at which the raw
     // response is handled, and the serializer removes sensitive values first.
-    const fixture = sanitizeCafeArticleFixtureText(reply.text)
+    const fixture = sanitizeCafeMemberFixtureText(reply.text)
     mkdirSync(FIXTURES_DIRECTORY, { recursive: true })
     writeFileSync(output, fixture, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     console.log(`익명화 fixture 저장 완료: ${output}`)

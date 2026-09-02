@@ -390,10 +390,16 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       // `detail: "Failing row contains (<member_key>, <nickname>, ...)"`.
       // Log only safe, body-free fields.
       if (error instanceof Error) {
-        const safe: Record<string, unknown> = { name: error.name, message: error.message }
+        // Never log message: drizzle's DrizzleQueryError builds it from
+        // `Failed query: ${query}\nparams: ${params}`, and params carries the
+        // page's member keys and nicknames. Log only fields that cannot carry
+        // member data: name, error code, constraint name, and the SQL text
+        // (whose parameters are placeholders, not bound values).
+        const safe: Record<string, unknown> = { name: error.name }
         const pg = error as unknown as Record<string, unknown>
         if (typeof pg['code'] === 'string') safe['code'] = pg['code']
         if (typeof pg['constraint'] === 'string') safe['constraint'] = pg['constraint']
+        if (typeof pg['query'] === 'string') safe['query'] = pg['query']
         console.error('[member-collection]', safe)
       } else {
         console.error('[member-collection] non-Error thrown')

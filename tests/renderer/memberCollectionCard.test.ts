@@ -1,36 +1,11 @@
 /**
  * Logic tests for the member collection card's derived display values.
- * The card is rendered in a pure-Node environment without JSX, so these tests
- * verify the progress and stop-reason computations directly rather than mounting
- * the component.
+ * These test the functions exported from memberCollectionCard.ts directly.
  */
 import { describe, expect, it } from 'vitest'
 import { TEXT } from '../../src/shared/text.js'
 import type { MemberCollectionStatus } from '../../src/desktop/collection-db/memberStatusQuery.js'
-
-// Mirrors the card's progressLine logic.
-function progressLine(status: Pick<MemberCollectionStatus, 'pagesStored' | 'totalMemberCount'>): string {
-  const { pagesStored, totalMemberCount } = status
-  if (totalMemberCount !== null && totalMemberCount > 0) {
-    const percent = Math.min(100, Math.max(0, Math.round((pagesStored / (totalMemberCount / 100)) * 100)))
-    return TEXT.memberCollection.progress(percent)
-  }
-  return TEXT.memberCollection.pagesStored(pagesStored)
-}
-
-// Mirrors the card's stopReasonLine logic.
-function stopReasonLine(status: Pick<MemberCollectionStatus, 'running' | 'lastRunStatus' | 'lastRunStopReason'>): string | null {
-  const { running, lastRunStatus, lastRunStopReason } = status
-  if (running || lastRunStopReason === null) return null
-  const normal = new Set(['PAGE_BUDGET_SPENT', 'ABORTED'])
-  if (normal.has(lastRunStopReason)) {
-    return TEXT.memberCollection.stopReason[lastRunStopReason] ?? TEXT.memberCollection.stopReasonFallback(lastRunStopReason)
-  }
-  if (lastRunStatus === 'failed') {
-    return TEXT.memberCollection.stopReason[lastRunStopReason] ?? TEXT.memberCollection.stopReasonFallback(lastRunStopReason)
-  }
-  return null
-}
+import { progressLine, stopReasonLine } from '../../src/renderer/views/memberCollectionCard.js'
 
 const base: MemberCollectionStatus = {
   memberCount: 0,
@@ -51,8 +26,6 @@ describe('member card — progressLine', () => {
   it('shows pages read when total is unknown (never-run state)', () => {
     const line = progressLine({ pagesStored: 0, totalMemberCount: null })
     expect(line).toBe(TEXT.memberCollection.pagesStored(0))
-    // Must not show the unresolvable placeholder
-    expect(line).not.toBe(TEXT.memberCollection.progressUnknown)
   })
 
   it('shows percentage when total is known', () => {
@@ -105,8 +78,20 @@ describe('member card — stopReasonLine', () => {
     expect(stopReasonLine({ ...base, running: false, lastRunStatus: 'succeeded', lastRunStopReason: null })).toBeNull()
   })
 
-  it('returns null for a complete walk (stop reason present but not failure or normal)', () => {
-    // A succeeded run that stopped for some non-normal, non-failure reason should be silent.
-    expect(stopReasonLine({ ...base, running: false, lastRunStatus: 'succeeded', lastRunStopReason: 'MEMBER_PAGE_REPEATED' })).toBeNull()
+  it('returns null for a succeeded run with a non-failure, non-normal stop reason', () => {
+    // A succeeded run that stopped for a reason that is neither normal nor failure should be silent.
+    expect(stopReasonLine({ ...base, running: false, lastRunStatus: 'succeeded', lastRunStopReason: 'SOME_FUTURE_CODE' })).toBeNull()
+  })
+
+  it('shows a CAS-conflict reason for a partial run', () => {
+    // CAS conflicts finish as partial (the run repositioned but did not fail).
+    const line = stopReasonLine({ ...base, running: false, lastRunStatus: 'partial', lastRunStopReason: 'CAS_CONFLICT_REPOSITION_REQUIRED' })
+    expect(line).toBe(TEXT.memberCollection.stopReason['CAS_CONFLICT_REPOSITION_REQUIRED'])
+    expect(line).not.toBeNull()
+  })
+
+  it('shows fallback for an unknown stop reason on a partial run', () => {
+    const line = stopReasonLine({ ...base, running: false, lastRunStatus: 'partial', lastRunStopReason: 'UNKNOWN_PARTIAL_CODE' })
+    expect(line).toBe(TEXT.memberCollection.stopReasonFallback('UNKNOWN_PARTIAL_CODE'))
   })
 })
