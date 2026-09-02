@@ -416,7 +416,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const state = await repo.startRun(run)
     expect(state.stateVersion).toBe(0)
 
-    const stored = await repo.persistPage({ runId: run.id, observedAt: new Date(1_000), referencePage: 1, expectedState: { stateVersion: 0, anchorMemberKey: null }, page: memberPage })
+    const stored = await repo.persistPage({ runId: run.id, observedAt: new Date(1_000), referencePage: 1, expectedState: { stateVersion: 0, anchorMemberKey: null }, page: memberPage, totalMemberCount: memberPage.totalMemberCount })
     expect(stored.kind).toBe('stored')
 
     // A second running run is refused by the whole-table partial unique index.
@@ -426,12 +426,12 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     // Stale CAS (expects version 0, but it is now 1) conflicts rather than writing.
     const run2 = { id: randomUUID(), runKind: 'incremental' as const, resumeFromCheckpoint: true, startedAt: new Date(3_000) }
     await repo.startRun(run2)
-    const conflict = await repo.persistPage({ runId: run2.id, observedAt: new Date(3_000), referencePage: 1, expectedState: { stateVersion: 0, anchorMemberKey: null }, page: memberPage })
+    const conflict = await repo.persistPage({ runId: run2.id, observedAt: new Date(3_000), referencePage: 1, expectedState: { stateVersion: 0, anchorMemberKey: null }, page: memberPage, totalMemberCount: memberPage.totalMemberCount })
     expect(conflict.kind).toBe('conflict')
 
     // Re-reading the same page keeps first_seen_at and moves snapshot_at.
     const latest = await repo.readMemberFeedState()
-    const reobserved = await repo.persistPage({ runId: run2.id, observedAt: new Date(4_000), referencePage: 1, expectedState: { stateVersion: latest!.stateVersion, anchorMemberKey: latest!.anchorMemberKey }, page: memberPage })
+    const reobserved = await repo.persistPage({ runId: run2.id, observedAt: new Date(4_000), referencePage: 1, expectedState: { stateVersion: latest!.stateVersion, anchorMemberKey: latest!.anchorMemberKey }, page: memberPage, totalMemberCount: memberPage.totalMemberCount })
     expect(reobserved.kind).toBe('stored')
     const known = await repo.knownMemberKeys(memberPage.items.map((m) => m.memberKey))
     expect(known.size).toBe(memberPage.items.length)
