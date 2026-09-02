@@ -66,6 +66,24 @@ GET https://cafe.naver.com/ManageMemberListViewAjax.nhn
 
 캡처할 fixture: page 1, 중간 page(예: 1000), 마지막 page, 마지막을 넘긴 page, 그리고 가능하면 권한 없는 세션의 오류 envelope.
 
+정제기는 글 목록용을 재사용하지 않고 회원 목록 전용 allowlist를 쓴다(구현 리뷰에서 뒤집힘 — 관리자 API는 `realName`·`sex`·`ageGroup`처럼 글 목록에 없는 개인정보를 돌려주므로, 아는 이름만 지우는 denylist는 못 믿는다). 파서가 읽는 여섯 키만 남기고 `memberKey`·`nickname`은 가명으로, 나머지 문자열은 길이만 남긴 표식으로 바꾼다. envelope와 `pageOption`의 숫자·불리언만 그대로 둔다.
+
+### 2.5 실측 결과 — 2026-09-03
+
+page 1·1000·2096·2097·2098·2200을 실제 세션으로 떠서 §2.3을 닫았다. 정제본은 `tests/fixtures/cafe-member-list-page-*.json`에 있다.
+
+**응답 모양.** `{ isSuccess, result: { clubid, realNameCafe, totalCount, pageOption, members[] } }`. `result.totalCount`는 **그 페이지의 건수**(100, 13, 1)이지 카페 전체가 아니다. 전체는 `result.pageOption.totalCount`이고, 그 옆에 `endPage`·`page`·`perPage`·`exceedCountLimit`이 있다. 회원 항목은 파서가 읽는 여섯 키 외에 `articleCount`·`commentCount`·`visitCount`·`lastVisitDate`·`memberLevel`(숫자)·`memberLevelIconId`·`activityStop`·`memberTag`·`maskedMemberId`·`realName`·`sex`·`ageGroup`·프로필 이미지 URL 둘을 더 갖는다. `memberLevelName`은 HTML 엔티티로 인코딩돼 온다(`&#48708;&#51648;&#53552;` = 비지터). `joinDate`는 `2026.09.02.` 형식이다.
+
+§2.3의 답:
+
+1. **활동 카운터는 있다** — `articleCount`, `commentCount`, `visitCount`(숫자), `lastVisitDate`(문자열). 이 설계는 저장하지 않는다. 담을지는 별도 결정이다(§11).
+2. **종료 신호는 짧은 페이지다.** 실측 당시 `endPage`는 2096이었지만 2096은 100명으로 꽉 차 있었고 2097에 13명이 더 있었다(2007년 10월, 겹침 없음). 즉 `endPage`도 `totalCount`도 정확한 끝이 아니다. **끝을 넘긴 요청(2098, 2200)은 빈 배열도, 글 API 같은 1페이지 폴백도 아닌 마지막 회원 한 명짜리 페이지**를 `isSuccess:true`로 돌려준다. 걷기는 2097의 짧은 페이지에서 끝나므로 이 응답을 보통 만나지 않고, 마지막 페이지가 마침 100명으로 꽉 차서 만나더라도 꼬리 회원이 그대로 나타나 슬라이스가 비고 짧은 페이지로 종료된다. §8의 silent-fallback 가드는 그래도 남긴다 — 다른 방향의 오답에 대한 보험이다.
+3. **`pageOption.totalCount`는 대략치다.** 209,584라고 했지만 실제로는 209,613명 이상이 걸어졌다. 진행률 분모로만 쓰고 종료 판단에는 쓰지 않는다. `total_member_count`는 이 값으로 채운다.
+4. **같은 `joinDate` 안의 정렬은 안정적이다.** page 1000을 1분 간격으로 두 번 읽어 100명의 순서가 동일했고(2024-05-22 91명 + 05-21 9명), page 1도 3분 간격으로 동일했다. 이어받기와 신규 보태기의 전제가 선다.
+5. **권한 없는 세션은 뜨지 못했다.** 관리자가 아닌 세션이 없었다. 코드는 `isSuccess:false`와 HTML 응답 모두를 `MEMBER_PAGE_FORBIDDEN`으로 다루며, 실측은 열어 둔다.
+
+덤으로 하루 가입이 100명을 넘는 날이 있다 — page 1의 100명 전원이 2026-09-02 가입이었다. §1.2의 "하루 100명 안팎"은 평균이지 상한이 아니므로, 신규 보태기는 첫 페이지가 전부 새 회원이면 다음 페이지로 이어져야 하고 실제로 그렇게 짜여 있다(§4.3).
+
 ## 3. 데이터 모델
 
 같은 PostgreSQL 수집 DB에 **회원용 표 셋을 새로 둔다.** 기존 `runs`·`feed_state`는 `(feed_kind, menu_id)`가 정체성인데 회원 목록은 게시판이 없다. 빈 문자열 같은 자리표시 `menu_id`를 넣어 재사용하지 않는다. 스키마는 `src/desktop/collection-db/memberSchema.ts`에 분리하고 마이그레이션은 `drizzle-collection`에 추가한다.
