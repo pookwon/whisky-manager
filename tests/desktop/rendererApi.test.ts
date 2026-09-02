@@ -170,6 +170,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   running: false,
                   authorCount: 0,
                   matchedAuthorCount: 0,
+                  lastRunStatus: null,
+                  lastRunStopReason: null,
                   ...collection.memberStatus,
                 }),
             },

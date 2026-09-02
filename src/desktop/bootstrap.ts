@@ -385,7 +385,20 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     isSessionBusy: () => sessionProgress !== null,
     lock: collectionLock,
     newId: () => randomUUID(),
-    onError: (error) => console.error('[member-collection]', error),
+    onError: (error) => {
+      // Never log the full error object: a pg DatabaseError carries
+      // `detail: "Failing row contains (<member_key>, <nickname>, ...)"`.
+      // Log only safe, body-free fields.
+      if (error instanceof Error) {
+        const safe: Record<string, unknown> = { name: error.name, message: error.message }
+        const pg = error as unknown as Record<string, unknown>
+        if (typeof pg['code'] === 'string') safe['code'] = pg['code']
+        if (typeof pg['constraint'] === 'string') safe['constraint'] = pg['constraint']
+        console.error('[member-collection]', safe)
+      } else {
+        console.error('[member-collection] non-Error thrown')
+      }
+    },
   })
 
   const collectionLoop = createCollectionLoop({

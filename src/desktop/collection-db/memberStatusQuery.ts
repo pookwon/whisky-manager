@@ -5,6 +5,11 @@ import { posts } from './schema.js'
 
 export interface MemberCollectionStatus {
   readonly memberCount: number
+  /**
+   * Pages the walk has processed in the current run, derived from the cursor
+   * (`member_feed_state.reference_page`) rather than a lifetime sum, so it
+   * does not grow without bound across rewinds and daily top-ups.
+   */
   readonly pagesStored: number
   readonly totalMemberCount: number | null
   readonly complete: boolean
@@ -15,6 +20,10 @@ export interface MemberCollectionStatus {
   /** Distinct post authors, and how many of them exist in the member table. */
   readonly authorCount: number
   readonly matchedAuthorCount: number
+  /** Status of the most recent run, or null when no run has ever started. */
+  readonly lastRunStatus: string | null
+  /** Stop reason of the most recent run, or null when none was recorded. */
+  readonly lastRunStopReason: string | null
 }
 
 export interface MemberCollectionStatusQuery {
@@ -32,11 +41,12 @@ function epochMs(value: Date | null | undefined): number | null {
 export function createMemberCollectionStatusQuery(db: CollectionDatabase): MemberCollectionStatusQuery {
   return {
     async read() {
-      const [memberTotals, stateRows, runningRows, pagesRows, match] = await Promise.all([
+      const [memberTotals, stateRows, runningRows, lastRunRows, match] = await Promise.all([
         db.select({ members: sql<string>`count(*)` }).from(members),
         db
           .select({
             totalMemberCount: memberFeedState.totalMemberCount,
+            referencePage: memberFeedState.referencePage,
             completedAt: memberFeedState.completedAt,
             toppedUpAt: memberFeedState.toppedUpAt,
             forcedAt: memberFeedState.forcedAt,
@@ -44,7 +54,12 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
           .from(memberFeedState)
           .limit(1),
         db.select({ running: sql<string>`count(*)` }).from(memberRuns).where(sql`${memberRuns.status} = 'running'`),
-        db.select({ pages: sql<string>`coalesce(sum(${memberRuns.collectionPages}), 0)` }).from(memberRuns),
+        // Most recent run for its status and stop reason.
+        db
+          .select({ status: memberRuns.status, stopReason: memberRuns.stopReason })
+          .from(memberRuns)
+          .orderBy(sql`${memberRuns.startedAt} desc`)
+          .limit(1),
         // Distinct post authors and how many exist in members. A low match ratio
         // is the health signal that the key contract changed.
         db.execute<{ authors: string; matched: string }>(sql`
@@ -58,10 +73,13 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
       ])
 
       const state = stateRows[0]
+      const lastRun = lastRunRows[0] ?? null
       const matchRow = match.rows[0]
       return {
         memberCount: count(memberTotals[0]?.members),
-        pagesStored: count(pagesRows[0]?.pages),
+        // Use the cursor page rather than a lifetime sum so the figure never
+        // drifts upward across rewinds and daily top-ups.
+        pagesStored: state?.referencePage ?? 0,
         totalMemberCount: state?.totalMemberCount ?? null,
         complete: state?.completedAt != null,
         forced: state?.forcedAt != null,
@@ -70,6 +88,8 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
         running: count(runningRows[0]?.running) > 0,
         authorCount: count(matchRow?.authors),
         matchedAuthorCount: count(matchRow?.matched),
+        lastRunStatus: lastRun?.status ?? null,
+        lastRunStopReason: lastRun?.stopReason ?? null,
       }
     },
   }

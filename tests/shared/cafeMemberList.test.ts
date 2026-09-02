@@ -7,6 +7,7 @@ import {
   parseCafeMemberList,
   parseCafeMemberListText,
 } from '../../src/shared/cafeMemberList.js'
+import { cafeArticlePageIdentity } from '../../src/shared/cafeArticleList.js'
 
 const sample = JSON.parse(
   readFileSync(fileURLToPath(new URL('../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
@@ -35,8 +36,9 @@ describe('parseCafeMemberList', () => {
     expect(a).toBe(b)
     expect(a).toMatch(/^fnv1a64:[0-9a-f]{16}$/)
     expect(cafeMemberPageIdentity(['k1'])).not.toBe(cafeMemberPageIdentity(['k2']))
-    // Distinct from the article identity prefix even for the same keys.
-    expect(cafeMemberPageIdentity([])).toMatch(/^fnv1a64:/)
+    // Distinct from the article identity for the same key set because the canonical
+    // string embeds the feed name; the same keys must not produce the same hash.
+    expect(cafeMemberPageIdentity(['k1', 'k2'])).not.toBe(cafeArticlePageIdentity(['k1', 'k2']))
   })
 
   it('rejects a whole page on any contract violation', () => {

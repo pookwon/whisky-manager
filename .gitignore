@@ -21,3 +21,6 @@ config/local.json
 
 # macOS drops these into any folder Finder has looked at
 .DS_Store
+
+# member fixture captures — real personal data may survive sanitization
+tests/fixtures/cafe-member-list-page-*.json

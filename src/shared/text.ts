@@ -543,6 +543,30 @@ export const TEXT = {
       NO_JOB: '시작된 회원 수집이 없습니다.',
       JOB_FINISHED: '전체 회원을 이미 옮겼습니다. 신규는 매일 자동으로 보탭니다.',
     },
+    /**
+     * Why the most recent run stopped. Normal codes (budget spent, aborted) are
+     * worded as progress, not failure. Unknown codes show the code itself so the
+     * operator has something actionable to report.
+     */
+    stopReason: {
+      MEMBER_PAGE_FORBIDDEN: '회원 관리 페이지에 접근할 권한이 없습니다.',
+      MEMBER_PAGE_NETWORK_ERROR: '회원 목록을 불러오는 중 네트워크 오류가 발생했습니다.',
+      MEMBER_PAGE_HTTP_ERROR: '회원 목록 요청이 HTTP 오류로 끝났습니다.',
+      MEMBER_PAGE_INVALID_JSON: '회원 목록 응답이 올바른 JSON이 아닙니다.',
+      MEMBER_PAGE_PARSE_ERROR: '회원 목록 응답 파싱에 실패했습니다.',
+      MEMBER_PAGE_BAD_REQUEST: '회원 목록 요청이 거부되었습니다.',
+      MEMBER_PAGE_SILENT_FALLBACK: '회원 목록 요청이 예상치 않은 응답을 반환했습니다.',
+      MEMBER_PAGE_DATE_ORDER: '회원 날짜 순서가 예상과 다릅니다.',
+      MEMBER_PAGE_REPEATED: '같은 페이지가 반복되어 수집을 중단했습니다.',
+      MEMBER_PAGE_EMPTY: '회원 목록 페이지가 비어 있습니다.',
+      MEMBER_ANCHOR_RELOCATION_FAILED: '기준 회원을 찾지 못해 수집을 중단했습니다.',
+      MEMBER_RESUME_SCAN_PAGE_LIMIT: '이어받기 스캔 한도를 초과했습니다.',
+      MEMBER_COLLECTION_FAILURE: '수집 중 오류가 발생했습니다.',
+      PAGE_BUDGET_SPENT: '오늘 할당된 페이지를 모두 읽었습니다.',
+      ABORTED: '수집이 요청에 따라 중단되었습니다.',
+      CAS_CONFLICT_REPOSITION_REQUIRED: '동시 수정 충돌로 위치를 재조정해야 합니다.',
+    } as Record<string, string>,
+    stopReasonFallback: (code: string) => `수집이 중단되었습니다 (${code}).`,
   },
 } as const
 

@@ -80,12 +80,31 @@ const automationSettings: AutomationSettingsView = {
   boardId: '5',
 }
 
+const memberCollectionReady = {
+  kind: 'ready',
+  status: {
+    memberCount: 42,
+    pagesStored: 3,
+    totalMemberCount: null,
+    complete: false,
+    forced: false,
+    completedAtMs: null,
+    toppedUpAtMs: null,
+    running: false,
+    authorCount: 10,
+    matchedAuthorCount: 8,
+    lastRunStatus: 'succeeded',
+    lastRunStopReason: null,
+  },
+} as const
+
 beforeEach(() => {
   vi.clearAllMocks()
   wm.getDashboard.mockResolvedValue(snapshot)
   // The state an install without collection storage answers with, which is the
   // one every SQLite-only screen has to keep working in.
   wm.getCollectionStatus.mockResolvedValue({ kind: 'disabled' })
+  wm.getMemberCollectionStatus.mockResolvedValue(memberCollectionReady)
   wm.getCollectionSchedule.mockResolvedValue({
     schedule: DEFAULT_COLLECTION_SCHEDULE,
     nextRunAtMs: null,
@@ -96,6 +115,17 @@ beforeEach(() => {
   wm.getCommonSettings.mockResolvedValue(commonSettings)
   wm.getAutomationSettings.mockResolvedValue(automationSettings)
   useApp.setState({ route: DEFAULT_ROUTE, dashboard: null, error: null, busy: false })
+})
+
+describe('useApp.refresh member collection', () => {
+  it('loads member collection status into the store', async () => {
+    useApp.setState({ route: DEFAULT_ROUTE })
+
+    await useApp.getState().refresh()
+
+    expect(wm.getMemberCollectionStatus).toHaveBeenCalledTimes(1)
+    expect(useApp.getState().memberCollection).toEqual(memberCollectionReady)
+  })
 })
 
 describe('useApp.act', () => {

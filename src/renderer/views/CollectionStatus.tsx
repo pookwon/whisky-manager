@@ -143,14 +143,32 @@ function MemberCollectionCard({
   if (memberCollection === null || memberCollection.kind !== 'ready') return null
 
   const { status } = memberCollection
-  const { running, complete, forced, memberCount, pagesStored, totalMemberCount, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount } = status
+  const { running, complete, forced, memberCount, pagesStored, totalMemberCount, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount, lastRunStatus, lastRunStopReason } = status
 
   const progressLine = (): string => {
-    if (totalMemberCount === null || totalMemberCount === 0) return TEXT.memberCollection.progressUnknown
-    // Estimated total pages = totalMemberCount / 100 (one page holds ~100 members).
-    const percent = Math.round(pagesStored / (totalMemberCount / 100))
-    return TEXT.memberCollection.progress(percent)
+    if (totalMemberCount !== null && totalMemberCount > 0) {
+      // Estimated total pages = totalMemberCount / 100 (one page holds ~100 members).
+      const percent = Math.min(100, Math.max(0, Math.round((pagesStored / (totalMemberCount / 100)) * 100)))
+      return TEXT.memberCollection.progress(percent)
+    }
+    // No total available: show pages read so the card is never stuck on a
+    // placeholder that can never resolve.
+    return TEXT.memberCollection.pagesStored(pagesStored)
   }
+
+  const stopReasonLine = (): string | null => {
+    if (running || lastRunStopReason === null) return null
+    const normal = new Set(['PAGE_BUDGET_SPENT', 'ABORTED'])
+    if (normal.has(lastRunStopReason)) {
+      return TEXT.memberCollection.stopReason[lastRunStopReason] ?? TEXT.memberCollection.stopReasonFallback(lastRunStopReason)
+    }
+    if (lastRunStatus === 'failed') {
+      return TEXT.memberCollection.stopReason[lastRunStopReason] ?? TEXT.memberCollection.stopReasonFallback(lastRunStopReason)
+    }
+    return null
+  }
+
+  const stopLine = stopReasonLine()
 
   return (
     <section className="panel overflow-hidden">
@@ -192,6 +210,9 @@ function MemberCollectionCard({
             <div className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
               {TEXT.memberCollection.match(matchedAuthorCount, authorCount)}
             </div>
+            {stopLine !== null && (
+              <div className={`mt-1 text-sm ${lastRunStatus === 'failed' ? 'tone-alarm' : 'tone-idle'}`}>{stopLine}</div>
+            )}
             {forced && (
               <div className="mt-1 text-sm tone-warn">{TEXT.memberCollection.forcedOn}</div>
             )}
