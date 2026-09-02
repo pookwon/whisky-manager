@@ -1,0 +1,975 @@
+{
+  "id": "7b1773f7-0d00-4783-9778-6935b21c3677",
+  "prevId": "c2897fd4-ba86-43a2-bfe8-c33959560fa8",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.boards": {
+      "name": "boards",
+      "schema": "",
+      "columns": {
+        "board_id": {
+          "name": "board_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "collect_enabled": {
+          "name": "collect_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.runs": {
+      "name": "runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "feed_kind": {
+          "name": "feed_kind",
+          "type": "collection_feed_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "menu_id": {
+          "name": "menu_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_kind": {
+          "name": "run_kind",
+          "type": "collection_run_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_start_ms": {
+          "name": "target_start_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_end_ms": {
+          "name": "target_end_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "collection_run_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "stop_reason": {
+          "name": "stop_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discovery_pages": {
+          "name": "discovery_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "collection_pages": {
+          "name": "collection_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "request_pages": {
+          "name": "request_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "observed_post_count": {
+          "name": "observed_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "inserted_post_count": {
+          "name": "inserted_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_post_count": {
+          "name": "updated_post_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_committed_post_id": {
+          "name": "last_committed_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_committed_page": {
+          "name": "last_committed_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "runs_one_running_feed": {
+          "name": "runs_one_running_feed",
+          "columns": [
+            {
+              "expression": "feed_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "menu_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"runs\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "runs_feed_status": {
+          "name": "runs_feed_status",
+          "columns": [
+            {
+              "expression": "feed_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "menu_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "runs_target_range": {
+          "name": "runs_target_range",
+          "value": "\"runs\".\"target_start_ms\" < \"runs\".\"target_end_ms\""
+        },
+        "runs_last_page": {
+          "name": "runs_last_page",
+          "value": "\"runs\".\"last_committed_page\" is null or \"runs\".\"last_committed_page\" >= 1"
+        },
+        "runs_nonnegative_counts": {
+          "name": "runs_nonnegative_counts",
+          "value": "\"runs\".\"discovery_pages\" >= 0 and \"runs\".\"collection_pages\" >= 0 and \"runs\".\"request_pages\" >= 0 and \"runs\".\"observed_post_count\" >= 0 and \"runs\".\"inserted_post_count\" >= 0 and \"runs\".\"updated_post_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.feed_state": {
+      "name": "feed_state",
+      "schema": "",
+      "columns": {
+        "feed_kind": {
+          "name": "feed_kind",
+          "type": "collection_feed_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "menu_id": {
+          "name": "menu_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_start_ms": {
+          "name": "target_start_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_end_ms": {
+          "name": "target_end_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_version": {
+          "name": "state_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "anchor_post_id": {
+          "name": "anchor_post_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anchor_posted_at": {
+          "name": "anchor_posted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_identity": {
+          "name": "page_identity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_page": {
+          "name": "reference_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forced_at": {
+          "name": "forced_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "feed_state_last_run_id_runs_id_fk": {
+          "name": "feed_state_last_run_id_runs_id_fk",
+          "tableFrom": "feed_state",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "last_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "feed_state_pkey": {
+          "name": "feed_state_pkey",
+          "columns": [
+            "feed_kind",
+            "menu_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "feed_state_version": {
+          "name": "feed_state_version",
+          "value": "\"feed_state\".\"state_version\" >= 0"
+        },
+        "feed_state_target_range": {
+          "name": "feed_state_target_range",
+          "value": "\"feed_state\".\"target_start_ms\" < \"feed_state\".\"target_end_ms\""
+        },
+        "feed_state_reference_page": {
+          "name": "feed_state_reference_page",
+          "value": "\"feed_state\".\"reference_page\" is null or \"feed_state\".\"reference_page\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.posts": {
+      "name": "posts",
+      "schema": "",
+      "columns": {
+        "post_id": {
+          "name": "post_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "board_id": {
+          "name": "board_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prefix": {
+          "name": "prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_nickname": {
+          "name": "author_nickname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posted_at": {
+          "name": "posted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "view_count": {
+          "name": "view_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "comment_count": {
+          "name": "comment_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snapshot_at": {
+          "name": "snapshot_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "posts_posted_at": {
+          "name": "posts_posted_at",
+          "columns": [
+            {
+              "expression": "posted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posts_board_posted_at": {
+          "name": "posts_board_posted_at",
+          "columns": [
+            {
+              "expression": "board_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "posted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posts_author_posted_at": {
+          "name": "posts_author_posted_at",
+          "columns": [
+            {
+              "expression": "author_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "posted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "posts_board_id_boards_board_id_fk": {
+          "name": "posts_board_id_boards_board_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "boards",
+          "columnsFrom": [
+            "board_id"
+          ],
+          "columnsTo": [
+            "board_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "posts_last_run_id_runs_id_fk": {
+          "name": "posts_last_run_id_runs_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "last_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "posts_nonnegative_counts": {
+          "name": "posts_nonnegative_counts",
+          "value": "(\"posts\".\"view_count\" is null or \"posts\".\"view_count\" >= 0) and (\"posts\".\"comment_count\" is null or \"posts\".\"comment_count\" >= 0)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.member_feed_state": {
+      "name": "member_feed_state",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "state_version": {
+          "name": "state_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "anchor_member_key": {
+          "name": "anchor_member_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anchor_join_date": {
+          "name": "anchor_join_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_page": {
+          "name": "reference_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_identity": {
+          "name": "page_identity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_member_count": {
+          "name": "total_member_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topped_up_at": {
+          "name": "topped_up_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forced_at": {
+          "name": "forced_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "member_feed_state_last_run_id_member_runs_id_fk": {
+          "name": "member_feed_state_last_run_id_member_runs_id_fk",
+          "tableFrom": "member_feed_state",
+          "tableTo": "member_runs",
+          "columnsFrom": [
+            "last_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "member_feed_state_singleton": {
+          "name": "member_feed_state_singleton",
+          "value": "\"member_feed_state\".\"id\" = 1"
+        },
+        "member_feed_state_version": {
+          "name": "member_feed_state_version",
+          "value": "\"member_feed_state\".\"state_version\" >= 0"
+        },
+        "member_feed_state_reference_page": {
+          "name": "member_feed_state_reference_page",
+          "value": "\"member_feed_state\".\"reference_page\" is null or \"member_feed_state\".\"reference_page\" >= 1"
+        },
+        "member_feed_state_total": {
+          "name": "member_feed_state_total",
+          "value": "\"member_feed_state\".\"total_member_count\" is null or \"member_feed_state\".\"total_member_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.member_runs": {
+      "name": "member_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_kind": {
+          "name": "run_kind",
+          "type": "member_run_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "collection_run_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "stop_reason": {
+          "name": "stop_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discovery_pages": {
+          "name": "discovery_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "collection_pages": {
+          "name": "collection_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "request_pages": {
+          "name": "request_pages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "observed_member_count": {
+          "name": "observed_member_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "inserted_member_count": {
+          "name": "inserted_member_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_member_count": {
+          "name": "updated_member_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_committed_member_key": {
+          "name": "last_committed_member_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_committed_page": {
+          "name": "last_committed_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "member_runs_one_running": {
+          "name": "member_runs_one_running",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"member_runs\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "member_runs_status": {
+          "name": "member_runs_status",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "member_runs_last_page": {
+          "name": "member_runs_last_page",
+          "value": "\"member_runs\".\"last_committed_page\" is null or \"member_runs\".\"last_committed_page\" >= 1"
+        },
+        "member_runs_nonnegative_counts": {
+          "name": "member_runs_nonnegative_counts",
+          "value": "\"member_runs\".\"discovery_pages\" >= 0 and \"member_runs\".\"collection_pages\" >= 0 and \"member_runs\".\"request_pages\" >= 0 and \"member_runs\".\"observed_member_count\" >= 0 and \"member_runs\".\"inserted_member_count\" >= 0 and \"member_runs\".\"updated_member_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.members": {
+      "name": "members",
+      "schema": "",
+      "columns": {
+        "member_key": {
+          "name": "member_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "nickname": {
+          "name": "nickname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "join_date": {
+          "name": "join_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level_name": {
+          "name": "level_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_manager": {
+          "name": "is_manager",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_staff": {
+          "name": "is_staff",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot_at": {
+          "name": "snapshot_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "members_join_date": {
+          "name": "members_join_date",
+          "columns": [
+            {
+              "expression": "join_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "members_level_name": {
+          "name": "members_level_name",
+          "columns": [
+            {
+              "expression": "level_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "members_last_run_id_member_runs_id_fk": {
+          "name": "members_last_run_id_member_runs_id_fk",
+          "tableFrom": "members",
+          "tableTo": "member_runs",
+          "columnsFrom": [
+            "last_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.collection_feed_kind": {
+      "name": "collection_feed_kind",
+      "schema": "public",
+      "values": [
+        "all_articles",
+        "notices",
+        "recommended"
+      ]
+    },
+    "public.collection_run_kind": {
+      "name": "collection_run_kind",
+      "schema": "public",
+      "values": [
+        "development",
+        "backfill",
+        "incremental"
+      ]
+    },
+    "public.collection_run_status": {
+      "name": "collection_run_status",
+      "schema": "public",
+      "values": [
+        "running",
+        "succeeded",
+        "partial",
+        "failed",
+        "interrupted"
+      ]
+    },
+    "public.member_run_kind": {
+      "name": "member_run_kind",
+      "schema": "public",
+      "values": [
+        "backfill",
+        "incremental",
+        "topup"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

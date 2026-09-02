@@ -22,6 +22,13 @@
       "when": 1788273371525,
       "tag": "0002_whole_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788322015252,
+      "tag": "0003_marvelous_moondragon",
+      "breakpoints": true
     }
   ]
 }

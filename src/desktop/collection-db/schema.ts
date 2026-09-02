@@ -13,6 +13,8 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+export { collectionRunStatus } from './collectionRunStatus.js'
+import { collectionRunStatus } from './collectionRunStatus.js'
 
 /**
  * One cafe per database.
@@ -24,7 +26,6 @@ import {
  * article list, the notices, the recommendations — collected independently.
  */
 export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended'])
-export const collectionRunStatus = pgEnum('collection_run_status', ['running', 'succeeded', 'partial', 'failed', 'interrupted'])
 export const collectionRunKind = pgEnum('collection_run_kind', ['development', 'backfill', 'incremental'])
 
 /** Every time this schema records is an instant, stored to the millisecond. */
@@ -164,3 +165,8 @@ export const collectionSchema = {
   collectionRuns,
   feedState,
 }
+// Re-exported so Drizzle Kit generation and the node-postgres client see the
+// member tables through the same schema module the article tables use. The
+// member schema imports `collectionRunStatus` from this file, so the export
+// lives at the bottom to keep the reference one-directional at module load.
+export * from './memberSchema.js'
