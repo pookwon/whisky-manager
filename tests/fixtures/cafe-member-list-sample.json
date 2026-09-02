@@ -1,0 +1,10 @@
+{
+  "isSuccess": true,
+  "result": {
+    "members": [
+      { "memberKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "nickname": "새회원하나", "joinDate": "2026.08.23.", "memberLevelName": "&#51221;&#47932;&amp;&lt;&gt;", "manager": false, "staff": false },
+      { "memberKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "nickname": null, "joinDate": "2026.08.23.", "memberLevelName": "&quot;VIP&quot;", "manager": true, "staff": false },
+      { "memberKey": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", "nickname": "운영자", "joinDate": "2026.08.22.", "memberLevelName": "&#xC2A4;&#x53F1;&#39;s", "manager": false, "staff": true }
+    ]
+  }
+}
