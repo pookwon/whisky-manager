@@ -309,3 +309,48 @@ describe('sanitizeCafeMemberFixture — Fix 2: allowlisted keys with object/arra
     expect(parsed['isSuccess']).toBe(true)
   })
 })
+
+describe('the paging block the real response carries', () => {
+  const realShape = {
+    isSuccess: true,
+    result: {
+      clubid: 14538121,
+      realNameCafe: false,
+      totalCount: 100,
+      pageOption: {
+        endPage: 2097,
+        exceedCountLimit: false,
+        page: 1,
+        perPage: 100,
+        sortType: 0,
+        totalCount: 209653,
+        label: '전체',
+        nested: { totalCount: 7 },
+      },
+      members: [
+        { memberKey: 'k1', nickname: 'n1', joinDate: '2026.09.02.', memberLevelName: '정회원', manager: false, staff: false, totalCount: 5, endPage: 9 },
+      ],
+    },
+  }
+
+  it('keeps the counts and flags under pageOption, which are the capture’s whole purpose', () => {
+    const out = sanitizeCafeMemberFixture(realShape as never) as typeof realShape
+    expect(out.result.pageOption.totalCount).toBe(209653)
+    expect(out.result.pageOption.endPage).toBe(2097)
+    expect(out.result.pageOption.exceedCountLimit).toBe(false)
+    expect(out.result.clubid).toBe(14538121)
+    expect(out.result.realNameCafe).toBe(false)
+  })
+
+  it('still redacts strings and nested objects inside pageOption', () => {
+    const out = sanitizeCafeMemberFixture(realShape as never) as { result: { pageOption: Record<string, unknown> } }
+    expect(out.result.pageOption['label']).toBe('<string:2>')
+    expect(out.result.pageOption['nested']).toEqual({ totalCount: '<number>' })
+  })
+
+  it('does not let a member reuse the paging block’s key names', () => {
+    const out = sanitizeCafeMemberFixture(realShape as never) as { result: { members: Record<string, unknown>[] } }
+    expect(out.result.members[0]!['totalCount']).toBe('<number>')
+    expect(out.result.members[0]!['endPage']).toBe('<number>')
+  })
+})

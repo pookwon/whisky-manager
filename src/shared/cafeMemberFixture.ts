@@ -96,8 +96,19 @@ const MEMBER_ALLOWLIST = new Set(['memberKey', 'nickname', 'joinDate', 'memberLe
  * name reused deep inside a member object from reopening the redaction
  * boundary (Fix 1: invert the default to maximum redaction for unknown shapes).
  */
-const ENVELOPE_PRIMITIVE_ALLOWLIST = new Set(['isSuccess', 'totalCount', 'message'])
+const ENVELOPE_PRIMITIVE_ALLOWLIST = new Set(['isSuccess', 'totalCount', 'message', 'clubid', 'realNameCafe'])
 const MAX_ENVELOPE_DEPTH = 2
+
+/**
+ * The paging block the real response carries under `result.pageOption`. Its
+ * values are the list's own arithmetic — `totalCount` (the whole cafe, where
+ * `result.totalCount` is only this page), `endPage`, `perPage`, `page` — and
+ * are exactly what a Phase 0 capture exists to learn, so its boolean and
+ * number children survive one level deeper than the envelope allowlist. Only
+ * direct children: an object or array inside it is recursed like any other.
+ */
+const PAGING_BLOCK_KEY = 'pageOption'
+const MAX_PAGING_BLOCK_DEPTH = MAX_ENVELOPE_DEPTH + 1
 
 function fixtureDigest(value: string): string {
   let hash = 0xcbf29ce484222325n
@@ -142,7 +153,7 @@ function shapeMarker(value: JsonValue): string {
  * Now an allowlisted key only skips redaction when its value is a primitive;
  * objects and arrays fall through to recursion so their contents are sanitized.
  */
-function sanitizeMemberValue(value: JsonValue, key: string | null, depth: number): JsonValue {
+function sanitizeMemberValue(value: JsonValue, key: string | null, depth: number, parentKey: string | null): JsonValue {
   if (key === 'memberKey') {
     return typeof value === 'string' ? sameLengthToken('memberkey', value) : shapeMarker(value)
   }
@@ -159,12 +170,12 @@ function sanitizeMemberValue(value: JsonValue, key: string | null, depth: number
     // Fall through to recursion for objects and arrays.
   }
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeMemberValue(item, null, depth + 1))
+    return value.map((item) => sanitizeMemberValue(item, null, depth + 1, key))
   }
   if (value !== null && typeof value === 'object') {
     const sanitized: { [key: string]: JsonValue } = {}
     for (const [k, child] of Object.entries(value)) {
-      sanitized[k] = sanitizeMemberValue(child, k, depth + 1)
+      sanitized[k] = sanitizeMemberValue(child, k, depth + 1, key)
     }
     return sanitized
   }
@@ -173,12 +184,11 @@ function sanitizeMemberValue(value: JsonValue, key: string | null, depth: number
   // number sitting under an explicit envelope key at shallow depth. The depth
   // cap ensures the same key name reused deep inside a member object does not
   // reopen the boundary.
-  if (
-    key !== null &&
-    depth <= MAX_ENVELOPE_DEPTH &&
-    ENVELOPE_PRIMITIVE_ALLOWLIST.has(key) &&
-    (typeof value === 'boolean' || typeof value === 'number')
-  ) {
+  const isCountOrFlag = typeof value === 'boolean' || typeof value === 'number'
+  if (key !== null && depth <= MAX_ENVELOPE_DEPTH && ENVELOPE_PRIMITIVE_ALLOWLIST.has(key) && isCountOrFlag) {
+    return value
+  }
+  if (parentKey === PAGING_BLOCK_KEY && depth <= MAX_PAGING_BLOCK_DEPTH && isCountOrFlag) {
     return value
   }
   return shapeMarker(value)
@@ -190,7 +200,7 @@ function sanitizeMemberValue(value: JsonValue, key: string | null, depth: number
  * pseudonymized; everything else is replaced with a shape marker.
  */
 export function sanitizeCafeMemberFixture(value: unknown): JsonValue {
-  return sanitizeMemberValue(value as JsonValue, null, 0)
+  return sanitizeMemberValue(value as JsonValue, null, 0, null)
 }
 
 /** Parse raw response text in memory and serialize only the sanitized fixture. */
