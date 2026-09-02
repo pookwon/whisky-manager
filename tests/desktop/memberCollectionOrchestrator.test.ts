@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createMemberCollectionOrchestrator, MEMBERS_PER_PAGE } from '../../src/desktop/memberCollectionOrchestrator.js'
+import { createMemberCollectionOrchestrator, MEMBERS_PER_PAGE, TOPUP_MAX_PAGES } from '../../src/desktop/memberCollectionOrchestrator.js'
 import type { MemberRepository, PersistMemberPageInput } from '../../src/desktop/collection-db/memberRepository.js'
 import type { CollectedMember, CollectedMemberPage } from '../../src/shared/cafeMemberList.js'
 
@@ -117,6 +117,69 @@ describe('member collection orchestrator', () => {
     const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher: { read: async () => fullPage('p', '2026-08-23') } })
     const result = await orchestrator.run({ run, maxPages: 10, mode: 'backfill' })
     expect(result.kind).toBe('cas_conflict')
+  })
+
+  it('rewind mid-page: continues from the item right after the tail found mid-page in the rewound page', async () => {
+    const { repo, persisted } = fakeRepo()
+    // Build a 100-item page; its tail will be moved to index 49 in the shifted version.
+    const p1Items = members('a', MEMBERS_PER_PAGE, '2026-08-23')
+    const tailKey = p1Items[MEMBERS_PER_PAGE - 1]!.memberKey // 'a-99'
+    // Shifted p1: [a-0..a-48, a-99, a-49..a-97, extra-0] — 100 items, tail at index 49.
+    const shiftedItems: typeof p1Items = [
+      ...p1Items.slice(0, 49),          // a-0..a-48  (index 0–48)
+      p1Items[99]!,                     // a-99       (index 49)
+      ...p1Items.slice(49, 98),         // a-49..a-97 (index 50–98)
+      { memberKey: 'extra-0', nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false },
+    ]
+    const p1Orig = { items: p1Items, pageIdentity: 'p1-orig' }
+    const p1Shifted = { items: shiftedItems, pageIdentity: 'p1-shifted' }
+
+    let p1ReadCount = 0
+    const fetcher = {
+      read: async (n: number): Promise<CollectedMemberPage> => {
+        if (n === 1) { p1ReadCount++; return p1ReadCount === 1 ? p1Orig : p1Shifted }
+        // Page 2: first read has no tail; subsequent reads are short to end the walk.
+        return page(members('end', 5, '2026-08-21'))
+      },
+    }
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher })
+    const result = await orchestrator.run({ run, maxPages: 20, mode: 'backfill' })
+    expect(result.kind).toBe('succeeded')
+    // persisted[0] = p1Orig (100 items); persisted[1] = p1Shifted from index 50 (50 items);
+    // persisted[2] = short page 2 (5 items).
+    expect(persisted.length).toBe(3)
+    // The walk re-collects from the item right after the tail's new position (index 50).
+    expect(persisted[1]!.page.items[0]!.memberKey).toBe(shiftedItems[50]!.memberKey)
+    // The tail itself must not appear in the re-collected slice.
+    expect(persisted[1]!.page.items.some((m) => m.memberKey === tailKey)).toBe(false)
+  })
+
+  it('top-up stops at TOPUP_MAX_PAGES when every page still has fresh members', async () => {
+    // Build a flat member array large enough for TOPUP_MAX_PAGES overlapping pages.
+    // Each page shares its last item with the next page's first item so the
+    // continuity check (previousTailKey found at index 0) never triggers a rewind.
+    const total = TOPUP_MAX_PAGES * (MEMBERS_PER_PAGE - 1) + 1
+    const flat: CollectedMember[] = Array.from({ length: total }, (_, i) => ({
+      memberKey: `m-${i}`, nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false,
+    }))
+    // Page n (1-indexed) is flat[(n-1)*(MEMBERS_PER_PAGE-1) .. n*(MEMBERS_PER_PAGE-1)].
+    const pageOf = (n: number): CollectedMemberPage => {
+      const start = (n - 1) * (MEMBERS_PER_PAGE - 1)
+      const items = flat.slice(start, start + MEMBERS_PER_PAGE)
+      return { items, pageIdentity: `fp${n}` }
+    }
+    let fetchCount = 0
+    const { repo, persisted } = fakeRepo({ knownMemberKeys: async () => new Set<string>() })
+    const topupRun = { ...run, runKind: 'topup' as const }
+    const orchestrator = createMemberCollectionOrchestrator({
+      ...noBusy,
+      repository: repo,
+      fetcher: { read: async (n) => { fetchCount++; return pageOf(n) } },
+    })
+    const result = await orchestrator.run({ run: topupRun, maxPages: 50, mode: 'topup' })
+    expect(result.kind).toBe('succeeded')
+    expect(fetchCount).toBe(TOPUP_MAX_PAGES)
+    expect(persisted.length).toBe(TOPUP_MAX_PAGES)
   })
 
   it('top-up stops once every key on a page is already known, within 5 pages', async () => {

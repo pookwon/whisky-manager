@@ -98,6 +98,7 @@ function createScheduledReader(deps: MemberCollectionOrchestratorDeps, runId: st
   }
   return {
     collect: (page) => read(page, 'collection'),
+    probe: (page) => read(page, 'probe'),
     // Resume relocation reads count as discovery, not stored pages.
     observedAt(page) {
       const value = observations.get(page)

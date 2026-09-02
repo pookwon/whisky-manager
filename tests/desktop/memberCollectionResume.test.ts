@@ -9,7 +9,8 @@ function page(items: CollectedMember[]): CollectedMemberPage {
   return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}` }
 }
 function reader(pages: Record<number, CollectedMemberPage>): MemberScheduledReader {
-  return { collect: async (n: number) => pages[n] ?? page([]), observedAt: () => new Date(0), reads: 0 }
+  const fetch = async (n: number) => pages[n] ?? page([])
+  return { collect: fetch, probe: fetch, observedAt: () => new Date(0), reads: 0 }
 }
 
 describe('locateMemberResumePosition', () => {

@@ -18,7 +18,10 @@ export type MemberResumePosition =
   | { readonly kind: 'unusable' }
 
 export interface MemberScheduledReader {
+  /** Fetch a page that may be persisted; charged against the collection budget. */
   collect(page: number): Promise<CollectedMemberPage>
+  /** Fetch a page only for relocation; charged against the probe budget, not persisted. */
+  probe(page: number): Promise<CollectedMemberPage>
   observedAt(page: CollectedMemberPage): Date
   readonly reads: number
 }
@@ -75,7 +78,7 @@ export async function locateMemberResumePosition(
   cursor: MemberResumeCursor,
 ): Promise<MemberResumePosition> {
   const start = Math.max(1, cursor.referencePage)
-  const first = await reader.collect(start)
+  const first = await reader.probe(start)
   const here = positionWithin(first, cursor)
   if (here !== null) return { kind: 'found', page: start, offset: here, candidate: first }
 
@@ -85,7 +88,7 @@ export async function locateMemberResumePosition(
     const next = page + direction
     if (next < 1) return { kind: 'unusable' }
     page = next
-    const candidate = await reader.collect(page)
+    const candidate = await reader.probe(page)
     if (candidate.items.length === 0) return { kind: 'unusable' }
     const offset = positionWithin(candidate, cursor)
     if (offset !== null) return { kind: 'found', page, offset, candidate }
