@@ -39,7 +39,10 @@ function oldestJoinDate(page: CollectedMemberPage): string | null {
 /**
  * Where on this page the walk carries on, or null when the anchor's place is not
  * here. The anchor member is preferred; if it has seceded, its join date still
- * says where it sat, and the walk resumes after the last member of that date.
+ * says where it sat. The walk resumes from the first member whose join date is
+ * not newer than the anchor's — members on the same date may be uncollected, and
+ * re-reading already-stored entries is a harmless upsert; skipping is
+ * unrecoverable.
  */
 function positionWithin(page: CollectedMemberPage, cursor: MemberResumeCursor): number | null {
   const byKey = page.items.findIndex((item) => item.memberKey === cursor.anchorMemberKey)
@@ -49,13 +52,9 @@ function positionWithin(page: CollectedMemberPage, cursor: MemberResumeCursor): 
   if (newest === null || oldest === null) return null
   // The anchor's join date has to fall within the page for a seceded resume.
   if (cursor.anchorJoinDate > newest || cursor.anchorJoinDate < oldest) return null
-  // Resume after the last member whose join date equals the anchor's — the next
-  // member is either an older join date or one this job has not collected.
-  let lastSameDate = -1
-  for (let index = 0; index < page.items.length; index += 1) {
-    if (page.items[index]!.joinDate === cursor.anchorJoinDate) lastSameDate = index
-  }
-  return lastSameDate < 0 ? null : lastSameDate + 1
+  // Resume from the first member whose join date is not newer than the anchor's.
+  const firstNotNewer = page.items.findIndex((item) => item.joinDate <= cursor.anchorJoinDate)
+  return firstNotNewer < 0 ? null : firstNotNewer
 }
 
 type Side = 'newer' | 'at' | 'older'

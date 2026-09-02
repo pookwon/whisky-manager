@@ -299,4 +299,45 @@ describe('collection loop', () => {
     expect(fired).toBeGreaterThan(0)
     expect(h.started).toHaveLength(0)
   })
+
+  it('a failed readProgress on one job does not stop the other job from starting', async () => {
+    // Use a clock inside the active window (09:00 KST) and a fake timer that fires at delay 0.
+    const inWindow = NOW + HOUR
+    const errors: unknown[] = []
+    const started: string[] = []
+    // Use an object wrapper so TypeScript does not narrow the mutable captured value to never.
+    const timer: { fn: (() => void) | null } = { fn: null }
+
+    const loop = createCollectionLoop({
+      schedule: () => ({ ...enabled }),
+      clock: { now: () => inWindow },
+      jobs: () => [
+        {
+          name: 'articles' as const,
+          readProgress: async () => ({ exists: true, complete: false, forced: false }),
+          start: (_maxPages: number) => { started.push('articles'); return { kind: 'started' as const } },
+        },
+        {
+          name: 'members' as const,
+          readProgress: async (): Promise<CollectionJobProgress> => { throw new Error('db gone') },
+          start: (_maxPages: number) => { started.push('members'); return { kind: 'started' as const } },
+        },
+      ],
+      setTimer: (fn, _ms) => { timer.fn = fn; return 1 },
+      clearTimer: () => { timer.fn = null },
+      onError: (e) => { errors.push(e) },
+    })
+
+    loop.refresh()
+    // Fire the beat that was scheduled (delay 0 since we are in-window).
+    timer.fn?.()
+    // Let the async beat (allSettled + jobs) resolve.
+    await new Promise((r) => setTimeout(r, 50))
+
+    // The article job must have started despite the members job's readProgress rejecting.
+    expect(started).toContain('articles')
+    // onError must have been called with the members rejection.
+    expect(errors.length).toBeGreaterThan(0)
+    expect((errors[0] as Error).message).toBe('db gone')
+  })
 })

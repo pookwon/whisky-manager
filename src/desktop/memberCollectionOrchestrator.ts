@@ -65,6 +65,17 @@ export function createMemberCollectionFetcher(transport: ExtensionTransport, new
   }
 }
 
+/** Asserts that joinDate values are non-increasing across the page. */
+function assertMemberPage(page: CollectedMemberPage): void {
+  let previous: string | null = null
+  for (const item of page.items) {
+    if (previous !== null && item.joinDate > previous) {
+      throw new MemberCollectionPageError('MEMBER_PAGE_DATE_ORDER')
+    }
+    previous = item.joinDate
+  }
+}
+
 interface MemberScheduler extends MemberScheduledReader {
   readonly reads: number
 }
@@ -93,6 +104,7 @@ function createScheduledReader(deps: MemberCollectionOrchestratorDeps, runId: st
     if (phase === 'probe') probes += 1
     const observedAt = new Date(deps.clock.now())
     const value = await deps.fetcher.read(page)
+    assertMemberPage(value)
     observations.set(value, observedAt)
     return value
   }
@@ -168,8 +180,14 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
         let firstOffset = resumed?.kind === 'found' ? resumed.offset : 0
         let firstPage = resumed?.kind === 'found' ? resumed.candidate : null
         let previousTailKey: string | null = null
+        let previousTailJoinDate: string | null = null
         let previousPageNumber = 0
         let previousIdentity: string | null = null
+
+        // Tracks page identity → page number to detect silent API fallback
+        // (when the API returns the first page's content for any out-of-range
+        // page number, the same identity appears at a different page number).
+        const seenIdentities = new Map<string, number>()
 
         while (true) {
           let currentPage = firstPage ?? (await reader.collect(pageNumber))
@@ -190,13 +208,32 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
                   currentPage = rewind
                   pageNumber = previousPageNumber
                   firstOffset = index + 1
-                } else {
-                  firstOffset = 0
+                } else if (index < 0) {
+                  // Tail found nowhere in the rewound page — relocate.
+                  const relocated = await locateMemberResumePosition(reader, {
+                    anchorMemberKey: previousTailKey,
+                    anchorJoinDate: previousTailJoinDate!,
+                    referencePage: previousPageNumber,
+                  })
+                  if (relocated.kind !== 'found') throw new MemberCollectionPageError('MEMBER_ANCHOR_RELOCATION_FAILED')
+                  currentPage = relocated.candidate
+                  pageNumber = relocated.page
+                  firstOffset = relocated.offset
                 }
+                // else: index === length - 1, tail at last position, next page starts clean (firstOffset = 0)
               }
             }
             if (currentPage.pageIdentity === previousIdentity) throw new MemberCollectionPageError('MEMBER_PAGE_REPEATED')
           }
+
+          // Silent-fallback guard: if this page's identity was already seen at a
+          // different page number in this run, the API silently returned an earlier
+          // page. A rewind re-reads the same page number so it does not trip this.
+          const priorPage = seenIdentities.get(currentPage.pageIdentity)
+          if (priorPage !== undefined && priorPage !== pageNumber) {
+            throw new MemberCollectionPageError('MEMBER_PAGE_SILENT_FALLBACK')
+          }
+          seenIdentities.set(currentPage.pageIdentity, pageNumber)
 
           if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')
 
@@ -244,6 +281,7 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
           const tail = currentPage.items.at(-1)
           if (tail === undefined) throw new MemberCollectionPageError('MEMBER_PAGE_EMPTY')
           previousTailKey = tail.memberKey
+          previousTailJoinDate = tail.joinDate
           previousPageNumber = pageNumber
           previousIdentity = currentPage.pageIdentity
           pageNumber += 1

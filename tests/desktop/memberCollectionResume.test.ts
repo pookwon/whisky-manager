@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { locateMemberResumePosition, type MemberScheduledReader } from '../../src/desktop/memberCollectionResume.js'
+import { locateMemberResumePosition, MEMBER_RESUME_SCAN_PAGE_LIMIT, type MemberScheduledReader } from '../../src/desktop/memberCollectionResume.js'
 import type { CollectedMember, CollectedMemberPage } from '../../src/shared/cafeMemberList.js'
 
 function member(key: string, joinDate: string): CollectedMember {
@@ -38,10 +38,42 @@ describe('locateMemberResumePosition', () => {
     expect(found).toMatchObject({ kind: 'found', page: 4, offset: 2 })
   })
 
-  it('after a seceded anchor, resumes after the last member of the same join date', async () => {
+  it('after a seceded anchor, resumes from the first member of the same join date', async () => {
     const pages = { 5: page([member('a', '2026-08-23'), member('c', '2026-08-23'), member('d', '2026-08-22')]) }
-    // anchor 'b' is gone but its join date 2026-08-23 still on the page.
+    // anchor 'b' is gone but its join date 2026-08-23 still appears on the page.
+    // Resume must start at the first 08-23 entry (index 0), not skip to after 'c'.
     const found = await locateMemberResumePosition(reader(pages), { anchorMemberKey: 'b', anchorJoinDate: '2026-08-23', referencePage: 5 })
-    expect(found).toMatchObject({ kind: 'found', page: 5, offset: 2 })
+    expect(found).toMatchObject({ kind: 'found', page: 5, offset: 0 })
+  })
+
+  it('does not skip a same-date member that sits between the anchor and later members when the anchor secedes', async () => {
+    // 'b' (08-23) was the anchor; 'c' (08-23) was on the next page and not yet
+    // collected. After 'b' secedes, the page now reads [a, c, d]. Resuming
+    // after the last 08-23 entry ('c') would permanently lose 'c'. The walk must
+    // start from the first 08-23 entry ('a') so 'c' is not skipped.
+    const pages = { 5: page([member('a', '2026-08-23'), member('c', '2026-08-23'), member('d', '2026-08-22')]) }
+    const found = await locateMemberResumePosition(reader(pages), { anchorMemberKey: 'b', anchorJoinDate: '2026-08-23', referencePage: 5 })
+    if (found.kind !== 'found') throw new Error('expected found')
+    // 'c' must appear in the slice starting at the returned offset
+    const resumedKeys = found.candidate.items.slice(found.offset).map((m) => m.memberKey)
+    expect(resumedKeys).toContain('c')
+  })
+
+  it('returns unusable when the scan exhausts the page limit without finding the anchor', async () => {
+    // All pages are newer than the anchor; stepping forward never reaches it.
+    const pages: Record<number, CollectedMemberPage> = {}
+    for (let p = 1; p <= MEMBER_RESUME_SCAN_PAGE_LIMIT + 2; p++) {
+      pages[p] = page([member(`n-${p}`, '2026-08-30')])
+    }
+    const result = await locateMemberResumePosition(reader(pages), { anchorMemberKey: 'x', anchorJoinDate: '2026-08-23', referencePage: 1 })
+    expect(result.kind).toBe('unusable')
+  })
+
+  it('returns unusable before crossing below page 1', async () => {
+    // Anchor is newer than the reference page, so the walk tries to go backward.
+    // Reference page is 1, so the next step (page 0) is rejected immediately.
+    const pages = { 1: page([member('o', '2026-08-20')]) }
+    const result = await locateMemberResumePosition(reader(pages), { anchorMemberKey: 'x', anchorJoinDate: '2026-08-25', referencePage: 1 })
+    expect(result.kind).toBe('unusable')
   })
 })

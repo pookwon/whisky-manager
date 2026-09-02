@@ -110,7 +110,12 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
     if (schedule.enabled) {
       try {
         const jobs = deps.jobs()
-        const progress = await Promise.all(jobs.map((job) => job.readProgress()))
+        const settled = await Promise.allSettled(jobs.map((job) => job.readProgress()))
+        const progress = settled.map((result) => {
+          if (result.status === 'fulfilled') return result.value
+          deps.onError?.(result.reason)
+          return { exists: false as const, complete: false as const, forced: false as const }
+        })
         forced = progress.some((p) => p.forced)
         const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
 
@@ -152,7 +157,12 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
   async function prime(): Promise<void> {
     const was = forced
     try {
-      const progress = await Promise.all(deps.jobs().map((job) => job.readProgress()))
+      const settled = await Promise.allSettled(deps.jobs().map((job) => job.readProgress()))
+      const progress = settled.map((result) => {
+        if (result.status === 'fulfilled') return result.value
+        deps.onError?.(result.reason)
+        return { exists: false as const, complete: false as const, forced: false as const }
+      })
       forced = progress.some((p) => p.forced)
     } catch (error) {
       deps.onError?.(error)

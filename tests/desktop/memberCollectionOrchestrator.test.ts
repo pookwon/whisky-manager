@@ -59,35 +59,39 @@ describe('member collection orchestrator', () => {
     expect(finished[0]).toBe('succeeded:')
   })
 
-  it('rewinds when the previous tail does not surface on the next page', async () => {
+  it('rewinds and continues from the item right after the tail when the tail lands at last position in the rewound page', async () => {
+    // After persisting page 1, the continuity check on page 2 cannot find the tail.
+    // Rewinding page 1 shows a shifted identity with the tail at the very last slot:
+    // the walk continues from the next page with offset 0.
     const { repo, persisted } = fakeRepo()
     const p1 = fullPage('p1', '2026-08-23')
-    const tail = p1.items.at(-1)!
-    // Page 2 missing the tail: a joiner shifted the page. Rewind of page 1 finds
-    // the tail not at its end, so the walk continues after it.
-    const shifted = page([...members('inserted', 1, '2026-08-24'), ...p1.items.slice(0, MEMBERS_PER_PAGE - 1)])
-    const pages: Record<number, CollectedMemberPage> = {
-      1: p1,
-      2: page(members('p2', 40, '2026-08-22')),
-    }
-    // First read of page 2 lacks the tail; the rewind reads page 1 again as `shifted`.
-    let firstPage1 = true
+    const tailKey = p1.items.at(-1)!.memberKey
+    // Shifted p1 has the same items as p1 but a different identity: the tail is at
+    // the very last slot (index === length - 1) so the orchestrator falls to the
+    // implicit-else branch (firstOffset = 0) and continues from the next page.
+    const p1Orig = p1
+    const p1Shifted = { ...p1, pageIdentity: 'p1-shifted' }
+
+    let p1ReadCount = 0
     const orchestrator = createMemberCollectionOrchestrator({
       ...noBusy,
       repository: repo,
       fetcher: {
-        read: async (n) => {
-          if (n === 1) { const r = firstPage1 ? p1 : shifted; firstPage1 = false; return r }
-          if (n === 2) return page(members('nomatch', 40, '2026-08-22')) // tail absent
-          return page([])
+        read: async (n: number): Promise<CollectedMemberPage> => {
+          if (n === 1) { p1ReadCount++; return p1ReadCount === 1 ? p1Orig : p1Shifted }
+          // Page 2: tail absent on first visit; short page thereafter.
+          return page(members('nomatch', 10, '2026-08-22'))
         },
       },
     })
     const result = await orchestrator.run({ run, maxPages: 10, mode: 'backfill' })
     expect(result.kind).toBe('succeeded')
+    // Page 1 (original) stored; short page 2 (nomatch) stored; tail at last position
+    // → firstOffset = 0 on the short page → walk ends normally.
     expect(persisted.length).toBeGreaterThanOrEqual(1)
-    void tail
-    void pages
+    // The walk must not have used tailKey as the first item of any stored slice.
+    const firstItemsOfStoredPages = persisted.map((p) => p.page.items[0]?.memberKey)
+    expect(firstItemsOfStoredPages).not.toContain(tailKey)
   })
 
   it('stops on abort with the cursor kept', async () => {
@@ -199,5 +203,83 @@ describe('member collection orchestrator', () => {
     // Page 1 had new members and was persisted; page 2 was all known and stopped the walk.
     expect(persisted.length).toBeGreaterThanOrEqual(1)
     expect(toppedUpCount).toBe(1)
+  })
+
+  it('top-up stops when a short page is reached before TOPUP_MAX_PAGES', async () => {
+    // A short page (< MEMBERS_PER_PAGE) means the member list is exhausted.
+    const { repo, finished } = fakeRepo({ knownMemberKeys: async () => new Set<string>(), markToppedUp: async () => undefined })
+    const topupRun = { ...run, runKind: 'topup' as const }
+    const pages: Record<number, CollectedMemberPage> = {
+      1: page(members('new', 30, '2026-08-25')), // < 100 → short page
+    }
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher: { read: async (n) => pages[n] ?? page([]) } })
+    const result = await orchestrator.run({ run: topupRun, maxPages: 50, mode: 'topup' })
+    expect(result.kind).toBe('succeeded')
+    expect(finished[0]).toBe('succeeded:')
+  })
+
+  it('fails with MEMBER_PAGE_SILENT_FALLBACK when the API returns page 1 content for a later page', async () => {
+    // The API silently falls back to page 1 when asked for a page past the end.
+    const { repo, persisted } = fakeRepo()
+    const page1 = fullPage('p1', '2026-08-23')
+    const page2 = fullPage('p2', '2026-08-22')
+    const fetcher = {
+      read: async (n: number): Promise<CollectedMemberPage> => {
+        if (n === 1) return page1
+        if (n === 2) return page2
+        // Page 3+ returns page 1's content (same identity, different page number)
+        return page1
+      },
+    }
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher })
+    const result = await orchestrator.run({ run, maxPages: 10, mode: 'backfill' })
+    expect(result.kind).toBe('failed')
+    expect((result as { code: string }).code).toBe('MEMBER_PAGE_SILENT_FALLBACK')
+    // The cursor must not have advanced to the fallback page's data.
+    expect(persisted.some((p) => p.referencePage >= 3)).toBe(false)
+  })
+
+  it('fails with MEMBER_ANCHOR_RELOCATION_FAILED when the tail vanishes from the rewound page and cannot be relocated', async () => {
+    const { repo } = fakeRepo()
+    const p1 = fullPage('p1', '2026-08-23')
+    const tailKey = p1.items.at(-1)!.memberKey
+    // Rewound page 1 has a different identity and completely different member keys so
+    // findIndex returns -1 (index < 0). Relocation probes (all reads after the third)
+    // return empty pages, forcing locateMemberResumePosition to return 'unusable'.
+    const p1Rewound = { items: members('new', MEMBERS_PER_PAGE, '2026-08-23'), pageIdentity: 'p1-rewound' }
+    let readCount = 0
+    const orchestrator = createMemberCollectionOrchestrator({
+      ...noBusy,
+      repository: repo,
+      fetcher: {
+        read: async (n: number): Promise<CollectedMemberPage> => {
+          readCount++
+          if (n === 1 && readCount === 1) return p1                    // initial collection of page 1
+          if (n === 2) return page(members('nomatch', MEMBERS_PER_PAGE, '2026-08-22')) // no tail
+          if (n === 1 && readCount === 3) return p1Rewound             // continuity rewind: tail absent
+          return page([])  // relocation probes: empty → locateMemberResumePosition returns unusable
+        },
+      },
+    })
+    const result = await orchestrator.run({ run, maxPages: 20, mode: 'backfill' })
+    expect(result.kind).toBe('failed')
+    expect((result as { code: string }).code).toBe('MEMBER_ANCHOR_RELOCATION_FAILED')
+    void tailKey
+  })
+
+  it('fails with MEMBER_PAGE_DATE_ORDER when a fetched page has joinDate values out of order', async () => {
+    const { repo } = fakeRepo()
+    // Page 1 has a join date that increases (should be non-increasing).
+    const badPage: CollectedMemberPage = {
+      items: [
+        { memberKey: 'a', nickname: null, joinDate: '2026-08-22', levelName: '', isManager: false, isStaff: false },
+        { memberKey: 'b', nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false }, // newer than previous → invalid
+      ],
+      pageIdentity: 'bad',
+    }
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher: { read: async () => badPage } })
+    const result = await orchestrator.run({ run, maxPages: 10, mode: 'backfill' })
+    expect(result.kind).toBe('failed')
+    expect((result as { code: string }).code).toBe('MEMBER_PAGE_DATE_ORDER')
   })
 })
