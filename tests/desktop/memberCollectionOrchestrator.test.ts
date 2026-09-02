@@ -207,7 +207,8 @@ describe('member collection orchestrator', () => {
 
   it('top-up stops when a short page is reached before TOPUP_MAX_PAGES', async () => {
     // A short page (< MEMBERS_PER_PAGE) means the member list is exhausted.
-    const { repo, finished } = fakeRepo({ knownMemberKeys: async () => new Set<string>(), markToppedUp: async () => undefined })
+    let toppedUpCount = 0
+    const { repo, finished } = fakeRepo({ knownMemberKeys: async () => new Set<string>(), markToppedUp: async () => { toppedUpCount++ } })
     const topupRun = { ...run, runKind: 'topup' as const }
     const pages: Record<number, CollectedMemberPage> = {
       1: page(members('new', 30, '2026-08-25')), // < 100 → short page
@@ -216,6 +217,51 @@ describe('member collection orchestrator', () => {
     const result = await orchestrator.run({ run: topupRun, maxPages: 50, mode: 'topup' })
     expect(result.kind).toBe('succeeded')
     expect(finished[0]).toBe('succeeded:')
+    expect(toppedUpCount).toBe(1)
+  })
+
+  it('fails with MEMBER_PAGE_SILENT_FALLBACK on resume when the API returns page 1 content for a later page (run-independent guard)', async () => {
+    // Reviewer's reproduction: resume at page 49, pages 50 and 51 are real,
+    // page 52 and beyond silently return page 1's content. seenIdentities is
+    // per-run and cannot catch this — page 1 was read in a different run.
+    const p49tail: CollectedMember = { memberKey: 'p49-tail', nickname: null, joinDate: '2026-08-20', levelName: '', isManager: false, isStaff: false }
+    const p49 = page([...members('p49', MEMBERS_PER_PAGE - 1, '2026-08-21'), p49tail])
+    const p50 = fullPage('p50', '2026-08-19')
+    const p51 = fullPage('p51', '2026-08-18')
+    const p1content = fullPage('p1', '2026-08-25')
+
+    const { repo, persisted } = fakeRepo({
+      startRun: async () => ({
+        stateVersion: 49,
+        anchorMemberKey: p49tail.memberKey,
+        anchorJoinDate: p49tail.joinDate,
+        referencePage: 49,
+        pageIdentity: p49.pageIdentity,
+        totalMemberCount: null,
+        cursorUpdatedAtMs: 1_000,
+        complete: false,
+        forced: false,
+        toppedUpAtMs: null,
+      }),
+    })
+
+    const fetcher = {
+      read: async (n: number): Promise<CollectedMemberPage> => {
+        if (n === 49) return p49
+        if (n === 50) return p50
+        if (n === 51) return p51
+        return p1content // page 52+ silently returns page 1's content
+      },
+    }
+
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher })
+    const result = await orchestrator.run({ run, maxPages: 20, mode: 'backfill' })
+    expect(result.kind).toBe('failed')
+    expect((result as { code: string }).code).toBe('MEMBER_PAGE_SILENT_FALLBACK')
+    // The fallback page (page 52 carrying p1 content) must not have been persisted.
+    expect(persisted.some((p) => p.referencePage >= 52)).toBe(false)
+    // The last real page (51) must have been persisted before the run failed.
+    expect(persisted.some((p) => p.referencePage === 51)).toBe(true)
   })
 
   it('fails with MEMBER_PAGE_SILENT_FALLBACK when the API returns page 1 content for a later page', async () => {

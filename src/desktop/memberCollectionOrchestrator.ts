@@ -240,6 +240,21 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
           const slice = currentPage.items.slice(firstOffset)
           firstOffset = 0
 
+          // Run-independent silent-fallback guard: because the list is join-date
+          // descending and each page is asserted non-increasing, the slice about to
+          // be persisted can never contain a member newer than the previous committed
+          // page's tail. If the slice's first join date is newer than the previous
+          // tail's, this page is not a continuation — it is an earlier page silently
+          // returned by the API. The check is on the resolved slice (not the raw
+          // fetched page) so normal paths stay quiet: after a rewind the slice starts
+          // after the tail; after a relocation the slice starts at the head of the
+          // anchor's date block; in all three normal cases the slice's newest join
+          // date is at most the previous tail's date. Only a page from elsewhere in
+          // the list is newer.
+          if (previousTailJoinDate !== null && slice.length > 0 && slice[0]!.joinDate > previousTailJoinDate) {
+            throw new MemberCollectionPageError('MEMBER_PAGE_SILENT_FALLBACK')
+          }
+
           // Top-up ends when a full page brings nothing new. Members already in
           // the table are still upserted as a side effect, but the goal is only
           // the joiners at the front.

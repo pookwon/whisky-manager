@@ -59,6 +59,21 @@ describe('locateMemberResumePosition', () => {
     expect(resumedKeys).toContain('c')
   })
 
+  it('returns found with offset 0 when the scan overshoots in the forward direction', async () => {
+    // The anchor (08-22) seceded and fell between pages 6 and 7. The scan
+    // steps forward from page 5 (all newer), reaches page 6 (still newer),
+    // then page 7 (entirely older) — overshoots in direction +1. The flip
+    // branch returns page 7 with offset 0 so no member from that date block
+    // is skipped.
+    const pages = {
+      5: page([member('n1', '2026-08-25'), member('n2', '2026-08-24')]),
+      6: page([member('n3', '2026-08-24'), member('n4', '2026-08-23')]),
+      7: page([member('o1', '2026-08-20'), member('o2', '2026-08-19')]),
+    }
+    const found = await locateMemberResumePosition(reader(pages), { anchorMemberKey: 'x', anchorJoinDate: '2026-08-22', referencePage: 5 })
+    expect(found).toMatchObject({ kind: 'found', page: 7, offset: 0 })
+  })
+
   it('returns unusable when the scan exhausts the page limit without finding the anchor', async () => {
     // All pages are newer than the anchor; stepping forward never reaches it.
     const pages: Record<number, CollectedMemberPage> = {}
