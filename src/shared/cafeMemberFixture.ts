@@ -103,7 +103,7 @@ function fixtureDigest(value: string): string {
 
 function sameLengthToken(label: string, value: string): string {
   if (value.length === 0) return ''
-  const source = `${label}-${fixtureDigest(`${label} ${value}`)}`
+  const source = `${label}-${fixtureDigest(`${label}\u0000${value}`)}`
   return source.repeat(Math.ceil(value.length / source.length)).slice(0, value.length)
 }
 
