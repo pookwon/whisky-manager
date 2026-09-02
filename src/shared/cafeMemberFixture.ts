@@ -90,6 +90,15 @@ type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 /** Fields the parser reads directly; all others are shape-only. */
 const MEMBER_ALLOWLIST = new Set(['memberKey', 'nickname', 'joinDate', 'memberLevelName', 'manager', 'staff'])
 
+/**
+ * Envelope-level keys whose boolean or number primitives survive in the
+ * fixture. Only honoured at shallow nesting depth to prevent an envelope key
+ * name reused deep inside a member object from reopening the redaction
+ * boundary (Fix 1: invert the default to maximum redaction for unknown shapes).
+ */
+const ENVELOPE_PRIMITIVE_ALLOWLIST = new Set(['isSuccess', 'totalCount', 'message'])
+const MAX_ENVELOPE_DEPTH = 2
+
 function fixtureDigest(value: string): string {
   let hash = 0xcbf29ce484222325n
   const prime = 0x100000001b3n
@@ -117,16 +126,23 @@ function shapeMarker(value: JsonValue): string {
 }
 
 /**
- * Sanitizes one JSON value, aware of whether it sits inside the `members`
- * array. Inside that context every non-allowlisted primitive (including
- * booleans and numbers) becomes a shape marker, because any value there could
- * carry identity information we do not know about yet. Outside that context —
- * in the response envelope — booleans and numbers pass through unchanged,
- * because no identifier in this response is a boolean or a number, and
- * envelope flags such as `isSuccess` and counts such as `totalCount` are the
- * whole reason the capture tool exists.
+ * Sanitizes one JSON value using a depth counter rather than a named-key
+ * boundary.
+ *
+ * Fix 1 — inverted default: the old code only set `insideMembers` when the
+ * array key was literally `"members"`. Any other name (e.g. `memberList`) or
+ * a top-level array left the flag false, letting numbers and booleans pass
+ * through verbatim. Now everything defaults to maximum redaction; booleans
+ * and numbers are passed through only at shallow envelope depth under an
+ * explicit allowlist of envelope keys.
+ *
+ * Fix 2 — primitive-only allowlist: the old code returned an allowlisted value
+ * unchanged regardless of its type. An object- or array-valued allowlisted key
+ * (e.g. `manager: {nickname, realName}`) would pass through byte-for-byte.
+ * Now an allowlisted key only skips redaction when its value is a primitive;
+ * objects and arrays fall through to recursion so their contents are sanitized.
  */
-function sanitizeMemberValue(value: JsonValue, key: string | null, insideMembers: boolean): JsonValue {
+function sanitizeMemberValue(value: JsonValue, key: string | null, depth: number): JsonValue {
   if (key === 'memberKey') {
     return typeof value === 'string' ? sameLengthToken('memberkey', value) : shapeMarker(value)
   }
@@ -135,27 +151,36 @@ function sanitizeMemberValue(value: JsonValue, key: string | null, insideMembers
     return typeof value === 'string' ? sameLengthToken('nickname', value) : shapeMarker(value)
   }
   if (key !== null && MEMBER_ALLOWLIST.has(key)) {
-    // Pass allowed non-identity primitives through unchanged.
-    return value
+    // Pass through only when the value is a primitive (Fix 2: objects and arrays
+    // could carry personal data nested inside and must be recursed, not passed whole).
+    if (typeof value !== 'object' || value === null) {
+      return value
+    }
+    // Fall through to recursion for objects and arrays.
   }
   if (Array.isArray(value)) {
-    // The `members` key marks the boundary: everything inside is member data.
-    const nextInsideMembers = insideMembers || key === 'members'
-    return value.map((item) => sanitizeMemberValue(item, null, nextInsideMembers))
+    return value.map((item) => sanitizeMemberValue(item, null, depth + 1))
   }
   if (value !== null && typeof value === 'object') {
     const sanitized: { [key: string]: JsonValue } = {}
     for (const [k, child] of Object.entries(value)) {
-      sanitized[k] = sanitizeMemberValue(child, k, insideMembers)
+      sanitized[k] = sanitizeMemberValue(child, k, depth + 1)
     }
     return sanitized
   }
-  // Primitive outside the allowlist.
-  // Inside members: always shape-mark (any value could be PII we have not seen).
-  // Outside members: booleans and numbers carry no identity; pass them through
-  // so envelope fields like isSuccess and totalCount survive in the fixture.
-  if (insideMembers) return shapeMarker(value)
-  if (typeof value === 'boolean' || typeof value === 'number') return value
+  // Primitive outside the member allowlist.
+  // Default: maximum redaction (Fix 1). The only exception is a boolean or
+  // number sitting under an explicit envelope key at shallow depth. The depth
+  // cap ensures the same key name reused deep inside a member object does not
+  // reopen the boundary.
+  if (
+    key !== null &&
+    depth <= MAX_ENVELOPE_DEPTH &&
+    ENVELOPE_PRIMITIVE_ALLOWLIST.has(key) &&
+    (typeof value === 'boolean' || typeof value === 'number')
+  ) {
+    return value
+  }
   return shapeMarker(value)
 }
 
@@ -165,7 +190,7 @@ function sanitizeMemberValue(value: JsonValue, key: string | null, insideMembers
  * pseudonymized; everything else is replaced with a shape marker.
  */
 export function sanitizeCafeMemberFixture(value: unknown): JsonValue {
-  return sanitizeMemberValue(value as JsonValue, null, false)
+  return sanitizeMemberValue(value as JsonValue, null, 0)
 }
 
 /** Parse raw response text in memory and serialize only the sanitized fixture. */

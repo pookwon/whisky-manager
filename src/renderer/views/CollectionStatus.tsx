@@ -144,7 +144,7 @@ function MemberCollectionCard({
   if (memberCollection === null || memberCollection.kind !== 'ready') return null
 
   const { status } = memberCollection
-  const { running, complete, forced, memberCount, pagesStored, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount, lastRunStatus } = status
+  const { running, complete, forced, memberCount, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount, lastRunStatus } = status
 
   const stopLine = stopReasonLine(status)
 
@@ -171,8 +171,6 @@ function MemberCollectionCard({
             </div>
             <div className="mt-1 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
               {TEXT.memberCollection.memberCount(memberCount)}
-              {' · '}
-              {TEXT.memberCollection.pagesStored(pagesStored)}
               {' · '}
               {progressLine(status)}
             </div>

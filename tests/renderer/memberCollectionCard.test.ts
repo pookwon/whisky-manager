@@ -95,3 +95,23 @@ describe('member card — stopReasonLine', () => {
     expect(line).toBe(TEXT.memberCollection.stopReasonFallback('UNKNOWN_PARTIAL_CODE'))
   })
 })
+
+describe('member card — stats line composition (Fix 4: no duplicate page count)', () => {
+  it('includes the page count exactly once when totalMemberCount is unknown', () => {
+    // Simulate what CollectionStatus.tsx renders: memberCount + " · " + progressLine
+    // When totalMemberCount is null, progressLine returns pagesStored text.
+    // The old code also rendered an explicit pagesStored segment, producing a duplicate.
+    const pagesStored = 3
+    const composed = `${TEXT.memberCollection.memberCount(42)} · ${progressLine({ pagesStored, totalMemberCount: null })}`
+    const pageSegment = TEXT.memberCollection.pagesStored(pagesStored)
+    const occurrences = composed.split(pageSegment).length - 1
+    expect(occurrences).toBe(1)
+  })
+
+  it('includes percentage (not page count) when totalMemberCount is known', () => {
+    const composed = `${TEXT.memberCollection.memberCount(500)} · ${progressLine({ pagesStored: 5, totalMemberCount: 1000 })}`
+    // Should not contain the raw page-count string when a percentage is shown
+    expect(composed).not.toContain(TEXT.memberCollection.pagesStored(5))
+    expect(composed).toContain(TEXT.memberCollection.progress(50))
+  })
+})

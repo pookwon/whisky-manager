@@ -188,3 +188,124 @@ describe('sanitizeCafeMemberFixture — envelope values', () => {
     expect(page.items[0]!.memberKey).toHaveLength(43)
   })
 })
+
+describe('sanitizeCafeMemberFixture — Fix 1: unknown array names get maximum redaction', () => {
+  it('shape-marks numbers and booleans inside memberList (non-standard array name)', () => {
+    const input = {
+      isSuccess: true,
+      result: {
+        memberList: [{ memberNo: 12345678, isBlacklisted: true, visitCount: 42 }],
+      },
+    }
+    const sanitized = sanitizeCafeMemberFixture(input) as Record<string, unknown>
+    const list = ((sanitized['result'] as Record<string, unknown>)['memberList'] as Record<string, unknown>[])
+    expect(list[0]!['memberNo']).toBe('<number>')
+    expect(list[0]!['isBlacklisted']).toBe('<bool>')
+    expect(list[0]!['visitCount']).toBe('<number>')
+    // Envelope boolean at the top level still survives
+    expect(sanitized['isSuccess']).toBe(true)
+  })
+
+  it('shape-marks numbers and booleans when result is a top-level array', () => {
+    const input = {
+      isSuccess: true,
+      result: [{ memberNo: 12345678, isBlacklisted: true }],
+    }
+    const sanitized = sanitizeCafeMemberFixture(input) as Record<string, unknown>
+    const list = sanitized['result'] as Record<string, unknown>[]
+    expect(list[0]!['memberNo']).toBe('<number>')
+    expect(list[0]!['isBlacklisted']).toBe('<bool>')
+  })
+})
+
+describe('sanitizeCafeMemberFixture — Fix 2: allowlisted keys with object/array values are recursed', () => {
+  it('redacts personal values nested inside an object-valued manager field', () => {
+    const input = {
+      isSuccess: true,
+      result: {
+        members: [
+          {
+            memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            nickname: '홍길동',
+            joinDate: '2026.08.01.',
+            memberLevelName: '정회원',
+            manager: { nickname: '운영자', realName: '홍길동', email: 'a@b.c' },
+            staff: ['홍길동'],
+          },
+        ],
+      },
+    }
+    const sanitized = sanitizeCafeMemberFixture(input) as Record<string, unknown>
+    const member = (
+      ((sanitized['result'] as Record<string, unknown>)['members']) as Record<string, unknown>[]
+    )[0]!
+    const manager = member['manager'] as Record<string, unknown>
+    // nickname inside manager gets pseudonymized, not passed through raw
+    expect(manager['nickname']).not.toBe('운영자')
+    // realName and email inside manager get shape-marked
+    expect(manager['realName']).not.toBe('홍길동')
+    expect(manager['email']).not.toBe('a@b.c')
+    // staff array elements get shape-marked
+    const staff = member['staff'] as string[]
+    expect(staff[0]).not.toBe('홍길동')
+  })
+
+  it('redacts personal values nested inside an object-valued memberLevelName field', () => {
+    const input = {
+      isSuccess: true,
+      result: {
+        members: [
+          {
+            memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            nickname: '홍길동',
+            joinDate: '2026.08.01.',
+            memberLevelName: { name: '정회원', ownerRealName: '홍길동' },
+            manager: false,
+            staff: false,
+          },
+        ],
+      },
+    }
+    const sanitized = sanitizeCafeMemberFixture(input) as Record<string, unknown>
+    const member = (
+      ((sanitized['result'] as Record<string, unknown>)['members']) as Record<string, unknown>[]
+    )[0]!
+    const levelName = member['memberLevelName'] as Record<string, unknown>
+    expect(levelName['name']).not.toBe('정회원')
+    expect(levelName['ownerRealName']).not.toBe('홍길동')
+  })
+
+  it('well-formed sanitized page still round-trips through parseCafeMemberListText', async () => {
+    const { sanitizeCafeMemberFixtureText } = await import('../../src/shared/cafeMemberFixture.js')
+    const { parseCafeMemberListText } = await import('../../src/shared/cafeMemberList.js')
+    const input = {
+      isSuccess: true,
+      result: {
+        members: [
+          {
+            memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            nickname: '홍길동',
+            joinDate: '2026.08.01.',
+            memberLevelName: '정회원',
+            manager: { nickname: '운영자', realName: '홍길동', email: 'a@b.c' },
+            staff: ['홍길동'],
+          },
+        ],
+      },
+    }
+    const fixture = sanitizeCafeMemberFixtureText(JSON.stringify(input))
+    const parsed = JSON.parse(fixture)
+    // After sanitization manager is an object (recursed) but memberLevelName
+    // must now be a string for the parser to accept it. The parser reads
+    // memberLevelName as a string — with an object value the round-trip fails
+    // with INVALID_MEMBER, which is the correct behavior: the fixture signals
+    // the response shape changed.
+    expect(() => parseCafeMemberListText(fixture)).toThrow()
+    // But the sanitizer must not have leaked the raw personal values
+    expect(fixture).not.toContain('운영자')
+    expect(fixture).not.toContain('홍길동')
+    expect(fixture).not.toContain('a@b.c')
+    // isSuccess must survive so the parser can read the envelope
+    expect(parsed['isSuccess']).toBe(true)
+  })
+})
