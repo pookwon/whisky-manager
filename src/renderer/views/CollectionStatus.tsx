@@ -147,7 +147,8 @@ function MemberCollectionCard({
 
   const progressLine = (): string => {
     if (totalMemberCount === null || totalMemberCount === 0) return TEXT.memberCollection.progressUnknown
-    const percent = Math.round((memberCount / totalMemberCount) * 100)
+    // Estimated total pages = totalMemberCount / 100 (one page holds ~100 members).
+    const percent = Math.round(pagesStored / (totalMemberCount / 100))
     return TEXT.memberCollection.progress(percent)
   }
 

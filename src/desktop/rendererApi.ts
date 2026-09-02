@@ -96,7 +96,13 @@ export interface RendererApiDeps {
   readonly collection: () => OptionalCollectionContext
   /** Starts and stops one collection walk. */
   readonly collectionRunner: CollectionRunner
-  /** Starts and stops the member collection walk. Optional until Task 10 wires it. */
+  /**
+   * Starts and stops the member collection walk.
+   *
+   * Optional here because Task 10 wires it in bootstrap.ts/main.ts — until
+   * then the field is absent and the four member methods refuse with NO_STORAGE.
+   * Task 10 should make this required once the runner is part of AppContext.
+   */
   readonly memberCollectionRunner?: MemberCollectionRunner
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop

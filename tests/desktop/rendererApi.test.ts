@@ -14,7 +14,10 @@ import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
 import type { CollectionRepository } from '../../src/desktop/collection-db/repository.js'
+import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
+import type { MemberCollectionStatus } from '../../src/desktop/collection-db/memberStatusQuery.js'
 import type { CollectionStartRequest } from '../../src/desktop/collectionRunner.js'
+import type { MemberCollectionStartRequest } from '../../src/desktop/memberCollectionRunner.js'
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 import type { WarmCheck } from '../../src/desktop/sessionWarmer.js'
 import { PROFILES } from '../../src/shared/profiles.js'
@@ -58,11 +61,23 @@ interface CollectionOverrides {
   /** The unfinished job in `feed_state`, or null when none has been asked for. */
   readonly job?: CollectionJob | null
   readonly runnerBusy?: boolean
+  /** Member feed state returned by memberRepository.readMemberFeedState(). */
+  readonly memberFeedState?: MemberFeedState | null
+  /** Override for what memberStatus.read() returns. */
+  readonly memberStatus?: Partial<MemberCollectionStatus>
+  /** Whether the member runner is wired (default true). */
+  readonly memberRunnerWired?: boolean
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
   /** Every start the api asked for, so the resume flag can be read back. */
   const started: CollectionStartRequest[] = []
+  /** Every member start the api asked for. */
+  const memberStarted: MemberCollectionStartRequest[] = []
+  /** Whether the member runner's stop() was called. */
+  const memberStopped: boolean[] = []
+  /** What the api wrote as the force on the member repo. */
+  const memberForcedCalls: (Date | null)[] = []
   /** What the api wrote as the force, newest last; null means released. */
   const forcedCalls: (Date | null)[] = []
   /** Counts re-lays, since forcing is pointless if the beat is not moved. */
@@ -138,9 +153,12 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                 }),
             },
             memberRepository: {
-              readMemberFeedState: () => Promise.resolve(null),
-              setForced: () => Promise.resolve(),
-            } as unknown as import('../../src/desktop/collection-db/memberRepository.js').MemberRepository,
+              readMemberFeedState: () => Promise.resolve(collection.memberFeedState ?? null),
+              setForced: (forcedAt: Date | null) => {
+                memberForcedCalls.push(forcedAt)
+                return Promise.resolve()
+              },
+            } as unknown as MemberRepository,
             memberStatus: {
               read: () =>
                 Promise.resolve({
@@ -154,6 +172,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   running: false,
                   authorCount: 0,
                   matchedAuthorCount: 0,
+                  ...collection.memberStatus,
                 }),
             },
           },
@@ -165,6 +184,18 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       stop: () => undefined,
       isRunning: () => collection.runnerBusy ?? false,
     },
+    ...(collection.memberRunnerWired === false ? {} : {
+      memberCollectionRunner: {
+        start: (request: MemberCollectionStartRequest) => {
+          memberStarted.push(request)
+          return { kind: 'started' as const }
+        },
+        stop: () => {
+          memberStopped.push(true)
+        },
+        isRunning: () => false,
+      },
+    }),
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1
@@ -224,7 +255,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberForcedCalls }
 }
 
 async function seedAwaiting(
@@ -957,5 +988,126 @@ describe('running the collection around the clock', () => {
     const { api } = build()
 
     expect(await api.setCollectionForced(true)).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+})
+
+describe('getMemberCollectionStatus', () => {
+  it('reports disabled when there is no collection database', async () => {
+    const { api } = build()
+    expect(await api.getMemberCollectionStatus()).toEqual({ kind: 'disabled' })
+  })
+
+  it('reports ready with status when a database is open', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, memberStatus: { memberCount: 42, authorCount: 10, matchedAuthorCount: 7 } })
+    const result = await api.getMemberCollectionStatus()
+    expect(result.kind).toBe('ready')
+    if (result.kind === 'ready') {
+      expect(result.status.memberCount).toBe(42)
+      expect(result.status.authorCount).toBe(10)
+      expect(result.status.matchedAuthorCount).toBe(7)
+    }
+  })
+})
+
+describe('startMemberCollection', () => {
+  it('starts a backfill on first run (no existing feed state)', async () => {
+    const { api, memberStarted } = build(MON_10_00, {}, { job: null })
+    const result = await api.startMemberCollection()
+    expect(result).toEqual({ kind: 'started' })
+    expect(memberStarted).toHaveLength(1)
+    expect(memberStarted[0]?.mode).toBe('backfill')
+    expect(memberStarted[0]?.resumeFromCheckpoint).toBe(false)
+  })
+
+  it('starts incremental and resumes from checkpoint when a walk already exists', async () => {
+    const feedState: MemberFeedState = {
+      stateVersion: 0, anchorMemberKey: null,
+      anchorJoinDate: null, referencePage: null, pageIdentity: null,
+      totalMemberCount: null, cursorUpdatedAtMs: MON_10_00,
+      complete: false, forced: false, toppedUpAtMs: null,
+    }
+    const { api, memberStarted } = build(MON_10_00, {}, { job: null, memberFeedState: feedState })
+    const result = await api.startMemberCollection()
+    expect(result).toEqual({ kind: 'started' })
+    expect(memberStarted[0]?.mode).toBe('incremental')
+    expect(memberStarted[0]?.resumeFromCheckpoint).toBe(true)
+  })
+
+  it('refuses with JOB_FINISHED when the feed state is complete', async () => {
+    const feedState: MemberFeedState = {
+      stateVersion: 0, anchorMemberKey: null,
+      anchorJoinDate: null, referencePage: null, pageIdentity: null,
+      totalMemberCount: null, cursorUpdatedAtMs: MON_10_00,
+      complete: true, forced: false, toppedUpAtMs: null,
+    }
+    const { api } = build(MON_10_00, {}, { job: null, memberFeedState: feedState })
+    expect(await api.startMemberCollection()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+  })
+
+  it('refuses with NO_STORAGE when the collection database is absent', async () => {
+    const { api } = build()
+    expect(await api.startMemberCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+
+  it('refuses with NO_STORAGE when the runner is not yet wired', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, memberRunnerWired: false })
+    expect(await api.startMemberCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+})
+
+describe('stopMemberCollection', () => {
+  it('calls the runner stop', async () => {
+    const { api, memberStopped } = build(MON_10_00, {}, { job: null })
+    await api.stopMemberCollection()
+    expect(memberStopped).toHaveLength(1)
+  })
+
+  it('does not throw when the runner is not wired', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, memberRunnerWired: false })
+    await expect(api.stopMemberCollection()).resolves.toBeUndefined()
+  })
+})
+
+describe('setMemberCollectionForced', () => {
+  const feedState = (overrides: Partial<MemberFeedState> = {}): MemberFeedState => ({
+    stateVersion: 0, anchorMemberKey: null,
+    anchorJoinDate: null, referencePage: null, pageIdentity: null,
+    totalMemberCount: null, cursorUpdatedAtMs: MON_10_00,
+    complete: false, forced: false, toppedUpAtMs: null,
+    ...overrides,
+  })
+
+  it('writes the force timestamp and moves the beat', async () => {
+    const { api, memberForcedCalls, refreshes } = build(MON_10_00, {}, { job: null, memberFeedState: feedState() })
+    const result = await api.setMemberCollectionForced(true)
+    expect(result).toEqual({ kind: 'set', forced: true })
+    expect(memberForcedCalls).toHaveLength(1)
+    expect(memberForcedCalls[0]).toBeInstanceOf(Date)
+    expect(refreshes.count).toBe(1)
+  })
+
+  it('clears the force and moves the beat', async () => {
+    const { api, memberForcedCalls, refreshes } = build(MON_10_00, {}, { job: null, memberFeedState: feedState({ forced: true }) })
+    const result = await api.setMemberCollectionForced(false)
+    expect(result).toEqual({ kind: 'set', forced: false })
+    expect(memberForcedCalls).toEqual([null])
+    expect(refreshes.count).toBe(1)
+  })
+
+  it('refuses with NO_JOB when no feed state row exists', async () => {
+    const { api, memberForcedCalls } = build(MON_10_00, {}, { job: null })
+    expect(await api.setMemberCollectionForced(true)).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(memberForcedCalls).toEqual([])
+  })
+
+  it('refuses with JOB_FINISHED when the walk is complete', async () => {
+    const { api, memberForcedCalls } = build(MON_10_00, {}, { job: null, memberFeedState: feedState({ complete: true }) })
+    expect(await api.setMemberCollectionForced(true)).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+    expect(memberForcedCalls).toEqual([])
+  })
+
+  it('refuses with NO_STORAGE when the database is absent', async () => {
+    const { api } = build()
+    expect(await api.setMemberCollectionForced(true)).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
   })
 })
