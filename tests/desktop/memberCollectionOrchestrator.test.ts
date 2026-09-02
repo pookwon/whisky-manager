@@ -169,7 +169,8 @@ describe('member collection orchestrator', () => {
       return { items, pageIdentity: `fp${n}` }
     }
     let fetchCount = 0
-    const { repo, persisted } = fakeRepo({ knownMemberKeys: async () => new Set<string>() })
+    let toppedUpCount = 0
+    const { repo, persisted } = fakeRepo({ knownMemberKeys: async () => new Set<string>(), markToppedUp: async () => { toppedUpCount++ } })
     const topupRun = { ...run, runKind: 'topup' as const }
     const orchestrator = createMemberCollectionOrchestrator({
       ...noBusy,
@@ -180,11 +181,13 @@ describe('member collection orchestrator', () => {
     expect(result.kind).toBe('succeeded')
     expect(fetchCount).toBe(TOPUP_MAX_PAGES)
     expect(persisted.length).toBe(TOPUP_MAX_PAGES)
+    expect(toppedUpCount).toBe(1)
   })
 
   it('top-up stops once every key on a page is already known, within 5 pages', async () => {
     const known = new Set(fullPage('known', '2026-08-23').items.map((m) => m.memberKey))
-    const { repo, persisted } = fakeRepo({ knownMemberKeys: async (keys) => new Set(keys.filter((k) => known.has(k))) })
+    let toppedUpCount = 0
+    const { repo, persisted } = fakeRepo({ knownMemberKeys: async (keys) => new Set(keys.filter((k) => known.has(k))), markToppedUp: async () => { toppedUpCount++ } })
     const topupRun = { ...run, runKind: 'topup' as const }
     const pages: Record<number, CollectedMemberPage> = {
       1: page([...members('new', 2, '2026-08-25'), ...fullPage('known', '2026-08-23').items.slice(0, 98)]),
@@ -195,5 +198,6 @@ describe('member collection orchestrator', () => {
     expect(result.kind).toBe('succeeded')
     // Page 1 had new members and was persisted; page 2 was all known and stopped the walk.
     expect(persisted.length).toBeGreaterThanOrEqual(1)
+    expect(toppedUpCount).toBe(1)
   })
 })

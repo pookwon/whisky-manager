@@ -210,6 +210,7 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
             const known = await deps.repository.knownMemberKeys(slice.map((item) => item.memberKey))
             const fresh = slice.filter((item) => !known.has(item.memberKey))
             if (fresh.length === 0) {
+              await deps.repository.markToppedUp(new Date(deps.clock.now()))
               await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
               return { kind: 'succeeded', pagesStored }
             }

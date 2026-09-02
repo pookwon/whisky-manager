@@ -12,6 +12,8 @@ import { createCollectionRepository } from '../../../src/desktop/collection-db/r
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
+import { members } from '../../../src/desktop/collection-db/memberSchema.js'
+import { eq } from 'drizzle-orm'
 
 const testDatabaseUrl = process.env.COLLECTION_TEST_DATABASE_URL?.trim()
 const integration = testDatabaseUrl === undefined || testDatabaseUrl === '' ? describe.skip : describe
@@ -433,5 +435,11 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(reobserved.kind).toBe('stored')
     const known = await repo.knownMemberKeys(memberPage.items.map((m) => m.memberKey))
     expect(known.size).toBe(memberPage.items.length)
+
+    // Verify that first_seen_at is preserved while snapshot_at advanced.
+    const firstKey = memberPage.items[0]!.memberKey
+    const row = await connection.db.select({ firstSeenAt: members.firstSeenAt, snapshotAt: members.snapshotAt }).from(members).where(eq(members.memberKey, firstKey))
+    expect(row[0]!.firstSeenAt).toEqual(new Date(1_000))
+    expect(row[0]!.snapshotAt).toEqual(new Date(4_000))
   })
 })
