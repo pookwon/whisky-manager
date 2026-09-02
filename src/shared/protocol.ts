@@ -1,8 +1,10 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
 import type { CollectedArticlePage } from './cafeArticleList.js'
 import { CAFE_ARTICLE_LIST } from './cafeArticleFixture.js'
+import { CAFE_MEMBER_LIST } from './cafeMemberFixture.js'
+import type { CollectedMemberPage } from './cafeMemberList.js'
 
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -17,8 +19,17 @@ export const TIMEOUTS = {
   commentCheckMs: 10_000,
   probeMs: 20_000,
   boardPageMs: 20_000,
+  memberPageMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
+
+export interface CollectMemberPageRequest {
+  readonly type: 'COLLECT_MEMBER_PAGE'
+  readonly requestId: string
+  readonly cafeId: typeof CAFE_MEMBER_LIST.cafeId
+  readonly page: number
+  readonly perPage: typeof CAFE_MEMBER_LIST.perPage
+}
 
 export interface CollectBoardPageRequest {
   readonly type: 'COLLECT_BOARD_PAGE'
@@ -74,6 +85,8 @@ export type AppMessage =
   | { type: 'EXECUTE'; requestId: string; automationId: string; action: ActionEnvelope }
   /** One exact menu=0 JSON page; the extension must not follow pagination itself. */
   | CollectBoardPageRequest
+  /** One exact member-list page; the extension must not follow pagination itself. */
+  | CollectMemberPageRequest
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -94,6 +107,7 @@ export type ExtensionMessage =
   | { type: 'COMMENTS'; requestId: string; authors: CommentAuthor[] | null }
   | { type: 'COLLECT_PROGRESS'; requestId: string; pagesRead: number; collected: number }
   | { type: 'BOARD_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedArticlePage }
+  | { type: 'MEMBER_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedMemberPage }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -144,6 +158,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'CHECK_COMMENTS',
   'EXECUTE',
   'COLLECT_BOARD_PAGE',
+  'COLLECT_MEMBER_PAGE',
   'PROBE',
   'ABORT',
 ])
@@ -155,6 +170,7 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'COMMENTS',
   'COLLECT_PROGRESS',
   'BOARD_PAGE_COLLECTED',
+  'MEMBER_PAGE_COLLECTED',
   'EXECUTED',
   'PROBE_RESULT',
   'ERROR',
@@ -169,12 +185,14 @@ function messageType(value: unknown): string | null {
 export function isAppMessage(value: unknown): value is AppMessage {
   const type = messageType(value)
   if (type === 'COLLECT_BOARD_PAGE') return isCollectBoardPageRequest(value)
+  if (type === 'COLLECT_MEMBER_PAGE') return isCollectMemberPageRequest(value)
   return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   const type = messageType(value)
   if (type === 'BOARD_PAGE_COLLECTED') return isBoardPageCollected(value)
+  if (type === 'MEMBER_PAGE_COLLECTED') return isMemberPageCollected(value)
   return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
 }
 
@@ -220,4 +238,37 @@ function isBoardPageCollected(value: unknown): value is Extract<ExtensionMessage
     typeof pageInfo.visibleNextButton === 'boolean' &&
     typeof pageInfo.totalArticleCount === 'number'
   )
+}
+
+/** Runtime guard for the fixed, deliberately narrow member-list collection contract. */
+export function isCollectMemberPageRequest(value: unknown): value is CollectMemberPageRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<CollectMemberPageRequest>
+  return (
+    message.type === 'COLLECT_MEMBER_PAGE' &&
+    typeof message.requestId === 'string' &&
+    message.cafeId === CAFE_MEMBER_LIST.cafeId &&
+    typeof message.page === 'number' &&
+    Number.isSafeInteger(message.page) &&
+    message.page >= 1 &&
+    message.perPage === CAFE_MEMBER_LIST.perPage
+  )
+}
+
+function isMemberPageCollected(value: unknown): value is Extract<ExtensionMessage, { type: 'MEMBER_PAGE_COLLECTED' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as { type?: unknown; requestId?: unknown; page?: unknown; result?: unknown }
+  if (
+    message.type !== 'MEMBER_PAGE_COLLECTED' ||
+    typeof message.requestId !== 'string' ||
+    typeof message.page !== 'number' ||
+    !Number.isSafeInteger(message.page) ||
+    message.page < 1 ||
+    typeof message.result !== 'object' ||
+    message.result === null
+  ) {
+    return false
+  }
+  const result = message.result as { items?: unknown; pageIdentity?: unknown }
+  return Array.isArray(result.items) && typeof result.pageIdentity === 'string'
 }
