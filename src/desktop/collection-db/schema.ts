@@ -165,8 +165,8 @@ export const collectionSchema = {
   collectionRuns,
   feedState,
 }
-// Re-exported so Drizzle Kit generation and the node-postgres client see the
-// member tables through the same schema module the article tables use. The
-// member schema imports `collectionRunStatus` from this file, so the export
-// lives at the bottom to keep the reference one-directional at module load.
+// Re-exported so Drizzle Kit generation and the node-postgres client discover
+// the member tables through this single schema entry point. The member schema
+// takes `collectionRunStatus` from its own module, so nothing here is imported
+// back and the two files stay free of a load-time cycle.
 export * from './memberSchema.js'
