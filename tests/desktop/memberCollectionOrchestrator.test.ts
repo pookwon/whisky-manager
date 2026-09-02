@@ -313,6 +313,87 @@ describe('member collection orchestrator', () => {
     void tailKey
   })
 
+  it('in-run backward-overshoot relocation completes normally by re-reading the earlier page', async () => {
+    // Reproduction: pages 1 and 2 collected normally; page 3 lacks page 2's tail;
+    // the rewind of page 2 has a different identity and also lacks the tail (index < 0),
+    // triggering relocation. Relocation probes page 2 (entirely older than the anchor's
+    // join date, direction -1) then page 1 (entirely newer) — the backward scan has
+    // overshot — so locateMemberResumePosition returns {page 1, offset 0}. Without the
+    // fix the date guard immediately rejected that result as a silent fallback because
+    // page 1's head is newer than page 2's tail. With the fix the guard is skipped for
+    // this one iteration and the run completes normally.
+    const { repo, persisted } = fakeRepo()
+
+    const p1 = fullPage('p1', '2026-08-23')
+    const p2 = fullPage('p2', '2026-08-22')
+    const p3 = page(members('p3', MEMBERS_PER_PAGE, '2026-08-21'))
+    // p2 rewound: different identity, all older than p2tail.joinDate, tail absent
+    const p2Rewound = { ...page(members('p2r', MEMBERS_PER_PAGE, '2026-08-20')), pageIdentity: 'p2-rewound' }
+    // p1 probe returned by overshoot: short page so the walk ends immediately after
+    const p1Probe = page(members('p1p', 20, '2026-08-23'))
+
+    const p1Reads = { count: 0 }
+    const p2Reads = { count: 0 }
+    const orchestrator = createMemberCollectionOrchestrator({
+      ...noBusy,
+      repository: repo,
+      fetcher: {
+        read: async (n: number): Promise<CollectedMemberPage> => {
+          if (n === 1) { p1Reads.count++; return p1Reads.count <= 2 ? p1 : p1Probe }
+          if (n === 2) { p2Reads.count++; return p2Reads.count === 1 ? p2 : p2Rewound }
+          if (n === 3) return p3
+          return page([])
+        },
+      },
+    })
+    const result = await orchestrator.run({ run, maxPages: 20, mode: 'backfill' })
+    expect(result.kind).toBe('succeeded')
+    // Pages 1 and 2 stored in the initial walk; the relocation re-read of page 1 is a
+    // third persist (upsert). No member from p1 or p2 must be absent.
+    const allPersistedKeys = new Set(persisted.flatMap((p) => p.page.items.map((m) => m.memberKey)))
+    for (const m of p1.items) expect(allPersistedKeys.has(m.memberKey)).toBe(true)
+    for (const m of p2.items) expect(allPersistedKeys.has(m.memberKey)).toBe(true)
+  })
+
+  it('date guard still fires for a genuinely newer page on the iteration after an in-run relocation', async () => {
+    // The justRelocated exemption lasts exactly one iteration. After the overshoot
+    // re-read is stored, a fresh page whose first member is newer than the stored
+    // tail must still trip MEMBER_PAGE_SILENT_FALLBACK.
+    const { repo } = fakeRepo()
+
+    const p1 = fullPage('p1', '2026-08-23')
+    const p2 = fullPage('p2', '2026-08-22')
+    const p3 = page(members('p3', MEMBERS_PER_PAGE, '2026-08-21'))
+    const p2Rewound = { ...page(members('p2r', MEMBERS_PER_PAGE, '2026-08-20')), pageIdentity: 'p2-rewound' }
+    // p1 probe (full): after storing it the guard must be active again on the next page
+    const p1Probe = fullPage('p1p', '2026-08-23')
+    // collected at page 2 after the relocation: all members are newer than p1Probe's tail
+    const p2Fresh = fullPage('p2fresh', '2026-08-25')
+
+    const p1Reads = { count: 0 }
+    const p2Reads = { count: 0 }
+    const orchestrator = createMemberCollectionOrchestrator({
+      ...noBusy,
+      repository: repo,
+      fetcher: {
+        read: async (n: number): Promise<CollectedMemberPage> => {
+          if (n === 1) { p1Reads.count++; return p1Reads.count <= 2 ? p1 : p1Probe }
+          if (n === 2) {
+            p2Reads.count++
+            if (p2Reads.count === 1) return p2
+            if (p2Reads.count <= 3) return p2Rewound // rewind + relocation probe
+            return p2Fresh // collected after the relocation re-read
+          }
+          if (n === 3) return p3
+          return page([])
+        },
+      },
+    })
+    const result = await orchestrator.run({ run, maxPages: 20, mode: 'backfill' })
+    expect(result.kind).toBe('failed')
+    expect((result as { code: string }).code).toBe('MEMBER_PAGE_SILENT_FALLBACK')
+  })
+
   it('fails with MEMBER_PAGE_DATE_ORDER when a fetched page has joinDate values out of order', async () => {
     const { repo } = fakeRepo()
     // Page 1 has a join date that increases (should be non-increasing).

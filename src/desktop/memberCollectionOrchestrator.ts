@@ -183,6 +183,7 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
         let previousTailJoinDate: string | null = null
         let previousPageNumber = 0
         let previousIdentity: string | null = null
+        let justRelocated = false
 
         // Tracks page identity → page number to detect silent API fallback
         // (when the API returns the first page's content for any out-of-range
@@ -219,6 +220,16 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
                   currentPage = relocated.candidate
                   pageNumber = relocated.page
                   firstOffset = relocated.offset
+                  // The overshoot branch of locateMemberResumePosition deliberately returns an
+                  // earlier page at offset 0 so no member from that date block is skipped.
+                  // From a fresh run, previousTailJoinDate is still null so the date guard
+                  // below would not fire anyway; from this in-run relocation path it is set,
+                  // and the earlier page's head is by definition newer — which would trip the
+                  // guard falsely. The relocation has already validated its position against the
+                  // anchor, and re-reading an earlier page is exactly what that branch exists to
+                  // do. Set the flag here and clear it after the check so the guard is back in
+                  // force from the next page onward.
+                  justRelocated = true
                 }
                 // else: index === length - 1, tail at last position, next page starts clean (firstOffset = 0)
               }
@@ -251,7 +262,13 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
           // anchor's date block; in all three normal cases the slice's newest join
           // date is at most the previous tail's date. Only a page from elsewhere in
           // the list is newer.
-          if (previousTailJoinDate !== null && slice.length > 0 && slice[0]!.joinDate > previousTailJoinDate) {
+          // Skip the guard on the iteration immediately after an in-run relocation:
+          // that relocation's overshoot branch may return an earlier page at offset 0,
+          // whose head is by definition newer than the previous tail. The flag is cleared
+          // here so normal detection is back in force from the next page onward.
+          const skipDateGuard = justRelocated
+          justRelocated = false
+          if (!skipDateGuard && previousTailJoinDate !== null && slice.length > 0 && slice[0]!.joinDate > previousTailJoinDate) {
             throw new MemberCollectionPageError('MEMBER_PAGE_SILENT_FALLBACK')
           }
 
