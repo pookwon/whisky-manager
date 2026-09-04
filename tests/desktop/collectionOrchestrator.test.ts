@@ -108,73 +108,12 @@ describe('collection planning and orchestration', () => {
     await expect(findCollectionStartPage(probeReader({ 1: pages[1]!, 2: page([post('x', 300)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
   })
 
-  it('walks a page whose two posts came back swapped, keeping the order the feed gave', async () => {
-    // What actually stopped the collection: at depth the cafe returned two
-    // ordinary posts swapped, 282 seconds apart, the same two on every read.
-    // Refusing the page walled the walk off from them for days.
-    //
-    // They are stored in the order the feed gave, not sorted: resuming counts
-    // positions in the page as delivered, so re-ordering it here would slice
-    // away a post that sits after the anchor in the feed but ahead of it in
-    // time — losing quietly what this used to refuse loudly.
-    const { repo, persisted, finished } = repository()
-    const swapped = page([post('885450', 300_000), post('885454', 360_000), post('885449', 240_000)])
-    const reader = probeReader({ 1: swapped, 2: page([post('885440', 100_000)]) })
-    const result = await createCollectionOrchestrator({
-      repository: repo,
-      fetcher: { read: (n) => reader.probe(n) },
-      clock: { now: () => 1_000 },
-      random: { intInclusive: (min: number) => min },
-      sleep: () => Promise.resolve(),
-      isSessionBusy: () => false,
-      isAbortRequested: () => false,
-    }).run({
-      feed,
-      run: { ...feed, id: 'r1', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 200_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
-      maxPages: 5,
-    })
-
-    expect(result).toMatchObject({ kind: 'succeeded' })
-    expect(finished.some((line) => line.includes('TIMESTAMP_ORDER'))).toBe(false)
-    expect(persisted[0]?.page.items.map((item) => item.postId)).toEqual(['885450', '885454', '885449'])
-  })
-
-  it('refuses a page whose last post is not the oldest on it', async () => {
-    // Everything the walk concludes about where it has got to comes from that
-    // one post: the boundary that ends the run and the anchor the next one
-    // resumes from. If it is not the oldest, a run can report success at a
-    // boundary it never reached and leave the rest uncollected.
-    const { repo, finished } = repository()
-    const tailNotOldest = page([post('900', 200_000), post('901', 300_000)])
-    const reader = probeReader({ 1: tailNotOldest })
-    const result = await createCollectionOrchestrator({
-      repository: repo,
-      fetcher: { read: (n) => reader.probe(n) },
-      clock: { now: () => 1_000 },
-      random: { intInclusive: (min: number) => min },
-      sleep: () => Promise.resolve(),
-      isSessionBusy: () => false,
-      isAbortRequested: () => false,
-    }).run({
-      feed,
-      run: { ...feed, id: 'r2', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 100_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
-      maxPages: 5,
-    })
-
-    expect(result).toMatchObject({ kind: 'failed', code: 'BOARD_PAGE_TIMESTAMP_ORDER' })
-    const reason = finished.at(-1) ?? ''
-    expect(reason).toContain('page 1 |')
-    expect(reason).toContain('last 901')
-    expect(reason).toMatch(/\b100s newer\b/)
-  })
-
-  it('walks a page that arrives badly out of order but ends on its oldest post', async () => {
-    // Page 834 of this cafe: fifty posts sampled across 444 article ids and 28
-    // hours, in thirty descending runs, reproducible from a plain read — while
-    // the pages either side are single clean runs. Refusing it stood the
-    // collection still for days and saved nothing: it carries 26 of the 27
-    // posts only it can deliver, and its last post is the true oldest, so the
-    // boundary and the anchor taken from it are right.
+  it('walks a page however the cafe ordered it, and anchors on its oldest post', async () => {
+    // Page 834 of this cafe returns fifty posts sampled across hundreds of
+    // article ids and many hours, in dozens of descending runs, a different
+    // shape on every read — sometimes ending on its oldest post, sometimes not.
+    // Every rule the walk tried to hold the order to was broken by the next
+    // read, and refusing cost days while losing nothing.
     const { repo, persisted } = repository()
     const scrambled = page([post('a', 400_000), post('c', 900_000), post('b', 300_000), post('d', 250_000)])
     const reader = probeReader({ 1: scrambled, 2: page([post('e', 50_000)]) })
@@ -193,9 +132,12 @@ describe('collection planning and orchestration', () => {
     })
 
     expect(result).toMatchObject({ kind: 'succeeded' })
-    // Stored as delivered, so the positions a resume counts still mean what
-    // they meant when the page arrived.
-    expect(persisted[0]?.page.items.map((item) => item.postId)).toEqual(['a', 'c', 'b', 'd'])
+    // The repository takes the last row as the anchor, so the oldest post
+    // committed has to be last — otherwise the next run resumes from somewhere
+    // it has already been.
+    const stored = persisted[0]?.page.items.map((item) => item.postId) ?? []
+    expect(stored.at(-1)).toBe('d')
+    expect(stored).toHaveLength(4)
   })
 
   it('still refuses a page that carries the same post twice', async () => {
@@ -236,6 +178,10 @@ describe('collection planning and orchestration', () => {
       fetcher: fetcher({
         1: page([post('new', 300), post('in-1', 250)]),
         2: page([post('in-2', 240), post('old', 190)]),
+        // Wholly below the period. The walk ends on a page's newest post, so it
+        // reads one page past the boundary rather than trusting whichever post
+        // happens to sit last.
+        3: page([post('older', 150)]),
       }),
       clock: { now: () => 1_000 },
       random: { intInclusive: (min) => min },
@@ -254,7 +200,7 @@ describe('collection planning and orchestration', () => {
     const { repo, persisted, finished } = repository()
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
-      fetcher: fetcher({ 1: page([post('1', 300), post('2', 250)]) }),
+      fetcher: fetcher({ 1: page([post('1', 300), post('2', 250)]), 2: page([post('older', 150)]) }),
       clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => true,
     })
@@ -268,7 +214,7 @@ describe('collection planning and orchestration', () => {
     const { repo, finished } = repository(true)
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
-      fetcher: fetcher({ 1: page([post('1', 280), post('2', 250)]) }),
+      fetcher: fetcher({ 1: page([post('1', 280), post('2', 250)]), 2: page([post('older', 150)]) }),
       clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
@@ -277,9 +223,16 @@ describe('collection planning and orchestration', () => {
     expect(finished).toEqual(['partial:CAS_CONFLICT_REPOSITION_REQUIRED'])
   })
 
-  it('rejects empty and repeated pages, and a page past the end of the feed rather than treating them as no work', async () => {
+  it('rejects an empty page, and a page past the end of the feed, rather than treating them as no work', async () => {
     await expect(findCollectionStartPage(probeReader({ 1: page([]) }), 290)).rejects.toBeInstanceOf(CollectionPageError)
-    await expect(findCollectionStartPage(probeReader({ 1: page([post('newer', 250), post('older', 300)]) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
+    await expect(findCollectionStartPage(probeReader({ 1: page([post('a', 300)]), 2: page([post('b', 295)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
+  })
+
+  it('finds the start page by the oldest post on it, wherever that post sits', async () => {
+    // A page out of order used to send the search past a page that already
+    // reached the period, because it read the last position instead of looking.
+    const outOfOrder = page([post('newer', 250), post('older', 300)])
+    await expect(findCollectionStartPage(probeReader({ 1: outOfOrder }), 290)).resolves.toMatchObject({ page: 1 })
   })
 
   it('counts probe requests toward the total page limit', async () => {
@@ -288,7 +241,7 @@ describe('collection planning and orchestration', () => {
     repo.recordPageRequest = async () => { requests += 1 }
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
-      fetcher: fetcher({ 1: page([post('new', 320), post('still-new', 300)]) }),
+      fetcher: fetcher({ 1: page([post('new', 320), post('still-new', 300)]), 2: page([post('older', 150)]) }),
       clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
@@ -309,6 +262,7 @@ describe('collection planning and orchestration', () => {
     const pages = {
       1: page([post('new', 320), post('still-new', 300)]),
       2: page([post('in', 250), post('old', 190)]),
+      3: page([post('older', 150)]),
     }
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
@@ -373,11 +327,11 @@ describe('collection planning and orchestration', () => {
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
       fetcher: {
-        read: async () => {
+        read: async (number) => {
           // Simulate network/parse latency after the scheduled reader sampled
           // its clock. Persistence must retain the earlier instant.
           now += 5_000
-          return resultPage
+          return number === 1 ? resultPage : page([post('older', 150)])
         },
       },
       clock: { now: () => now }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
@@ -396,6 +350,7 @@ describe('collection planning and orchestration', () => {
     const pages = {
       1: page([post('a', 280), post('b', 270)]),
       2: page([post('b', 270), post('c', 260), post('old', 190)]),
+      3: page([post('older', 150)]),
     }
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
@@ -405,7 +360,10 @@ describe('collection planning and orchestration', () => {
     })
 
     await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toEqual({ kind: 'succeeded', pagesStored: 2 })
-    expect(fetched).toEqual([1, 1, 2])
+    // 3 and the return to 2 are the walk reading one page past the boundary —
+    // it ends on a page's newest post now — and continuity checking that page
+    // against the one before it.
+    expect(fetched).toEqual([1, 1, 2, 3, 2])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['a', 'b', 'c'])
   })
 
@@ -417,12 +375,14 @@ describe('collection planning and orchestration', () => {
     // the boundary. Rewind must still recover c.
     const pageOneAfterDeletion = page([post('b', 270), post('c', 260)], 100, 500)
     const pageTwo = page([post('d', 250), post('old', 190)], 100, 500)
+    const pageThree = page([post('older', 150)], 100, 500)
     let pageOneReads = 0
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
       fetcher: {
         read: async (number) => {
           fetched.push(number)
+          if (number >= 3) return pageThree
           if (number !== 1) return pageTwo
           pageOneReads += 1
           return pageOneReads <= 2 ? pageOneBefore : pageOneAfterDeletion
@@ -433,7 +393,10 @@ describe('collection planning and orchestration', () => {
     })
 
     await expect(orchestrator.run({ feed, run, maxPages: 10 })).resolves.toEqual({ kind: 'succeeded', pagesStored: 3 })
-    expect(fetched).toEqual([1, 1, 2, 1, 2, 1])
+    // The trailing 3 and 2 are the walk reading one page past the boundary and
+    // continuity checking it, which it does now that a page ends the walk on
+    // its newest post rather than on whichever post sits last.
+    expect(fetched).toEqual([1, 1, 2, 1, 2, 1, 3, 2])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['a', 'b', 'c', 'd'])
   })
 

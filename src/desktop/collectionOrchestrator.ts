@@ -1,5 +1,5 @@
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
-import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
+import type { CollectedArticlePage, CollectedPostMetadata } from '../shared/cafeArticleList.js'
 import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
@@ -43,22 +43,21 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
 }
 
 /**
- * What the walk actually needs of a page's order, and no more.
+ * What a page has to be for the walk to use it at all.
  *
- * Page 834 of this cafe comes back as fifty posts sampled across 444 article
- * ids and 28 hours, in thirty descending runs — while 833 and 835 either side
- * of it are single clean runs. It is reproducible from a plain read of the same
- * url, so it is the cafe's answer, not something this app did to it. Refusing
- * it cost days of standing still, and cost nothing else: sorted by id its fifty
- * posts agree perfectly on time, and it carries 26 of the 27 posts that only it
- * can deliver — the missing one being an ordinary deletion.
+ * Order is deliberately not among it. Page 834 of this cafe returns fifty posts
+ * sampled across hundreds of article ids and many hours, in dozens of
+ * descending runs, and comes back a different shape on every read — sometimes
+ * ending on its oldest post, sometimes not. A plain read of the same url
+ * reproduces it, so it is the cafe's answer. Every rule this walk tried to hold
+ * the order to was broken by the next read, and refusing cost days of standing
+ * still while losing nothing: the posts are all real and agree on time when
+ * sorted by article id.
  *
- * So adjacent pairs are not checked at all. The walk leans on exactly one
- * ordering property: the last post of a page is the oldest on it. The boundary
- * that ends the walk and the anchor the next run resumes from are both taken
- * from that post, and if it is not the oldest they are both wrong — a run could
- * report success at a boundary it never reached. That is worth refusing, and it
- * needs no threshold: the page says whether it is true.
+ * So nothing below reads a post's position. The walk takes what it needs — the
+ * oldest post on the page — by looking, and completeness is settled afterwards
+ * by the article-id audit, which tells a deleted post (a gap of one or two)
+ * from a lost page (a gap of fifty).
  */
 function assertPage(page: CollectedArticlePage, requested: number): void {
   if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
@@ -67,50 +66,23 @@ function assertPage(page: CollectedArticlePage, requested: number): void {
     if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `page ${requested} #${index} ${item.postId}`)
     ids.add(item.postId)
   }
-  const last = page.items.at(-1)
-  const oldestOnPage = Math.min(...page.items.map((item) => item.postedAt))
-  if (last !== undefined && last.postedAt > oldestOnPage) {
-    const aheadSeconds = Math.round((last.postedAt - oldestOnPage) / 1000)
-    throw new CollectionPageError(
-      'BOARD_PAGE_TIMESTAMP_ORDER',
-      `page ${requested} | last ${last.postId}(${kstStamp(last.postedAt)}) is ${aheadSeconds}s newer than the oldest post on the page | ${pageShape(page)}`,
-    )
-  }
 }
 
-/**
- * The whole page's ordering, in one line, for the refusal to carry.
- *
- * The offending pair alone cannot tell two very different faults apart. One
- * post out of place among forty-nine is the cafe mis-ordering neighbours; a
- * page that falls into two clean descending runs is two stretches of the feed
- * spliced into one response, and the walk cannot read the second as a
- * continuation of the first. The count of runs and where they break is what
- * separates them, so it is gathered at the moment of refusal rather than
- * guessed at afterwards.
- */
-function pageShape(page: CollectedArticlePage): string {
-  const times = page.items.map((item) => item.postedAt)
-  const breaks: string[] = []
-  for (let index = 1; index < times.length; index += 1) {
-    const ahead = (times[index] ?? 0) - (times[index - 1] ?? 0)
-    if (ahead > 0) breaks.push(`#${index}(+${Math.round(ahead / 1000)}s)`)
-  }
-  const listed = breaks.slice(0, 5).join(' ')
-  const rest = breaks.length > 5 ? ` and ${breaks.length - 5} more` : ''
-  const oldestMs = Math.min(...times)
-  const newestMs = Math.max(...times)
-  return `${page.items.length} items, ${breaks.length + 1} runs, breaks ${listed}${rest}, spans ${kstStamp(oldestMs)} ~ ${kstStamp(newestMs)}`
+/** The oldest post on a page, wherever it happens to sit in it. */
+function oldestPost(page: CollectedArticlePage): CollectedPostMetadata {
+  let found = page.items[0]
+  if (found === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY')
+  for (const item of page.items) if (item.postedAt < found.postedAt) found = item
+  return found
 }
 
-/** `MM-DD HH:MM:SS` on the cafe's clock, for a diagnostic a person reads. */
-function kstStamp(epochMs: number): string {
-  const kst = new Date(epochMs + 9 * 60 * 60 * 1000)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())} ${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}`
+/** The newest post's time, which is what says the walk has passed the period. */
+function newestPostedAt(page: CollectedArticlePage): number {
+  if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
+  return Math.max(...page.items.map((item) => item.postedAt))
 }
 
-function oldest(page: CollectedArticlePage): number { const item = page.items.at(-1); if (item === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY'); return item.postedAt }
+function oldest(page: CollectedArticlePage): number { return oldestPost(page).postedAt }
 function fallback(page: CollectedArticlePage, requested: number): boolean { return requested > page.pageInfo.lastNavigationPageNumber }
 
 /** Delay before request ordinal N. The first request has no delay or modulo break. */
@@ -248,13 +220,20 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
         const inRange = page.items.slice(firstOffset).filter((item) => item.postedAt >= options.run.targetStartMs && item.postedAt < options.run.targetEndMs); firstOffset = 0
         if (inRange.length > 0) {
-          const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: inRange } })
+          // Sorted for the write only. The repository takes the last row as the
+          // anchor, and that has to be the oldest post committed or the next run
+          // resumes from somewhere it has already been. The page itself is left
+          // in the order the feed gave, because the positions a resume counts
+          // are positions in that.
+          const ordered = [...inRange].sort((left, right) => right.postedAt - left.postedAt)
+          const oldestInRange = ordered.at(-1)
+          const stored = await deps.repository.persistPage({ feed: options.feed, runId: options.run.id, observedAt: reader.observedAt(page), referencePage: pageNumber, expectedState: state, page: { ...page, items: ordered } })
           // Not retried here: a conflict means the stored cursor moved under
           // this walk, so the page number it is holding no longer addresses
           // what it thinks. Ending lets the next run find its place again from
           // the cursor rather than writing from a position already known stale.
           if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, latestState } }
-          const committed = inRange.at(-1)
+          const committed = oldestInRange
           state = {
             stateVersion: stored.nextStateVersion,
             anchorPostId: stored.anchorPostId,
@@ -270,13 +249,18 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
           }
           pagesStored += 1
         }
-        // Deliberately the whole page's last post rather than the last one
-        // stored: everything stored is inside the period by construction, so a
-        // filtered tail could never be older than the period's start and the
-        // walk would only ever end by spending its page budget.
-        const tail = page.items.at(-1)
-        if (tail === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY')
-        if (tail.postedAt < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored } }
+        // The whole page rather than what was stored from it: everything stored
+        // is inside the period by construction, so its oldest could never fall
+        // below the period's start and the walk would only ever end by spending
+        // its page budget.
+        //
+        // And the newest post on the page, not the oldest: one post carrying a
+        // far older time — restored, or the list simply not in the order it
+        // looks — would otherwise end the walk at a boundary it never reached,
+        // leaving everything below uncollected while the run reported success.
+        // Waiting for the whole page to fall below costs one more page.
+        const tail = oldestPost(page)
+        if (newestPostedAt(page) < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored } }
         continuity = { page: pageNumber, postId: tail.postId, postedAtMs: tail.postedAt, pageIdentity: page.pageIdentity }
         pageNumber += 1
       }
