@@ -54,9 +54,16 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
  * At depth the cafe does get it slightly wrong: around page 800 two ordinary
  * posts came back swapped, 282 seconds apart, the same two on every read, and
  * refusing the page walled the walk off from them for days. An hour is far
- * above that and far below the other fault this guards — a post bumped or
- * restored carries a time months from its neighbours, and letting one through
- * would end the walk at a boundary it never really reached.
+ * above that.
+ *
+ * Note what this does not do, because the two are easy to confuse. It fires only
+ * on a post NEWER than the one before it. A post carrying a far OLDER time
+ * passes untouched — and that is the direction that could actually hurt: the
+ * walk decides it is done from the post in the page's last position, so one
+ * stray old row there ends it at a boundary it never reached. Nothing guards
+ * that today. Ending on the page's newest post instead would, and costs one
+ * extra page, but it also moves where the start-page search settles, so it is a
+ * deliberate change rather than one to slip in beside a diagnosis.
  */
 const PAGE_ORDER_TOLERANCE_MS = 60 * 60 * 1000
 
