@@ -60,17 +60,17 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
  */
 const PAGE_ORDER_TOLERANCE_MS = 60 * 60 * 1000
 
-function assertPage(page: CollectedArticlePage): void {
+function assertPage(page: CollectedArticlePage, requested: number): void {
   if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
   const ids = new Set<string>()
   let previous: CollectedPostMetadata | null = null
   for (const [index, item] of page.items.entries()) {
-    if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `#${index} ${item.postId}`)
+    if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `page ${requested} #${index} ${item.postId}`)
     if (previous !== null && item.postedAt > previous.postedAt + PAGE_ORDER_TOLERANCE_MS) {
       const aheadSeconds = Math.round((item.postedAt - previous.postedAt) / 1000)
       throw new CollectionPageError(
         'BOARD_PAGE_TIMESTAMP_ORDER',
-        `#${index} ${item.postId}(${kstStamp(item.postedAt)}) is ${aheadSeconds}s after #${index - 1} ${previous.postId}(${kstStamp(previous.postedAt)}) | ${pageShape(page)}`,
+        `page ${requested} | #${index} ${item.postId}(${kstStamp(item.postedAt)}) is ${aheadSeconds}s after #${index - 1} ${previous.postId}(${kstStamp(previous.postedAt)}) | ${pageShape(page)}`,
       )
     }
     ids.add(item.postId)
@@ -143,7 +143,7 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     // The observation belongs to the network read, not to however much
     // continuity checking or PostgreSQL work happens after its response.
     const observedAt = new Date(deps.clock.now())
-    const value = await deps.fetcher.read(page); assertPage(value)
+    const value = await deps.fetcher.read(page); assertPage(value, page)
     observations.set(value, observedAt)
     return value
   }

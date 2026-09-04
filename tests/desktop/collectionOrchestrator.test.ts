@@ -169,6 +169,8 @@ describe('collection planning and orchestration', () => {
     expect(reason).toMatch(/\b10800s\b/)
     // The page's own shape, because one post out of place among forty-nine and
     // two stretches of the feed spliced together look identical in the pair.
+    // Which page it was, so the response can be looked at directly afterwards.
+    expect(reason).toContain('page 1 |')
     expect(reason).toContain('2 items, 2 runs')
     expect(reason).toContain('breaks #1(+10800s)')
   })
