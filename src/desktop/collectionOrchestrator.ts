@@ -42,12 +42,23 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
   } }
 }
 
-/** `MM-DD HH:MM:SS` on the cafe's clock, for a diagnostic a person reads. */
-function kstStamp(epochMs: number): string {
-  const kst = new Date(epochMs + 9 * 60 * 60 * 1000)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())} ${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}`
-}
+/**
+ * How far a page may contradict its own ordering before it is refused.
+ *
+ * The walk reads a page as a descending run of times and, on resuming, counts
+ * positions in it — so the order the cafe delivers is the coordinate system,
+ * not a presentation detail, and sorting the page out from under those counts
+ * silently drops posts. The order therefore has to be trusted, and this says
+ * how far.
+ *
+ * At depth the cafe does get it slightly wrong: around page 800 two ordinary
+ * posts came back swapped, 282 seconds apart, the same two on every read, and
+ * refusing the page walled the walk off from them for days. An hour is far
+ * above that and far below the other fault this guards — a post bumped or
+ * restored carries a time months from its neighbours, and letting one through
+ * would end the walk at a boundary it never really reached.
+ */
+const PAGE_ORDER_TOLERANCE_MS = 60 * 60 * 1000
 
 function assertPage(page: CollectedArticlePage): void {
   if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
@@ -55,11 +66,7 @@ function assertPage(page: CollectedArticlePage): void {
   let previous: CollectedPostMetadata | null = null
   for (const [index, item] of page.items.entries()) {
     if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `#${index} ${item.postId}`)
-    // Out of order says the feed is not the descending run of times the walk
-    // reasons about, and the walk cannot tell on its own which of the two posts
-    // is the odd one. Both are named, with how far apart they sit, because
-    // seconds and months mean different faults with different fixes.
-    if (previous !== null && item.postedAt > previous.postedAt) {
+    if (previous !== null && item.postedAt > previous.postedAt + PAGE_ORDER_TOLERANCE_MS) {
       const aheadSeconds = Math.round((item.postedAt - previous.postedAt) / 1000)
       throw new CollectionPageError(
         'BOARD_PAGE_TIMESTAMP_ORDER',
@@ -70,6 +77,14 @@ function assertPage(page: CollectedArticlePage): void {
     previous = item
   }
 }
+
+/** `MM-DD HH:MM:SS` on the cafe's clock, for a diagnostic a person reads. */
+function kstStamp(epochMs: number): string {
+  const kst = new Date(epochMs + 9 * 60 * 60 * 1000)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())} ${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}`
+}
+
 function oldest(page: CollectedArticlePage): number { const item = page.items.at(-1); if (item === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY'); return item.postedAt }
 function fallback(page: CollectedArticlePage, requested: number): boolean { return requested > page.pageInfo.lastNavigationPageNumber }
 

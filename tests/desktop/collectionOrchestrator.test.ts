@@ -108,14 +108,18 @@ describe('collection planning and orchestration', () => {
     await expect(findCollectionStartPage(probeReader({ 1: pages[1]!, 2: page([post('x', 300)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
   })
 
-  it('names both posts and their distance when a page is out of order', async () => {
-    // The code alone cannot be acted on: seconds apart means the feed's own
-    // ordering is not exactly by write time, months apart means one post was
-    // bumped or restored, and the two are fixed differently. The run list is
-    // where the operator meets this, so the detail rides the stop reason.
-    const { repo, finished } = repository()
-    const out = page([post('900', 300_000), post('901', 360_000)])
-    const reader = probeReader({ 1: out })
+  it('walks a page whose two posts came back swapped, keeping the order the feed gave', async () => {
+    // What actually stopped the collection: at depth the cafe returned two
+    // ordinary posts swapped, 282 seconds apart, the same two on every read.
+    // Refusing the page walled the walk off from them for days.
+    //
+    // They are stored in the order the feed gave, not sorted: resuming counts
+    // positions in the page as delivered, so re-ordering it here would slice
+    // away a post that sits after the anchor in the feed but ahead of it in
+    // time — losing quietly what this used to refuse loudly.
+    const { repo, persisted, finished } = repository()
+    const swapped = page([post('885450', 300_000), post('885454', 360_000), post('885449', 240_000)])
+    const reader = probeReader({ 1: swapped, 2: page([post('885440', 100_000)]) })
     const result = await createCollectionOrchestrator({
       repository: repo,
       fetcher: { read: (n) => reader.probe(n) },
@@ -126,17 +130,64 @@ describe('collection planning and orchestration', () => {
       isAbortRequested: () => false,
     }).run({
       feed,
-      run: { ...feed, id: 'r1', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 0, targetEndMs: 1_000_000, startedAt: new Date(0) },
+      run: { ...feed, id: 'r1', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 200_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
+      maxPages: 5,
+    })
+
+    expect(result).toMatchObject({ kind: 'succeeded' })
+    expect(finished.some((line) => line.includes('TIMESTAMP_ORDER'))).toBe(false)
+    expect(persisted[0]?.page.items.map((item) => item.postId)).toEqual(['885450', '885454', '885449'])
+  })
+
+  it('still refuses a page whose disorder is too wide to be the cafe wobbling', async () => {
+    // A post bumped or restored carries a time hours or months from its
+    // neighbours. Letting one through would end the walk at a boundary it
+    // never reached, so the tolerance stops well short of that — and the
+    // refusal names both posts, because the distance is what tells the two
+    // faults apart.
+    const { repo, finished } = repository()
+    const wild = page([post('900', 300_000), post('901', 300_000 + 3 * 60 * 60 * 1000)])
+    const reader = probeReader({ 1: wild })
+    const result = await createCollectionOrchestrator({
+      repository: repo,
+      fetcher: { read: (n) => reader.probe(n) },
+      clock: { now: () => 1_000 },
+      random: { intInclusive: (min: number) => min },
+      sleep: () => Promise.resolve(),
+      isSessionBusy: () => false,
+      isAbortRequested: () => false,
+    }).run({
+      feed,
+      run: { ...feed, id: 'r2', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 200_000, targetEndMs: 100_000_000, startedAt: new Date(0) },
       maxPages: 5,
     })
 
     expect(result).toMatchObject({ kind: 'failed', code: 'BOARD_PAGE_TIMESTAMP_ORDER' })
     const reason = finished.at(-1) ?? ''
-    expect(reason).toContain('BOARD_PAGE_TIMESTAMP_ORDER')
     expect(reason).toContain('901')
     expect(reason).toContain('900')
-    // The gap, so a person can tell a two-second wobble from a two-month one.
-    expect(reason).toMatch(/\b60s\b/)
+    expect(reason).toMatch(/\b10800s\b/)
+  })
+
+  it('still refuses a page that carries the same post twice', async () => {
+    const { repo } = repository()
+    const twice = page([post('900', 360_000), post('900', 300_000)])
+    const reader = probeReader({ 1: twice })
+    const result = await createCollectionOrchestrator({
+      repository: repo,
+      fetcher: { read: (n) => reader.probe(n) },
+      clock: { now: () => 1_000 },
+      random: { intInclusive: (min: number) => min },
+      sleep: () => Promise.resolve(),
+      isSessionBusy: () => false,
+      isAbortRequested: () => false,
+    }).run({
+      feed,
+      run: { ...feed, id: 'r3', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 200_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
+      maxPages: 5,
+    })
+
+    expect(result).toMatchObject({ kind: 'failed', code: 'BOARD_PAGE_DUPLICATE_POST' })
   })
 
   it('has deterministic injected delays with the required short and long breaks', () => {
@@ -197,7 +248,7 @@ describe('collection planning and orchestration', () => {
     expect(finished).toEqual(['partial:CAS_CONFLICT_REPOSITION_REQUIRED'])
   })
 
-  it('rejects empty, repeated, or inverted pages rather than treating them as no work', async () => {
+  it('rejects empty and repeated pages, and a page past the end of the feed rather than treating them as no work', async () => {
     await expect(findCollectionStartPage(probeReader({ 1: page([]) }), 290)).rejects.toBeInstanceOf(CollectionPageError)
     await expect(findCollectionStartPage(probeReader({ 1: page([post('newer', 250), post('older', 300)]) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
   })
