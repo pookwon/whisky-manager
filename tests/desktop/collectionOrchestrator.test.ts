@@ -139,15 +139,14 @@ describe('collection planning and orchestration', () => {
     expect(persisted[0]?.page.items.map((item) => item.postId)).toEqual(['885450', '885454', '885449'])
   })
 
-  it('still refuses a page whose disorder is too wide to be the cafe wobbling', async () => {
-    // A post bumped or restored carries a time hours or months from its
-    // neighbours. Letting one through would end the walk at a boundary it
-    // never reached, so the tolerance stops well short of that — and the
-    // refusal names both posts, because the distance is what tells the two
-    // faults apart.
+  it('refuses a page whose last post is not the oldest on it', async () => {
+    // Everything the walk concludes about where it has got to comes from that
+    // one post: the boundary that ends the run and the anchor the next one
+    // resumes from. If it is not the oldest, a run can report success at a
+    // boundary it never reached and leave the rest uncollected.
     const { repo, finished } = repository()
-    const wild = page([post('900', 300_000), post('901', 300_000 + 3 * 60 * 60 * 1000)])
-    const reader = probeReader({ 1: wild })
+    const tailNotOldest = page([post('900', 200_000), post('901', 300_000)])
+    const reader = probeReader({ 1: tailNotOldest })
     const result = await createCollectionOrchestrator({
       repository: repo,
       fetcher: { read: (n) => reader.probe(n) },
@@ -158,21 +157,45 @@ describe('collection planning and orchestration', () => {
       isAbortRequested: () => false,
     }).run({
       feed,
-      run: { ...feed, id: 'r2', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 200_000, targetEndMs: 100_000_000, startedAt: new Date(0) },
+      run: { ...feed, id: 'r2', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 100_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
       maxPages: 5,
     })
 
     expect(result).toMatchObject({ kind: 'failed', code: 'BOARD_PAGE_TIMESTAMP_ORDER' })
     const reason = finished.at(-1) ?? ''
-    expect(reason).toContain('901')
-    expect(reason).toContain('900')
-    expect(reason).toMatch(/\b10800s\b/)
-    // The page's own shape, because one post out of place among forty-nine and
-    // two stretches of the feed spliced together look identical in the pair.
-    // Which page it was, so the response can be looked at directly afterwards.
     expect(reason).toContain('page 1 |')
-    expect(reason).toContain('2 items, 2 runs')
-    expect(reason).toContain('breaks #1(+10800s)')
+    expect(reason).toContain('last 901')
+    expect(reason).toMatch(/\b100s newer\b/)
+  })
+
+  it('walks a page that arrives badly out of order but ends on its oldest post', async () => {
+    // Page 834 of this cafe: fifty posts sampled across 444 article ids and 28
+    // hours, in thirty descending runs, reproducible from a plain read — while
+    // the pages either side are single clean runs. Refusing it stood the
+    // collection still for days and saved nothing: it carries 26 of the 27
+    // posts only it can deliver, and its last post is the true oldest, so the
+    // boundary and the anchor taken from it are right.
+    const { repo, persisted } = repository()
+    const scrambled = page([post('a', 400_000), post('c', 900_000), post('b', 300_000), post('d', 250_000)])
+    const reader = probeReader({ 1: scrambled, 2: page([post('e', 50_000)]) })
+    const result = await createCollectionOrchestrator({
+      repository: repo,
+      fetcher: { read: (n) => reader.probe(n) },
+      clock: { now: () => 1_000 },
+      random: { intInclusive: (min: number) => min },
+      sleep: () => Promise.resolve(),
+      isSessionBusy: () => false,
+      isAbortRequested: () => false,
+    }).run({
+      feed,
+      run: { ...feed, id: 'r1', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 100_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
+      maxPages: 5,
+    })
+
+    expect(result).toMatchObject({ kind: 'succeeded' })
+    // Stored as delivered, so the positions a resume counts still mean what
+    // they meant when the page arrived.
+    expect(persisted[0]?.page.items.map((item) => item.postId)).toEqual(['a', 'c', 'b', 'd'])
   })
 
   it('still refuses a page that carries the same post twice', async () => {

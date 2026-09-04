@@ -1,5 +1,5 @@
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
-import type { CollectedArticlePage, CollectedPostMetadata } from '../shared/cafeArticleList.js'
+import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
 import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
@@ -43,45 +43,38 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
 }
 
 /**
- * How far a page may contradict its own ordering before it is refused.
+ * What the walk actually needs of a page's order, and no more.
  *
- * The walk reads a page as a descending run of times and, on resuming, counts
- * positions in it — so the order the cafe delivers is the coordinate system,
- * not a presentation detail, and sorting the page out from under those counts
- * silently drops posts. The order therefore has to be trusted, and this says
- * how far.
+ * Page 834 of this cafe comes back as fifty posts sampled across 444 article
+ * ids and 28 hours, in thirty descending runs — while 833 and 835 either side
+ * of it are single clean runs. It is reproducible from a plain read of the same
+ * url, so it is the cafe's answer, not something this app did to it. Refusing
+ * it cost days of standing still, and cost nothing else: sorted by id its fifty
+ * posts agree perfectly on time, and it carries 26 of the 27 posts that only it
+ * can deliver — the missing one being an ordinary deletion.
  *
- * At depth the cafe does get it slightly wrong: around page 800 two ordinary
- * posts came back swapped, 282 seconds apart, the same two on every read, and
- * refusing the page walled the walk off from them for days. An hour is far
- * above that.
- *
- * Note what this does not do, because the two are easy to confuse. It fires only
- * on a post NEWER than the one before it. A post carrying a far OLDER time
- * passes untouched — and that is the direction that could actually hurt: the
- * walk decides it is done from the post in the page's last position, so one
- * stray old row there ends it at a boundary it never reached. Nothing guards
- * that today. Ending on the page's newest post instead would, and costs one
- * extra page, but it also moves where the start-page search settles, so it is a
- * deliberate change rather than one to slip in beside a diagnosis.
+ * So adjacent pairs are not checked at all. The walk leans on exactly one
+ * ordering property: the last post of a page is the oldest on it. The boundary
+ * that ends the walk and the anchor the next run resumes from are both taken
+ * from that post, and if it is not the oldest they are both wrong — a run could
+ * report success at a boundary it never reached. That is worth refusing, and it
+ * needs no threshold: the page says whether it is true.
  */
-const PAGE_ORDER_TOLERANCE_MS = 60 * 60 * 1000
-
 function assertPage(page: CollectedArticlePage, requested: number): void {
   if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
   const ids = new Set<string>()
-  let previous: CollectedPostMetadata | null = null
   for (const [index, item] of page.items.entries()) {
     if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `page ${requested} #${index} ${item.postId}`)
-    if (previous !== null && item.postedAt > previous.postedAt + PAGE_ORDER_TOLERANCE_MS) {
-      const aheadSeconds = Math.round((item.postedAt - previous.postedAt) / 1000)
-      throw new CollectionPageError(
-        'BOARD_PAGE_TIMESTAMP_ORDER',
-        `page ${requested} | #${index} ${item.postId}(${kstStamp(item.postedAt)}) is ${aheadSeconds}s after #${index - 1} ${previous.postId}(${kstStamp(previous.postedAt)}) | ${pageShape(page)}`,
-      )
-    }
     ids.add(item.postId)
-    previous = item
+  }
+  const last = page.items.at(-1)
+  const oldestOnPage = Math.min(...page.items.map((item) => item.postedAt))
+  if (last !== undefined && last.postedAt > oldestOnPage) {
+    const aheadSeconds = Math.round((last.postedAt - oldestOnPage) / 1000)
+    throw new CollectionPageError(
+      'BOARD_PAGE_TIMESTAMP_ORDER',
+      `page ${requested} | last ${last.postId}(${kstStamp(last.postedAt)}) is ${aheadSeconds}s newer than the oldest post on the page | ${pageShape(page)}`,
+    )
   }
 }
 

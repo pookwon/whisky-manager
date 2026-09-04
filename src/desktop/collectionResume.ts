@@ -47,12 +47,17 @@ export const RESUME_SCAN_PAGE_LIMIT = 20
 /** Guards against a feed that never satisfies the jump's stop condition. */
 const RESUME_JUMP_LIMIT = 60
 
+// The extremes, not the ends. A page can arrive with its posts out of order —
+// page 834 of this cafe holds fifty of them in thirty descending runs — and
+// then the first post is not the newest on it, which would put the search on
+// the wrong side of the anchor and send it hunting pages it has no reason to
+// read.
 function newest(page: CollectedArticlePage): number {
-  return page.items[0]?.postedAt ?? Number.NEGATIVE_INFINITY
+  return page.items.length === 0 ? Number.NEGATIVE_INFINITY : Math.max(...page.items.map((item) => item.postedAt))
 }
 
 function oldest(page: CollectedArticlePage): number {
-  return page.items.at(-1)?.postedAt ?? Number.POSITIVE_INFINITY
+  return page.items.length === 0 ? Number.POSITIVE_INFINITY : Math.min(...page.items.map((item) => item.postedAt))
 }
 
 /** A page the cafe answered from its newest instead of the one asked for. */
