@@ -167,6 +167,10 @@ describe('collection planning and orchestration', () => {
     expect(reason).toContain('901')
     expect(reason).toContain('900')
     expect(reason).toMatch(/\b10800s\b/)
+    // The page's own shape, because one post out of place among forty-nine and
+    // two stretches of the feed spliced together look identical in the pair.
+    expect(reason).toContain('2 items, 2 runs')
+    expect(reason).toContain('breaks #1(+10800s)')
   })
 
   it('still refuses a page that carries the same post twice', async () => {

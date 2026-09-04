@@ -70,12 +70,37 @@ function assertPage(page: CollectedArticlePage): void {
       const aheadSeconds = Math.round((item.postedAt - previous.postedAt) / 1000)
       throw new CollectionPageError(
         'BOARD_PAGE_TIMESTAMP_ORDER',
-        `#${index} ${item.postId}(${kstStamp(item.postedAt)}) is ${aheadSeconds}s after #${index - 1} ${previous.postId}(${kstStamp(previous.postedAt)})`,
+        `#${index} ${item.postId}(${kstStamp(item.postedAt)}) is ${aheadSeconds}s after #${index - 1} ${previous.postId}(${kstStamp(previous.postedAt)}) | ${pageShape(page)}`,
       )
     }
     ids.add(item.postId)
     previous = item
   }
+}
+
+/**
+ * The whole page's ordering, in one line, for the refusal to carry.
+ *
+ * The offending pair alone cannot tell two very different faults apart. One
+ * post out of place among forty-nine is the cafe mis-ordering neighbours; a
+ * page that falls into two clean descending runs is two stretches of the feed
+ * spliced into one response, and the walk cannot read the second as a
+ * continuation of the first. The count of runs and where they break is what
+ * separates them, so it is gathered at the moment of refusal rather than
+ * guessed at afterwards.
+ */
+function pageShape(page: CollectedArticlePage): string {
+  const times = page.items.map((item) => item.postedAt)
+  const breaks: string[] = []
+  for (let index = 1; index < times.length; index += 1) {
+    const ahead = (times[index] ?? 0) - (times[index - 1] ?? 0)
+    if (ahead > 0) breaks.push(`#${index}(+${Math.round(ahead / 1000)}s)`)
+  }
+  const listed = breaks.slice(0, 5).join(' ')
+  const rest = breaks.length > 5 ? ` and ${breaks.length - 5} more` : ''
+  const oldestMs = Math.min(...times)
+  const newestMs = Math.max(...times)
+  return `${page.items.length} items, ${breaks.length + 1} runs, breaks ${listed}${rest}, spans ${kstStamp(oldestMs)} ~ ${kstStamp(newestMs)}`
 }
 
 /** `MM-DD HH:MM:SS` on the cafe's clock, for a diagnostic a person reads. */
