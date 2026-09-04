@@ -110,6 +110,12 @@ export const TEXT = {
     collectNow: '이어서 수집',
     stop: '중지',
     /** Ignoring the operating hours for the job in hand, and saying so. */
+    /**
+     * Said in full because it sits where '중지' otherwise sits: the two are one
+     * button's worth of space, and an operator glancing at it has to know which
+     * of the two they are looking at without reading the panel around it.
+     */
+    startSchedule: '예약 시작',
     force: '활동 시간 무시',
     forceRelease: '활동 시간 지키기',
     forcedOn: '활동 시간을 무시하고 있습니다. 이 기간을 다 옮기면 저절로 풀립니다.',

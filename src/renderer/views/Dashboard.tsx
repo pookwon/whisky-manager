@@ -257,6 +257,20 @@ export function Dashboard(): React.JSX.Element {
           busy={busy}
           onCollectNow={collectNow}
           onStop={() => void act(() => api.stopCollection())}
+          onStartSchedule={
+            // Offered only when the schedule being off is what the panel is
+            // complaining about. With no job, or one already walked to its end,
+            // turning the schedule on changes nothing — the beat would find
+            // nothing to continue — and the press that helps is the one into
+            // the collection screen, which is the button beside this.
+            schedule === null ||
+            schedule.schedule.enabled ||
+            collection.kind !== 'ready' ||
+            collection.status.job === null ||
+            collection.status.job.complete
+              ? null
+              : () => void act(() => api.setCollectionSchedule({ ...schedule.schedule, enabled: true }))
+          }
           onOpenStatus={() => setRoute({ kind: 'collection', panel: 'status' })}
         />
       )}

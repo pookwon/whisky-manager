@@ -29,6 +29,13 @@ interface CollectionJobProps {
   readonly busy: boolean
   readonly onCollectNow: () => void
   readonly onStop: () => void
+  /**
+   * Null while the schedule is already on. When it is off there is nothing to
+   * stop, so that button's place is given to the press that fixes what the
+   * panel is complaining about — the panel says the schedule is off, and the
+   * switch for it otherwise lives two screens away.
+   */
+  readonly onStartSchedule: (() => void) | null
   readonly onOpenStatus: () => void
 }
 
@@ -106,14 +113,25 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
               >
                 {TEXT.collection.collectNow}
               </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={props.busy || running === null}
-                onClick={props.onStop}
-              >
-                {TEXT.collection.stop}
-              </button>
+              {props.onStartSchedule === null ? (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={props.busy || running === null}
+                  onClick={props.onStop}
+                >
+                  {TEXT.collection.stop}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={props.busy}
+                  onClick={props.onStartSchedule}
+                >
+                  {TEXT.collection.startSchedule}
+                </button>
+              )}
               <button type="button" className="btn" onClick={props.onOpenStatus}>
                 {TEXT.nav.collectionStatus}
               </button>
