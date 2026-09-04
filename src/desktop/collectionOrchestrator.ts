@@ -55,9 +55,12 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
  * sorted by article id.
  *
  * So nothing below reads a post's position. The walk takes what it needs — the
- * oldest post on the page — by looking, and completeness is settled afterwards
- * by the article-id audit, which tells a deleted post (a gap of one or two)
- * from a lost page (a gap of fifty).
+ * oldest post on the page — by looking.
+ *
+ * What is no longer guarded in flight is settled by looking at the stored
+ * article ids afterwards: they are dense and rise with time, so a deleted post
+ * leaves a gap of one or two and a lost page leaves one of fifty. That check is
+ * run by hand against the database today; it is not in this repository.
  */
 function assertPage(page: CollectedArticlePage, requested: number): void {
   if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
@@ -211,7 +214,21 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
       let continuity: ContinuityAnchor | null = null
       while (true) {
         let page = firstPage ?? await reader.collect(pageNumber); firstPage = null
-        if (fallback(page, pageNumber)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
+        if (fallback(page, pageNumber)) {
+          // Asked for a page the feed does not have. Once the walk is under way
+          // that is simply its end: the cafe answers from its newest page, and
+          // there is nothing older left to read. It matters because the walk now
+          // ends on a page's newest post, so it always asks for one page beyond
+          // the last that held anything — and a period reaching back to the
+          // cafe's own beginning would otherwise fail on every run forever.
+          //
+          // Only once under way. The same answer on the first page of a run
+          // means the resume landed somewhere the feed cannot serve, which is a
+          // fault and not an ending.
+          if (continuity === null) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
+          await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
+          return { kind: 'succeeded', pagesStored }
+        }
         if (continuity !== null) {
           const verified = await verifyContinuity(reader, continuity, page, pageNumber, options.run.targetStartMs, deps.clock.now())
           page = verified.page; pageNumber = verified.pageNumber; firstOffset = verified.firstOffset

@@ -108,6 +108,36 @@ describe('collection planning and orchestration', () => {
     await expect(findCollectionStartPage(probeReader({ 1: pages[1]!, 2: page([post('x', 300)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
   })
 
+  it('finishes when the period reaches back to the end of the feed', async () => {
+    // The walk asks for one page beyond the last that held anything, so a
+    // period reaching the cafe's own beginning always asks for a page the feed
+    // does not have. The cafe answers that from its newest page; treating it as
+    // a fault made such a period fail on every run, forever.
+    const { repo, finished } = repository()
+    const pages: Record<number, ReturnType<typeof page>> = {
+      1: page([post('a', 900_000), post('b', 800_000)], 2),
+      2: page([post('c', 700_000), post('d', 600_000)], 2),
+    }
+    const result = await createCollectionOrchestrator({
+      repository: repo,
+      // Past the end the cafe serves its newest page, which is what
+      // `lastNavigationPageNumber` below the requested page reports.
+      fetcher: { read: (n) => Promise.resolve(pages[n] ?? page([post('a', 900_000)], 2)) },
+      clock: { now: () => 1_000 },
+      random: { intInclusive: (min: number) => min },
+      sleep: () => Promise.resolve(),
+      isSessionBusy: () => false,
+      isAbortRequested: () => false,
+    }).run({
+      feed,
+      run: { ...feed, id: 'r9', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 100_000, targetEndMs: 1_000_000, startedAt: new Date(0) },
+      maxPages: 10,
+    })
+
+    expect(result).toMatchObject({ kind: 'succeeded' })
+    expect(finished.some((line) => line.includes('SILENT_FALLBACK'))).toBe(false)
+  })
+
   it('walks a page however the cafe ordered it, and anchors on its oldest post', async () => {
     // Page 834 of this cafe returns fifty posts sampled across hundreds of
     // article ids and many hours, in dozens of descending runs, a different
