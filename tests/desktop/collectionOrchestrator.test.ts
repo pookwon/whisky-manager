@@ -108,6 +108,37 @@ describe('collection planning and orchestration', () => {
     await expect(findCollectionStartPage(probeReader({ 1: pages[1]!, 2: page([post('x', 300)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
   })
 
+  it('names both posts and their distance when a page is out of order', async () => {
+    // The code alone cannot be acted on: seconds apart means the feed's own
+    // ordering is not exactly by write time, months apart means one post was
+    // bumped or restored, and the two are fixed differently. The run list is
+    // where the operator meets this, so the detail rides the stop reason.
+    const { repo, finished } = repository()
+    const out = page([post('900', 300_000), post('901', 360_000)])
+    const reader = probeReader({ 1: out })
+    const result = await createCollectionOrchestrator({
+      repository: repo,
+      fetcher: { read: (n) => reader.probe(n) },
+      clock: { now: () => 1_000 },
+      random: { intInclusive: (min: number) => min },
+      sleep: () => Promise.resolve(),
+      isSessionBusy: () => false,
+      isAbortRequested: () => false,
+    }).run({
+      feed,
+      run: { ...feed, id: 'r1', runKind: 'backfill', resumeFromCheckpoint: false, targetStartMs: 0, targetEndMs: 1_000_000, startedAt: new Date(0) },
+      maxPages: 5,
+    })
+
+    expect(result).toMatchObject({ kind: 'failed', code: 'BOARD_PAGE_TIMESTAMP_ORDER' })
+    const reason = finished.at(-1) ?? ''
+    expect(reason).toContain('BOARD_PAGE_TIMESTAMP_ORDER')
+    expect(reason).toContain('901')
+    expect(reason).toContain('900')
+    // The gap, so a person can tell a two-second wobble from a two-month one.
+    expect(reason).toMatch(/\b60s\b/)
+  })
+
   it('has deterministic injected delays with the required short and long breaks', () => {
     const random = { intInclusive: (min: number) => min }
     expect(collectionDelayMs(1, random)).toBe(0)

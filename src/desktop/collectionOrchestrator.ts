@@ -1,5 +1,5 @@
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
-import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
+import type { CollectedArticlePage, CollectedPostMetadata } from '../shared/cafeArticleList.js'
 import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
@@ -15,7 +15,22 @@ export type CollectionRunResult =
   | { readonly kind: 'cas_conflict'; readonly pagesStored: number; readonly latestState: CollectionFeedState | null }
   | { readonly kind: 'failed'; readonly pagesStored: number; readonly code: string }
 export interface CollectionOrchestratorDeps { readonly repository: CollectionRepository; readonly fetcher: BoardPageFetcher; readonly clock: CollectionClock; readonly random: Random; readonly sleep: (ms: number) => Promise<void>; readonly isSessionBusy: () => boolean; readonly isAbortRequested: () => boolean; readonly onYieldToSession?: () => void }
-export class CollectionPageError extends Error { constructor(readonly code: string) { super(code); this.name = 'CollectionPageError' } }
+/**
+ * `code` is the stable name a screen and a query can match on. `detail` is what
+ * a person needs to see when the code alone does not say what to do — it is
+ * carried into the run's stop reason, so the answer sits in the app's own run
+ * list rather than in a log file nobody opens. It must never carry post titles
+ * or response bodies: identifiers and times only.
+ */
+export class CollectionPageError extends Error {
+  constructor(
+    readonly code: string,
+    readonly detail?: string,
+  ) {
+    super(detail === undefined ? code : `${code}: ${detail}`)
+    this.name = 'CollectionPageError'
+  }
+}
 
 export function createBoardPageFetcher(transport: ExtensionTransport, newRequestId: () => string): BoardPageFetcher {
   return { async read(page) {
@@ -27,10 +42,33 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
   } }
 }
 
+/** `MM-DD HH:MM:SS` on the cafe's clock, for a diagnostic a person reads. */
+function kstStamp(epochMs: number): string {
+  const kst = new Date(epochMs + 9 * 60 * 60 * 1000)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())} ${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}`
+}
+
 function assertPage(page: CollectedArticlePage): void {
   if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
-  const ids = new Set<string>(); let previous = Number.POSITIVE_INFINITY
-  for (const item of page.items) { if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST'); if (item.postedAt > previous) throw new CollectionPageError('BOARD_PAGE_TIMESTAMP_ORDER'); ids.add(item.postId); previous = item.postedAt }
+  const ids = new Set<string>()
+  let previous: CollectedPostMetadata | null = null
+  for (const [index, item] of page.items.entries()) {
+    if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `#${index} ${item.postId}`)
+    // Out of order says the feed is not the descending run of times the walk
+    // reasons about, and the walk cannot tell on its own which of the two posts
+    // is the odd one. Both are named, with how far apart they sit, because
+    // seconds and months mean different faults with different fixes.
+    if (previous !== null && item.postedAt > previous.postedAt) {
+      const aheadSeconds = Math.round((item.postedAt - previous.postedAt) / 1000)
+      throw new CollectionPageError(
+        'BOARD_PAGE_TIMESTAMP_ORDER',
+        `#${index} ${item.postId}(${kstStamp(item.postedAt)}) is ${aheadSeconds}s after #${index - 1} ${previous.postId}(${kstStamp(previous.postedAt)})`,
+      )
+    }
+    ids.add(item.postId)
+    previous = item
+  }
 }
 function oldest(page: CollectedArticlePage): number { const item = page.items.at(-1); if (item === undefined) throw new CollectionPageError('BOARD_PAGE_EMPTY'); return item.postedAt }
 function fallback(page: CollectedArticlePage, requested: number): boolean { return requested > page.pageInfo.lastNavigationPageNumber }
@@ -205,7 +243,11 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
     } catch (error) {
       if (error instanceof CollectionPageError && error.code === 'ABORTED') { await deps.repository.finishRun(options.run.id, 'interrupted', 'ABORTED', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'interrupted', pagesStored, reason: 'ABORTED' } }
       if (error instanceof CollectionPageError && error.code === 'MAX_PAGE_LIMIT') { await deps.repository.finishRun(options.run.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'partial', pagesStored, reason: 'PAGE_BUDGET_SPENT' } }
-      const code = error instanceof CollectionPageError ? error.code : 'COLLECTION_FAILURE'; await deps.repository.finishRun(options.run.id, 'failed', code, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, code }
+      const code = error instanceof CollectionPageError ? error.code : 'COLLECTION_FAILURE'
+      // The stop reason carries the detail so the run list itself explains the
+      // failure; the returned code stays bare for callers that match on it.
+      const stopReason = error instanceof CollectionPageError && error.detail !== undefined ? `${code}: ${error.detail}` : code
+      await deps.repository.finishRun(options.run.id, 'failed', stopReason, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, code }
     }
   } }
 }
