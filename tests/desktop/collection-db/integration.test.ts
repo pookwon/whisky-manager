@@ -13,6 +13,7 @@ import { createMemberRepository } from '../../../src/desktop/collection-db/membe
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 import { members } from '../../../src/desktop/collection-db/memberSchema.js'
+import { collectionRuns } from '../../../src/desktop/collection-db/schema.js'
 import { eq } from 'drizzle-orm'
 
 const testDatabaseUrl = process.env.COLLECTION_TEST_DATABASE_URL?.trim()
@@ -482,5 +483,44 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(read.job?.boards[0]).toMatchObject({ queueOrder: 1, boardId: first.feed.menuId, name: first.boardName, state: 'walking', insertedPostCount: 0 })
     expect(read.job?.boards[1]).toMatchObject({ queueOrder: 2, state: 'waiting', cursorPostedAtMs: null })
     expect(read.running?.boardName).toBe(first.boardName)
+  })
+
+  it('reports a board as failed even when its run falls outside the recent-run window', async () => {
+    const repository = createCollectionRepository(connection.db)
+    const status = createCollectionStatusQuery(connection.db)
+
+    // The previous test left a run in flight on the first board; finish it so we can
+    // replace the job without hitting the running-run guard.
+    const feeds = await repository.listFeedStates()
+    const inFlight = await connection.db.select({ id: collectionRuns.id, menuId: collectionRuns.menuId }).from(collectionRuns).where(eq(collectionRuns.status, 'running')).limit(1)
+    if (inFlight[0] !== undefined) {
+      await repository.finishRun(inFlight[0].id, 'interrupted', 'TEST_SETUP', new Date(9_000))
+    }
+    const first = feeds[0]!
+    const second = feeds[1]!
+
+    // Start and fail the first board's run.
+    const failedRunId = randomUUID()
+    const failedState = await repository.startRun({ ...first.feed, id: failedRunId, runKind: 'development', resumeFromCheckpoint: true, targetStartMs: first.targetStartMs, targetEndMs: first.targetEndMs, startedAt: new Date(11_000) })
+    await repository.persistPage({ feed: first.feed, runId: failedRunId, observedAt: new Date(12_000), referencePage: 1, expectedState: failedState, page: { ...page, items: page.items.filter((item) => item.boardId === first.feed.menuId) } })
+    await repository.finishRun(failedRunId, 'failed', 'BOARD_PAGE_HTTP_ERROR', new Date(13_000))
+
+    // Push more than 24 runs on the second board so the first board's run falls outside
+    // the RECENT_RUN_LIMIT window that the recent-run list covers.
+    let t = 14_000
+    for (let i = 0; i < 25; i++) {
+      const id = randomUUID()
+      await repository.startRun({ ...second.feed, id, runKind: 'development', resumeFromCheckpoint: true, targetStartMs: second.targetStartMs, targetEndMs: second.targetEndMs, startedAt: new Date(t) })
+      t += 1_000
+      await repository.finishRun(id, 'partial', 'PAGE_BUDGET_SPENT', new Date(t))
+      t += 1_000
+    }
+
+    const result = await status.read()
+    // The first board's latest run failed; it must show as failed even though its run is
+    // beyond the RECENT_RUN_LIMIT window pushed out by the second board's 25 runs.
+    expect(result.job?.boards[0]).toMatchObject({ boardId: first.feed.menuId, state: 'failed' })
+    // The second board ran 25 partial runs but wrote no page, so it has no anchor → waiting.
+    expect(result.job?.boards[1]).toMatchObject({ boardId: second.feed.menuId, state: 'waiting' })
   })
 })

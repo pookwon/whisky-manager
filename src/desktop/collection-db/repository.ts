@@ -130,6 +130,16 @@ function toFeedState(row: FeedStateRow): CollectionFeedState {
   }
 }
 
+/** Maps a feed_state row plus its joined board name into a StoredFeedState. */
+export function toStoredFeedState(row: FeedStateRow, boardName: string | null): StoredFeedState {
+  return {
+    ...toFeedState(row),
+    feed: { feedKind: row.feedKind as CollectionFeedKind, menuId: row.menuId },
+    queueOrder: row.queueOrder,
+    boardName,
+  }
+}
+
 /** Thrown inside the transaction so every page write rolls back on CAS failure. */
 class FeedStateConflictError extends Error {
   constructor() {

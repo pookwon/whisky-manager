@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { CollectionDatabase } from './client.js'
 import type { CollectionFeedKind, StoredFeedState } from './repository.js'
+import { toStoredFeedState } from './repository.js'
 import { describeJob } from '../collectionScope.js'
 import { boards, collectionRuns, feedState, posts } from './schema.js'
 
@@ -170,22 +171,9 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           .limit(RECENT_RUN_LIMIT),
       ])
 
-      const storedFeedStates: StoredFeedState[] = feedStateRows.map(({ state, boardName }) => ({
-        stateVersion: state.stateVersion,
-        targetStartMs: state.targetStartMs,
-        targetEndMs: state.targetEndMs,
-        anchorPostId: state.anchorPostId,
-        anchorPostedAtMs: state.anchorPostedAt?.getTime() ?? null,
-        referencePage: state.referencePage,
-        pageIdentity: state.pageIdentity,
-        cursorUpdatedAtMs: state.updatedAt.getTime(),
-        complete: state.completedAt !== null,
-        forced: state.forcedAt !== null,
-        horizonReached: state.horizonReachedAt !== null,
-        feed: { feedKind: state.feedKind as CollectionFeedKind, menuId: state.menuId },
-        queueOrder: state.queueOrder,
-        boardName,
-      }))
+      const storedFeedStates: StoredFeedState[] = feedStateRows.map(({ state, boardName }) =>
+        toStoredFeedState(state, boardName),
+      )
 
       const job = describeJob(storedFeedStates)
 
@@ -230,21 +218,29 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           }
         }
 
-        // Build a lookup: feed key → most recent run status for determining board state.
+        // Fetch each board feed's latest run status directly so boards beyond the
+        // recent-run window are not misread as walking when they last failed.
+        const latestBoardRunResult = await db.execute<{ menu_id: string; status: string }>(
+          sql`select distinct on (${collectionRuns.menuId})
+                ${collectionRuns.menuId},
+                ${collectionRuns.status}
+              from ${collectionRuns}
+              where ${collectionRuns.feedKind} = 'board'
+                and ${collectionRuns.targetStartMs} = ${job.targetStartMs}
+                and ${collectionRuns.targetEndMs} = ${job.targetEndMs}
+              order by ${collectionRuns.menuId}, ${collectionRuns.startedAt} desc`,
+        )
+
         const runningFeedKey = new Set<string>()
         const lastFailedFeedKey = new Set<string>()
-        for (const run of [...runs].reverse()) {
-          const key = `${run.feedKind}:${run.menuId}`
-          if (run.status === 'running') runningFeedKey.add(key)
+        for (const row of latestBoardRunResult.rows) {
+          const key = `board:${row.menu_id as string}`
+          if (row.status === 'running') runningFeedKey.add(key)
+          if (row.status === 'failed') lastFailedFeedKey.add(key)
         }
-        // Walk forward to find last run status per feed.
-        const lastRunStatus = new Map<string, string>()
-        for (const run of [...runs].reverse()) {
-          lastRunStatus.set(`${run.feedKind}:${run.menuId}`, run.status)
-        }
-        // The runs list is newest-first; reverse gives oldest-first so last written wins as newest.
-        for (const [key, status] of lastRunStatus) {
-          if (status === 'failed') lastFailedFeedKey.add(key)
+        // Also track any in-flight run from the recent list (covers non-board feeds).
+        for (const run of runs) {
+          if (run.status === 'running') runningFeedKey.add(`${run.feedKind}:${run.menuId}`)
         }
 
         const boardProgressList: BoardProgress[] = job.feeds
