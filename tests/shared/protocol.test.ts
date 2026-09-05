@@ -74,6 +74,15 @@ describe('board page messages', () => {
       }),
     ).toBe(true)
   })
+
+  it('accepts a board-page reply whose list carries no total, as a board\'s own list does', () => {
+    expect(
+      isExtensionMessage({
+        type: 'BOARD_PAGE_COLLECTED', requestId: 'board-2', page: 1,
+        result: { items: [], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: null }, pageIdentity: 'empty' },
+      }),
+    ).toBe(true)
+  })
 })
 
 describe('isAppMessage', () => {

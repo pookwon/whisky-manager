@@ -168,9 +168,15 @@ function assertPersistablePage(input: PersistCollectedPageInput): readonly Colle
   return input.page.items
 }
 
+/**
+ * Only items that name their board can teach the boards table anything. A
+ * board's own list never names it, and that board is already known: the job
+ * was made from the boards table in the first place.
+ */
 function boardRows(items: readonly CollectedPostMetadata[], observedAt: Date) {
   const rows = new Map<string, { boardId: string; name: string; firstSeenAt: Date; lastSeenAt: Date }>()
   for (const item of items) {
+    if (item.boardName === null) continue
     rows.set(item.boardId, {
       boardId: item.boardId,
       name: item.boardName,
@@ -366,13 +372,16 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           const insertedPostCount = items.filter((item) => !existingPostIds.has(item.postId)).length
           const updatedPostCount = items.length - insertedPostCount
 
-          await tx
-            .insert(boards)
-            .values(boardRows(items, input.observedAt))
-            .onConflictDoUpdate({
-              target: boards.boardId,
-              set: { name: sql`excluded.name`, lastSeenAt: input.observedAt },
-            })
+          const namedBoards = boardRows(items, input.observedAt)
+          if (namedBoards.length > 0) {
+            await tx
+              .insert(boards)
+              .values(namedBoards)
+              .onConflictDoUpdate({
+                target: boards.boardId,
+                set: { name: sql`excluded.name`, lastSeenAt: input.observedAt },
+              })
+          }
 
           // The post and its reading are one row, so a re-read updates in
           // place: the counters move, and `firstSeenAt` stays what it was.

@@ -9,7 +9,8 @@ export interface CollectedPostMetadata {
   readonly cafeId: string
   readonly postId: string
   readonly boardId: string
-  readonly boardName: string
+  /** Null when the list did not name it, which a board's own list never does. */
+  readonly boardName: string | null
   readonly title: string | null
   readonly prefix: string | null
   readonly authorId: string | null
@@ -26,7 +27,8 @@ export interface CollectedPostMetadata {
 export interface CafeArticlePageInfo {
   readonly lastNavigationPageNumber: number
   readonly visibleNextButton: boolean
-  readonly totalArticleCount: number
+  /** The whole-cafe list reports it; a board's own list does not. */
+  readonly totalArticleCount: number | null
 }
 
 export interface CollectedArticlePage {
@@ -157,13 +159,16 @@ function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
   const writerInfo = record(item.writerInfo, `${path}.item.writerInfo`, 'INVALID_ARTICLE')
 
   const prefix = prefixOf(item, `${path}.item`)
-  const boardName = nullableString(item, 'menuName', `${path}.item`, 'INVALID_ARTICLE')
+  // The whole-cafe list names each item's board; a board's own list, where
+  // every item is that board's, leaves it out. Present-but-null is still a
+  // fault: the field was sent and says nothing.
+  const boardName = optionalNullableString(item, 'menuName', `${path}.item`, 'INVALID_ARTICLE')
   if (boardName === null) fail('INVALID_ARTICLE', `${path}.item.menuName must not be null`)
   return {
     cafeId: String(safeInteger(item, 'cafeId', `${path}.item`, 1, 'INVALID_ARTICLE')),
     postId: String(safeInteger(item, 'articleId', `${path}.item`, 1, 'INVALID_ARTICLE')),
     boardId: String(safeInteger(item, 'menuId', `${path}.item`, 0, 'INVALID_ARTICLE')),
-    boardName,
+    boardName: boardName ?? null,
     title: titleOf(item, `${path}.item`),
     prefix,
     authorId: nullableString(writerInfo, 'memberKey', `${path}.item.writerInfo`, 'INVALID_ARTICLE'),
@@ -185,7 +190,7 @@ function parsePageInfo(value: unknown): CafeArticlePageInfo {
   return {
     lastNavigationPageNumber: safeInteger(pageInfo, 'lastNavigationPageNumber', 'result.pageInfo', 1, 'INVALID_PAGE_INFO'),
     visibleNextButton,
-    totalArticleCount: safeInteger(pageInfo, 'totalArticleCount', 'result.pageInfo', 0, 'INVALID_PAGE_INFO'),
+    totalArticleCount: pageInfo.totalArticleCount === undefined ? null : safeInteger(pageInfo, 'totalArticleCount', 'result.pageInfo', 0, 'INVALID_PAGE_INFO'),
   }
 }
 

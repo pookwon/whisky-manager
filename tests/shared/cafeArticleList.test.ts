@@ -117,6 +117,31 @@ describe('parseCafeArticleList', () => {
   })
 })
 
+describe('parseCafeArticleList on a board\'s own list', () => {
+  // A board's own list (menus/<id>) carries no menuName on its items and no
+  // totalArticleCount in pageInfo. Measured 2026-09-05 on menu 137.
+  function boardShaped(): unknown {
+    const value = JSON.parse(fixture('cafe-article-list-page-1.json')) as { result: { articleList: { item: Record<string, unknown> }[]; pageInfo: Record<string, unknown> } }
+    for (const entry of value.result.articleList) {
+      delete entry.item.menuName
+      delete entry.item.menuType
+    }
+    delete value.result.pageInfo.totalArticleCount
+    return value
+  }
+
+  it('accepts items without a board name and a page without a total', () => {
+    const page = parseCafeArticleList(boardShaped())
+    expect(page.items).toHaveLength(50)
+    expect(page.items.every((item) => item.boardName === null)).toBe(true)
+    expect(page.pageInfo).toEqual({ lastNavigationPageNumber: 10, visibleNextButton: true, totalArticleCount: null })
+  })
+
+  it('still refuses a board name that is present but null', () => {
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: { ...validArticle(), menuName: null } }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
+  })
+})
+
 function validPageInfo() {
   return { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 1 }
 }

@@ -237,7 +237,7 @@ function isBoardPageCollected(value: unknown): value is Extract<ExtensionMessage
     pageInfo !== null &&
     typeof pageInfo?.lastNavigationPageNumber === 'number' &&
     typeof pageInfo.visibleNextButton === 'boolean' &&
-    typeof pageInfo.totalArticleCount === 'number'
+    (typeof pageInfo.totalArticleCount === 'number' || pageInfo.totalArticleCount === null)
   )
 }
 
