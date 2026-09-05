@@ -197,7 +197,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
       let collectionJob: CollectionJob | null = null
       if (job !== null) {
         // Determine board-level inserted post counts when needed.
-        let boardInsertedCounts = new Map<string, number>()
+        const boardInsertedCounts = new Map<string, number>()
         if (job.scope === 'board') {
           const countRows = await db
             .select({
