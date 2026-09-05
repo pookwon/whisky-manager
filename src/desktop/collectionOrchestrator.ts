@@ -220,7 +220,17 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
       // The cursor is real and the feed no longer serves the page it points
       // at. Finding the period afresh from its top would re-read everything
       // this job already holds; ending here leaves the reason on the run.
-      if (resumed?.kind === 'unusable') throw new CollectionPageError('RESUME_POSITION_LOST')
+      if (resumed?.kind === 'unusable') {
+        // A cursor written at the last page the cafe serves cannot be found
+        // again once it drifts past that page — the feed answers from page 1
+        // instead. That is the horizon, not a fault.
+        if (state.referencePage !== null && state.referencePage >= FEED_HORIZON_PAGE) {
+          await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
+          await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
+          return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
+        }
+        throw new CollectionPageError('RESUME_POSITION_LOST')
+      }
       if (resumed?.kind === 'found') { pageNumber = resumed.page; firstOffset = resumed.offset; firstPage = resumed.candidate }
       else { const searched = await findCollectionStartPage(reader, options.run.targetEndMs); pageNumber = searched.page }
       let continuity: ContinuityAnchor | null = null

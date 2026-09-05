@@ -466,18 +466,36 @@ describe('collection planning and orchestration', () => {
   })
 
   it('ends the run, not the job, when the cursor cannot be found again', async () => {
+    // The anchor drifted off page 500; page 501 answers with page 1
+    // (lastNavigationPageNumber 10 < 501), so the resume scan falls back and
+    // returns unusable. referencePage 500 is below the horizon, so this is a
+    // genuine lost-cursor fault, not the feed's limit.
+    const { repo, finished, persisted } = repositoryWithCheckpoint({ anchorPostId: 'anchor', anchorPostedAtMs: 250, referencePage: 500, stateVersion: 3 })
+    const pages: Record<number, ReturnType<typeof page>> = {
+      1: page([post('n1', 289), post('n2', 288)], 10),
+      500: page([post('p1', 260), post('p2', 255)], 1000),
+    }
+    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n) => pages[n] ?? pages[1]! } })
+    const result = await orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'failed', code: 'RESUME_POSITION_LOST' })
+    expect(finished).toEqual(['failed:RESUME_POSITION_LOST'])
+    expect(persisted).toHaveLength(0)
+  })
+
+  it('records the cafe horizon when a cursor written at the last servable page cannot be found again', async () => {
     // Page 1000 was the last the cafe served; overnight the anchor drifted
-    // past it, and page 1001 answers with page 1. Walking the period again
-    // from its top is what this used to do — 650 pages of posts already held.
-    const { repo, finished, persisted } = repositoryWithCheckpoint({ anchorPostId: 'anchor', anchorPostedAtMs: 250, referencePage: 1000, stateVersion: 3 })
+    // past it, and page 1001 answers with page 1. referencePage 1000 is at
+    // the horizon, so this is the feed's limit, not a fault.
+    const { repo, finished, persisted, horizon } = repositoryWithCheckpoint({ anchorPostId: 'anchor', anchorPostedAtMs: 250, referencePage: 1000, stateVersion: 3 })
     const pages: Record<number, ReturnType<typeof page>> = {
       1: page([post('n1', 289), post('n2', 288)], 10),
       1000: page([post('p1', 260), post('p2', 255)], 1000),
     }
     const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n) => pages[n] ?? pages[1]! } })
     const result = await orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 30 })
-    expect(result).toMatchObject({ kind: 'failed', code: 'RESUME_POSITION_LOST' })
-    expect(finished).toEqual(['failed:RESUME_POSITION_LOST'])
+    expect(result).toMatchObject({ kind: 'partial', reason: 'FEED_HORIZON' })
+    expect(finished).toEqual(['partial:FEED_HORIZON'])
+    expect(horizon).toEqual([feed])
     expect(persisted).toHaveLength(0)
   })
 
