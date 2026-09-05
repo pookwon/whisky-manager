@@ -50,7 +50,7 @@ describe('board page messages', () => {
     viewType: 'L' as const,
   }
 
-  it('accepts only the fixed menu=0, 50-row request contract', () => {
+  it('accepts only the fixed cafe, 50-row, TIME/L request contract', () => {
     expect(isAppMessage(request)).toBe(true)
     expect(isAppMessage({ ...request, page: 0 })).toBe(false)
     expect(isAppMessage({ ...request, cafeId: 'other' })).toBe(false)

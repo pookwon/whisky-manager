@@ -1,6 +1,5 @@
 import type { Random } from '../shared/ports.js'
 import type { CollectionRange } from '../shared/collectionSchedule.js'
-import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import type { CollectionFeed, CollectionRepository } from './collection-db/repository.js'
 import {
   createBoardPageFetcher,
@@ -10,12 +9,6 @@ import {
 } from './collectionOrchestrator.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { ExtensionTransport } from './ws/server.js'
-
-/** The one feed Phase 1 reads, taken from the endpoint contract itself. */
-export const ALL_ARTICLES_FEED: CollectionFeed = {
-  feedKind: 'all_articles',
-  menuId: CAFE_ARTICLE_LIST.menuId,
-}
 
 export type CollectionRunKind = 'backfill' | 'incremental'
 
