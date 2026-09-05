@@ -240,6 +240,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           range,
           kind: 'backfill',
           maxPages: pagesPerWorkBlock(schedule.workBlockMinutes),
+          feeds: [ALL_ARTICLES_FEED],
           resumeFromCheckpoint,
         })
         return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }

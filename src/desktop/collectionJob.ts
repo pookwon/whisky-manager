@@ -41,6 +41,7 @@ export function createArticleCollectionJob(deps: {
         range: { startMs: last.targetStartMs, endMs: last.targetEndMs },
         kind: 'incremental',
         maxPages,
+        feeds: [deps.feed],
         resumeFromCheckpoint: true,
       })
     },

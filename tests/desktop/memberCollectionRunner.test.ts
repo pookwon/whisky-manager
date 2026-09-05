@@ -111,7 +111,7 @@ describe('shared lock contention between article and member runners', () => {
     expect(lock.isHeld()).toBe(true)
 
     // B (article runner) is refused while A (member runner) is in flight.
-    expect(runnerB.start({ range: { startMs: 0, endMs: 1_000 }, kind: 'backfill', maxPages: 10 })).toEqual({ kind: 'refused', reason: 'ALREADY_RUNNING' })
+    expect(runnerB.start({ range: { startMs: 0, endMs: 1_000 }, kind: 'backfill', maxPages: 10, feeds: [] })).toEqual({ kind: 'refused', reason: 'ALREADY_RUNNING' })
 
     // Release A and let the orchestrator finish.
     releaseA()
@@ -119,7 +119,7 @@ describe('shared lock contention between article and member runners', () => {
     expect(lock.isHeld()).toBe(false)
 
     // B succeeds now that the lock is free.
-    const secondStart = runnerB.start({ range: { startMs: 0, endMs: 1_000 }, kind: 'backfill', maxPages: 10 })
+    const secondStart = runnerB.start({ range: { startMs: 0, endMs: 1_000 }, kind: 'backfill', maxPages: 10, feeds: [] })
     expect(secondStart).toEqual({ kind: 'started' })
     await new Promise((r) => setTimeout(r, 50)) // let B's run finish
   })
