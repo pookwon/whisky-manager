@@ -1,5 +1,6 @@
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../shared/cafeArticleList.js'
+import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
@@ -9,11 +10,17 @@ export interface CollectionClock { now(): number }
 export interface BoardPageFetcher { read(page: number): Promise<CollectedArticlePage> }
 export interface CollectionRunOptions { readonly feed: CollectionFeed; readonly run: CreateCollectionRunInput; readonly maxPages: number; readonly maxProbePages?: number }
 export type CollectionRunResult =
-  | { readonly kind: 'succeeded'; readonly pagesStored: number }
-  | { readonly kind: 'partial'; readonly pagesStored: number; readonly reason: 'PAGE_BUDGET_SPENT' }
-  | { readonly kind: 'interrupted'; readonly pagesStored: number; readonly reason: 'ABORTED' }
-  | { readonly kind: 'cas_conflict'; readonly pagesStored: number; readonly latestState: CollectionFeedState | null }
-  | { readonly kind: 'failed'; readonly pagesStored: number; readonly code: string }
+  | { readonly kind: 'succeeded'; readonly pagesStored: number; readonly requests: number }
+  | { readonly kind: 'partial'; readonly pagesStored: number; readonly requests: number; readonly reason: 'PAGE_BUDGET_SPENT' | 'FEED_HORIZON' }
+  | { readonly kind: 'interrupted'; readonly pagesStored: number; readonly requests: number; readonly reason: 'ABORTED' }
+  | { readonly kind: 'cas_conflict'; readonly pagesStored: number; readonly requests: number; readonly latestState: CollectionFeedState | null }
+  | { readonly kind: 'failed'; readonly pagesStored: number; readonly requests: number; readonly code: string }
+
+/**
+ * The last page the cafe serves of any list. Asking beyond it answers with
+ * page 1. Measured 2026-09-05 on the whole-cafe list and three boards.
+ */
+export const FEED_HORIZON_PAGE = 1000
 export interface CollectionOrchestratorDeps { readonly repository: CollectionRepository; readonly fetcher: BoardPageFetcher; readonly clock: CollectionClock; readonly random: Random; readonly sleep: (ms: number) => Promise<void>; readonly isSessionBusy: () => boolean; readonly isAbortRequested: () => boolean; readonly onYieldToSession?: () => void }
 /**
  * `code` is the stable name a screen and a query can match on. `detail` is what
@@ -32,9 +39,9 @@ export class CollectionPageError extends Error {
   }
 }
 
-export function createBoardPageFetcher(transport: ExtensionTransport, newRequestId: () => string): BoardPageFetcher {
+export function createBoardPageFetcher(transport: ExtensionTransport, newRequestId: () => string, menuId: string): BoardPageFetcher {
   return { async read(page) {
-    const message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }> = { type: 'COLLECT_BOARD_PAGE', requestId: newRequestId(), cafeId: '14538121', menuId: '0', page, pageSize: 50, sortBy: 'TIME', viewType: 'L' }
+    const message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }> = { type: 'COLLECT_BOARD_PAGE', requestId: newRequestId(), cafeId: CAFE_ARTICLE_LIST.cafeId, menuId, page, pageSize: CAFE_ARTICLE_LIST.pageSize, sortBy: CAFE_ARTICLE_LIST.sortBy, viewType: CAFE_ARTICLE_LIST.viewType }
     const reply = await transport.request(message, TIMEOUTS.boardPageMs)
     if (reply.type === 'BOARD_PAGE_COLLECTED') return reply.result
     if (reply.type === 'ERROR') throw new CollectionPageError(reply.code)
@@ -186,10 +193,11 @@ async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnc
 export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
   return { async run(options: CollectionRunOptions): Promise<CollectionRunResult> {
     let pagesStored = 0
+    let reader: ScheduledReader | null = null
     try {
       if (options.run.feedKind !== options.feed.feedKind || options.run.menuId !== options.feed.menuId) throw new CollectionPageError('RUN_FEED_MISMATCH')
       const initial = await deps.repository.startRun(options.run)
-      const reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 64)
+      reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 64)
       let state: CollectionFeedState = initial
       let pageNumber: number; let firstOffset = 0; let firstPage: CollectedArticlePage | null = null
       const resumed = state.anchorPostId !== null && state.anchorPostedAtMs !== null && state.referencePage !== null
@@ -207,7 +215,21 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         : null
       if (resumed?.kind === 'complete') {
         await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
-        return { kind: 'succeeded', pagesStored }
+        return { kind: 'succeeded', pagesStored, requests: reader.reads }
+      }
+      // The cursor is real and the feed no longer serves the page it points
+      // at. Finding the period afresh from its top would re-read everything
+      // this job already holds; ending here leaves the reason on the run.
+      if (resumed?.kind === 'unusable') {
+        // A cursor written at the last page the cafe serves cannot be found
+        // again once it drifts past that page — the feed answers from page 1
+        // instead. That is the horizon, not a fault.
+        if (state.referencePage !== null && state.referencePage >= FEED_HORIZON_PAGE) {
+          await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
+          await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
+          return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
+        }
+        throw new CollectionPageError('RESUME_POSITION_LOST')
       }
       if (resumed?.kind === 'found') { pageNumber = resumed.page; firstOffset = resumed.offset; firstPage = resumed.candidate }
       else { const searched = await findCollectionStartPage(reader, options.run.targetEndMs); pageNumber = searched.page }
@@ -226,8 +248,17 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
           // means the resume landed somewhere the feed cannot serve, which is a
           // fault and not an ending.
           if (continuity === null) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
+          // Under way, a page the feed does not have is the end of the feed.
+          // Which end matters: below the cafe's last servable page there may
+          // be more, and calling that the period's end would mark a job done
+          // that is not.
+          if (continuity.page >= FEED_HORIZON_PAGE) {
+            await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
+            await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
+            return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
+          }
           await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
-          return { kind: 'succeeded', pagesStored }
+          return { kind: 'succeeded', pagesStored, requests: reader.reads }
         }
         if (continuity !== null) {
           const verified = await verifyContinuity(reader, continuity, page, pageNumber, options.run.targetStartMs, deps.clock.now())
@@ -249,7 +280,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
           // this walk, so the page number it is holding no longer addresses
           // what it thinks. Ending lets the next run find its place again from
           // the cursor rather than writing from a position already known stale.
-          if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, latestState } }
+          if (stored.kind === 'conflict') { const latestState = await deps.repository.readFeedState(options.feed); await deps.repository.finishRun(options.run.id, 'partial', 'CAS_CONFLICT_REPOSITION_REQUIRED', new Date(deps.clock.now())); return { kind: 'cas_conflict', pagesStored, requests: reader.reads, latestState } }
           const committed = oldestInRange
           state = {
             stateVersion: stored.nextStateVersion,
@@ -257,6 +288,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
             // A page just landed, so the walk is by definition not finished.
             complete: false,
             forced: state.forced,
+            horizonReached: state.horizonReached,
             referencePage: pageNumber,
             pageIdentity: page.pageIdentity,
             anchorPostedAtMs: committed?.postedAt ?? null,
@@ -277,18 +309,18 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         // leaving everything below uncollected while the run reported success.
         // Waiting for the whole page to fall below costs one more page.
         const tail = oldestPost(page)
-        if (newestPostedAt(page) < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored } }
+        if (newestPostedAt(page) < options.run.targetStartMs) { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored, requests: reader.reads } }
         continuity = { page: pageNumber, postId: tail.postId, postedAtMs: tail.postedAt, pageIdentity: page.pageIdentity }
         pageNumber += 1
       }
     } catch (error) {
-      if (error instanceof CollectionPageError && error.code === 'ABORTED') { await deps.repository.finishRun(options.run.id, 'interrupted', 'ABORTED', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'interrupted', pagesStored, reason: 'ABORTED' } }
-      if (error instanceof CollectionPageError && error.code === 'MAX_PAGE_LIMIT') { await deps.repository.finishRun(options.run.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'partial', pagesStored, reason: 'PAGE_BUDGET_SPENT' } }
+      if (error instanceof CollectionPageError && error.code === 'ABORTED') { await deps.repository.finishRun(options.run.id, 'interrupted', 'ABORTED', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'interrupted', pagesStored, requests: reader?.reads ?? 0, reason: 'ABORTED' } }
+      if (error instanceof CollectionPageError && error.code === 'MAX_PAGE_LIMIT') { await deps.repository.finishRun(options.run.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'partial', pagesStored, requests: reader?.reads ?? 0, reason: 'PAGE_BUDGET_SPENT' } }
       const code = error instanceof CollectionPageError ? error.code : 'COLLECTION_FAILURE'
       // The stop reason carries the detail so the run list itself explains the
       // failure; the returned code stays bare for callers that match on it.
       const stopReason = error instanceof CollectionPageError && error.detail !== undefined ? `${code}: ${error.detail}` : code
-      await deps.repository.finishRun(options.run.id, 'failed', stopReason, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, code }
+      await deps.repository.finishRun(options.run.id, 'failed', stopReason, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, requests: reader?.reads ?? 0, code }
     }
   } }
 }

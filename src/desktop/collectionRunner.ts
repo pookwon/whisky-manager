@@ -1,6 +1,5 @@
 import type { Random } from '../shared/ports.js'
 import type { CollectionRange } from '../shared/collectionSchedule.js'
-import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import type { CollectionFeed, CollectionRepository } from './collection-db/repository.js'
 import {
   createBoardPageFetcher,
@@ -11,19 +10,16 @@ import {
 import type { CollectionLock } from './collectionLock.js'
 import type { ExtensionTransport } from './ws/server.js'
 
-/** The one feed Phase 1 reads, taken from the endpoint contract itself. */
-export const ALL_ARTICLES_FEED: CollectionFeed = {
-  feedKind: 'all_articles',
-  menuId: CAFE_ARTICLE_LIST.menuId,
-}
-
 export type CollectionRunKind = 'backfill' | 'incremental'
 
 export interface CollectionStartRequest {
   readonly range: CollectionRange
   readonly kind: CollectionRunKind
+  /** Pages this block may ask for, shared across every feed it walks. */
   readonly maxPages: number
-  /** Whether to resume from the feed's checkpoint (for continuing jobs). */
+  /** In walking order. A whole-cafe job is one; a board job is what remains of its queue. */
+  readonly feeds: readonly CollectionFeed[]
+  /** Whether to resume from each feed's checkpoint (for continuing jobs). */
   readonly resumeFromCheckpoint?: boolean
 }
 
@@ -58,7 +54,8 @@ export interface CollectionRunnerDeps {
   readonly isSessionBusy: () => boolean
   readonly lock: CollectionLock
   readonly newId: () => string
-  readonly onFinished?: (result: CollectionRunResult) => void
+  /** Called once per block, with every feed's result in walking order. */
+  readonly onFinished?: (results: readonly CollectionRunResult[]) => void
   readonly onError?: (error: unknown) => void
 }
 
@@ -78,6 +75,47 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
   let inFlight: Promise<void> | null = null
   let abortRequested = false
 
+  /**
+   * One block over a queue of feeds. Small boards would otherwise each cost a
+   * whole block — twenty of this cafe's boards hold under a hundred posts —
+   * so a feed that ends hands its unused budget to the next. A failure moves
+   * on too: one board's bad page is no reason to hold the other thirty-seven.
+   * A stop does not; it is the operator asking for quiet.
+   */
+  async function walk(request: CollectionStartRequest, repository: CollectionRepository): Promise<readonly CollectionRunResult[]> {
+    const results: CollectionRunResult[] = []
+    let spent = 0
+    for (const feed of request.feeds) {
+      if (abortRequested || spent >= request.maxPages) break
+      const orchestrator = createCollectionOrchestrator({
+        repository,
+        fetcher: createBoardPageFetcher(deps.transport, deps.newId, feed.menuId),
+        clock: deps.clock,
+        random: deps.random,
+        sleep: deps.sleep,
+        isSessionBusy: deps.isSessionBusy,
+        isAbortRequested: () => abortRequested,
+      })
+      const result = await orchestrator.run({
+        feed,
+        run: {
+          ...feed,
+          id: deps.newId(),
+          runKind: request.kind === 'backfill' ? 'backfill' : 'incremental',
+          resumeFromCheckpoint: request.resumeFromCheckpoint ?? false,
+          targetStartMs: request.range.startMs,
+          targetEndMs: request.range.endMs,
+          startedAt: new Date(deps.clock.now()),
+        },
+        maxPages: request.maxPages - spent,
+      })
+      results.push(result)
+      spent += result.requests
+      if (result.kind === 'interrupted') break
+    }
+    return results
+  }
+
   return {
     start(request) {
       if (inFlight !== null) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
@@ -93,42 +131,11 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
       if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
 
       abortRequested = false
-      const orchestrator = createCollectionOrchestrator({
-        repository,
-        fetcher: createBoardPageFetcher(deps.transport, deps.newId),
-        clock: deps.clock,
-        random: deps.random,
-        sleep: deps.sleep,
-        isSessionBusy: deps.isSessionBusy,
-        isAbortRequested: () => abortRequested,
-      })
 
-      inFlight = orchestrator
-        .run({
-          feed: ALL_ARTICLES_FEED,
-          run: {
-            ...ALL_ARTICLES_FEED,
-            id: deps.newId(),
-            runKind: request.kind === 'backfill' ? 'backfill' : 'incremental',
-            // Scheduled runs continue from checkpoint if requested; manual/backfill
-            // runs start fresh.
-            resumeFromCheckpoint: request.resumeFromCheckpoint ?? false,
-            targetStartMs: request.range.startMs,
-            targetEndMs: request.range.endMs,
-            startedAt: new Date(deps.clock.now()),
-          },
-          maxPages: request.maxPages,
-        })
-        .then((result) => {
-          deps.onFinished?.(result)
-        })
-        .catch((error: unknown) => {
-          deps.onError?.(error)
-        })
-        .finally(() => {
-          inFlight = null
-          deps.lock.release()
-        })
+      inFlight = walk(request, repository)
+        .then((results) => { deps.onFinished?.(results) })
+        .catch((error: unknown) => { deps.onError?.(error) })
+        .finally(() => { inFlight = null; deps.lock.release() })
 
       return { kind: 'started' }
     },

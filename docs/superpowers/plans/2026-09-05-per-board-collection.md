@@ -1184,7 +1184,7 @@ export interface CollectionRunRequest {
       }
       const made = describeJob(await collection.repository.replaceJob({ scope, targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(deps.clock.now()) }))
       if (made === null) return { kind: 'refused', reason: 'NO_JOB' }
-      return startFor(range, made.feeds.map((row) => row.feed), true)
+      return startFor(range, made.feeds.map((row) => row.feed), false)
     },
 ```
 
@@ -1485,13 +1485,25 @@ git commit -m "chore: release 1.3.0 with board-by-board collection"
 - [ ] **Step 4: 전환 절차(운영자와 함께)**
 
 1. 돌고 있는 앱에서 수집을 **중지**한다(페이지 경계에서 멈춘다). 실행 목록에 `interrupted`가 찍히는지 본다.
-2. 앱을 끄고 새 패키지를 띄운다. 시작 시 마이그레이션 0004가 적용된다. `psql -d whisky_manager_collection -c '\d feed_state'`로 `queue_order`, `horizon_reached_at`을 확인한다.
+2. 앱을 끄고 마이그레이션을 적용한다:
+   ```bash
+   COLLECTION_MIGRATION_DATABASE_URL=postgresql://lp2k@127.0.0.1:5432/whisky_manager_collection pnpm db:collection:migrate
+   ```
+   그 뒤 새 패키지를 띄운다. 앱은 마이그레이션을 적용하지 않고 적용됐는지만 확인한다. `psql -d whisky_manager_collection -c '\d feed_state'`로 `queue_order`, `horizon_reached_at`을 확인한다.
 3. 확장을 다시 불러온다(`PROTOCOL_VERSION` 10). 대시보드에서 확장 연결을 확인한다.
 4. 수집 현황에서 기간 `2026-01-01 ~ 2026-05-05`, 읽는 목록 **게시판별**, 「이 기간 수집」. 교체 확인이 뜨면 「기간 바꾸기」.
 5. 표에 38개 게시판이 글 수 순으로 나오고 1번(국내구입기)이 `진행`이 되는지 본다. 첫 실행이 05-05 근처 페이지를 이분 탐색으로 찾은 뒤 저장을 시작한다.
 6. 예약을 켠다. 다음 블록이 남은 게시판을 이어받는다.
 
-**되돌리기:** 문제가 있으면 1.2.x 패키지를 다시 띄운다. 스키마 변경은 열 추가와 enum 값 추가뿐이라 옛 앱도 그대로 읽는다. 다만 옛 앱은 `board` 행을 모르므로 `feed_state`에서 `delete from feed_state where feed_kind = 'board'`로 지우고 전체글 기간을 다시 지정한다.
+**되돌리기:** 문제가 있으면 1.2.x 패키지를 다시 띄운다. 스키마 변경은 열 추가와 enum 값 추가뿐이라 옛 앱도 그대로 읽는다. 다만 옛 앱도 마이그레이션 해시를 확인하므로, 0004 행을 지워야 한다(해시는 `drizzle-collection/meta/_journal.json` 또는 테이블에서 확인한다):
+```sql
+delete from drizzle.__drizzle_migrations where hash = '<0004 hash>';
+```
+그 다음 `board` 행도 지우고 전체글 기간을 다시 지정한다:
+```sql
+delete from feed_state where feed_kind = 'board';
+```
+추가된 열과 enum 값은 옛 앱에 무해하다.
 
 ---
 

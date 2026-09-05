@@ -13,7 +13,7 @@ import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
-import type { CollectionRepository } from '../../src/desktop/collection-db/repository.js'
+import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
 import type { MemberCollectionStatus } from '../../src/desktop/collection-db/memberStatusQuery.js'
 import type { CollectionStartRequest } from '../../src/desktop/collectionRunner.js'
@@ -65,9 +65,13 @@ interface CollectionOverrides {
   readonly memberFeedState?: MemberFeedState | null
   /** Override for what memberStatus.read() returns. */
   readonly memberStatus?: Partial<MemberCollectionStatus>
+  /** Rows replaceJob returns; defaults to a single all_articles row matching the request period. */
+  readonly replaceJobRows?: readonly StoredFeedState[]
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
+  /** Inputs passed to repository.replaceJob(), newest last. */
+  const replaced: { scope: string; targetStartMs: number; targetEndMs: number }[] = []
   /** Every start the api asked for, so the resume flag can be read back. */
   const started: CollectionStartRequest[] = []
   /** Every member start the api asked for. */
@@ -136,7 +140,53 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
             // Reading is all the api does with storage; a repository that
             // throws on any touch proves that rather than assuming it.
             repository: {
-              setForced: (_feed: unknown, forcedAt: Date | null) => {
+              listFeedStates: async () => {
+                const job = collection.job ?? null
+                if (job === null) return []
+                // Return a single row consistent with the stored job so that
+                // describeJob can reconstruct the period and remaining feeds.
+                const row: StoredFeedState = {
+                  feed: { feedKind: job.scope, menuId: job.scope === 'board' ? '0' : '0' },
+                  queueOrder: null,
+                  boardName: null,
+                  stateVersion: 0,
+                  anchorPostId: null,
+                  anchorPostedAtMs: null,
+                  referencePage: null,
+                  pageIdentity: null,
+                  cursorUpdatedAtMs: job.cursorUpdatedAtMs,
+                  targetStartMs: job.targetStartMs,
+                  targetEndMs: job.targetEndMs,
+                  complete: job.complete,
+                  forced: job.forced,
+                  horizonReached: false,
+                }
+                return [row]
+              },
+              replaceJob: async (input: { scope: string; targetStartMs: number; targetEndMs: number }) => {
+                replaced.push({ scope: input.scope, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs })
+                if (collection.replaceJobRows !== undefined) return collection.replaceJobRows as StoredFeedState[]
+                // Default: one all_articles row matching the requested period.
+                const row: StoredFeedState = {
+                  feed: { feedKind: 'all_articles', menuId: '0' },
+                  queueOrder: null,
+                  boardName: null,
+                  stateVersion: 0,
+                  anchorPostId: null,
+                  anchorPostedAtMs: null,
+                  referencePage: null,
+                  pageIdentity: null,
+                  cursorUpdatedAtMs: 0,
+                  targetStartMs: input.targetStartMs,
+                  targetEndMs: input.targetEndMs,
+                  complete: false,
+                  forced: false,
+                  horizonReached: false,
+                }
+                return [row]
+              },
+              markHorizonReached: async () => undefined,
+              setForced: (forcedAt: Date | null) => {
                 forcedCalls.push(forcedAt)
                 return Promise.resolve()
               },
@@ -253,7 +303,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberForcedCalls }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberForcedCalls, replaced }
 }
 
 async function seedAwaiting(
@@ -814,6 +864,8 @@ describe('asking for a period while a job is unfinished', () => {
       cursorUpdatedAtMs: MON_10_00 - 3_600_000,
       complete: false,
       forced: false,
+      scope: 'all_articles',
+      boards: [],
       ...overrides,
     }
   }
@@ -821,7 +873,7 @@ describe('asking for a period while a job is unfinished', () => {
   it('carries on from the cursor when the period is the one already under way', async () => {
     const { api, started } = build(MON_10_00, {}, { job: job() })
 
-    const result = await api.startCollection({ firstDayMs, lastDayMs })
+    const result = await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })
 
     expect(result).toEqual({ kind: 'started' })
     expect(started[0]?.resumeFromCheckpoint).toBe(true)
@@ -931,6 +983,20 @@ describe('asking for a period while a job is unfinished', () => {
     expect(result).toEqual({ kind: 'started' })
     expect(started[0]?.resumeFromCheckpoint).toBe(false)
   })
+
+  it('makes a board job by default and passes its queue to the runner', async () => {
+    const boardRows: StoredFeedState[] = [
+      { feed: { feedKind: 'board', menuId: '137' }, queueOrder: 1, boardName: 'board 137', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false },
+      { feed: { feedKind: 'board', menuId: '189' }, queueOrder: 2, boardName: 'board 189', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false },
+    ]
+    const { api, started, replaced } = build(MON_10_00, {}, { job: null, replaceJobRows: boardRows })
+
+    const result = await api.startCollection({ firstDayMs, lastDayMs })
+
+    expect(result).toEqual({ kind: 'started' })
+    expect(replaced).toEqual([{ scope: 'board', targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY }])
+    expect(started[0]?.feeds.map((f) => f.menuId)).toEqual(['137', '189'])
+  })
 })
 
 describe('running the collection around the clock', () => {
@@ -945,6 +1011,8 @@ describe('running the collection around the clock', () => {
       cursorUpdatedAtMs: MON_10_00 - 3_600_000,
       complete: false,
       forced: false,
+      scope: 'all_articles',
+      boards: [],
       ...overrides,
     }
   }

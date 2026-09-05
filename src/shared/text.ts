@@ -161,6 +161,32 @@ export const TEXT = {
       COLLECTION_SCHEMA_MISMATCH: '저장소의 스키마가 이 버전과 다릅니다.',
       COLLECTION_MIGRATION_FILES_MISSING: '설치본에 수집용 마이그레이션이 없습니다.',
     },
+    /** Which lists a period is read from. */
+    scope: {
+      heading: '읽는 목록',
+      board: '게시판별',
+      boardHint: '게시판마다 자기 목록을 걷습니다. 전체글 목록이 닿지 않는 오래된 기간도 닿습니다.',
+      allArticles: '전체글',
+      allArticlesHint: '전체글 목록 하나를 걷습니다. 최근 넉 달 안이면 이쪽이 훨씬 적게 읽습니다.',
+    },
+    boards: {
+      heading: '게시판별 진행',
+      summary: (done: number, total: number) => `${done} / ${total} 게시판 완료`,
+      walking: (name: string) => `지금 ${name}`,
+      order: '순서',
+      name: '게시판',
+      state: '상태',
+      cursor: '내려온 위치',
+      inserted: '이 작업에서 옮김',
+      states: {
+        waiting: '대기',
+        walking: '진행',
+        complete: '완료',
+        horizon: '카페 한계',
+        failed: '실패',
+      },
+      horizonHint: '카페가 이 게시판의 목록을 여기까지만 줍니다. 그 아래는 이 방법으로 닿지 않습니다.',
+    },
   },
   dashboard: {
     heading: '대시보드',

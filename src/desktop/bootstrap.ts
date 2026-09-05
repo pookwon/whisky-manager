@@ -29,7 +29,7 @@ import { createCommentAuthorLookup, type CommentAuthorLookup } from './commentAu
 import { createCollectGate } from './collectGate.js'
 import { createNaverReadGate } from './naverReadGate.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
-import { createCollectionRunner, ALL_ARTICLES_FEED, type CollectionRunner } from './collectionRunner.js'
+import { createCollectionRunner, type CollectionRunner } from './collectionRunner.js'
 import { createMemberCollectionRunner, type MemberCollectionRunner } from './memberCollectionRunner.js'
 import { createCollectionLock } from './collectionLock.js'
 import { safeMemberErrorFields } from './memberErrorLog.js'
@@ -400,7 +400,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       createArticleCollectionJob({
         repository: () => (collection.kind === 'ready' ? collection.repository : null),
         runner: collectionRunner,
-        feed: ALL_ARTICLES_FEED,
       }),
       createMemberCollectionJob({
         repository: () => (collection.kind === 'ready' ? collection.memberRepository : null),

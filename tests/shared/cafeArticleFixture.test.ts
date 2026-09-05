@@ -9,7 +9,7 @@ import {
 
 describe('cafeArticleListUrl', () => {
   it('builds only the confirmed menu=0, 50-row, TIME list request', () => {
-    const url = cafeArticleListUrl(12)
+    const url = cafeArticleListUrl(12, '0')
     expect(url).toBe(
       'https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/0/articles?page=12&pageSize=50&sortBy=TIME&viewType=L',
     )
@@ -17,13 +17,26 @@ describe('cafeArticleListUrl', () => {
   })
 
   it('rejects invalid pages and all target variations', () => {
-    expect(() => cafeArticleListUrl(0)).toThrow('positive safe integer')
-    expect(() => cafeArticleListUrl(1.5)).toThrow('positive safe integer')
+    expect(() => cafeArticleListUrl(0, '0')).toThrow('positive safe integer')
+    expect(() => cafeArticleListUrl(1.5, '0')).toThrow('positive safe integer')
     expect(isCafeArticleListTarget('https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/0/articles?page=1&pageSize=50&sortBy=TIME&viewType=L&debug=1')).toBe(false)
     expect(isCafeArticleListEndpoint('https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/0/articles?page=1&pageSize=50&sortBy=TIME&viewType=L&debug=1')).toBe(true)
-    expect(isCafeArticleListTarget('https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/1/articles?page=1&pageSize=50&sortBy=TIME&viewType=L')).toBe(false)
     expect(isCafeArticleListTarget('http://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/0/articles?page=1&pageSize=50&sortBy=TIME&viewType=L')).toBe(false)
     expect(isCafeArticleListTarget('https://apis.naver.com.evil.example/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/0/articles?page=1&pageSize=50&sortBy=TIME&viewType=L')).toBe(false)
+  })
+
+  it('puts the menu into the path, so a board list is the same endpoint with a different menu', () => {
+    expect(cafeArticleListUrl(12, '137')).toBe(
+      'https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/137/articles?page=12&pageSize=50&sortBy=TIME&viewType=L',
+    )
+    expect(() => cafeArticleListUrl(1, '')).toThrow('menuId must be digits')
+    expect(() => cafeArticleListUrl(1, '1a')).toThrow('menuId must be digits')
+  })
+
+  it('recognises the endpoint for any menu, but never another cafe', () => {
+    expect(isCafeArticleListEndpoint('https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/137/articles?page=1')).toBe(true)
+    expect(isCafeArticleListEndpoint('https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/1/menus/0/articles?page=1')).toBe(false)
+    expect(isCafeArticleListTarget('https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/14538121/menus/137/articles?page=1&pageSize=50&sortBy=TIME&viewType=L')).toBe(true)
   })
 })
 

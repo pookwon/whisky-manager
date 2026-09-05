@@ -13,6 +13,7 @@ import { createMemberRepository } from '../../../src/desktop/collection-db/membe
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 import { members } from '../../../src/desktop/collection-db/memberSchema.js'
+import { collectionRuns } from '../../../src/desktop/collection-db/schema.js'
 import { eq } from 'drizzle-orm'
 
 const testDatabaseUrl = process.env.COLLECTION_TEST_DATABASE_URL?.trim()
@@ -148,7 +149,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     // The screen's read model, against the rows the writes above just made.
     const status = createCollectionStatusQuery(connection.db)
-    const whileRunning = await status.read(feed)
+    const whileRunning = await status.read()
     expect(whileRunning.totals).toMatchObject({
       posts: 50,
       // However many boards the page's rows actually name — the count comes
@@ -169,7 +170,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     await repository.finishRun(runId, 'interrupted', 'TEST_RANGE_RESUME', new Date(now.getTime() + 3_000))
 
-    const afterFinish = await status.read(feed)
+    const afterFinish = await status.read()
     expect(afterFinish.running).toBeNull()
     expect(afterFinish.recentRuns[0]).toMatchObject({
       id: runId,
@@ -367,7 +368,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     })
     expect((await repository.readFeedState(forcedFeed))?.forced).toBe(false)
 
-    await repository.setForced(forcedFeed, new Date(now.getTime() + 31_000))
+    await repository.setForced(new Date(now.getTime() + 31_000))
     expect((await repository.readFeedState(forcedFeed))?.forced).toBe(true)
 
     // A block that ran out of pages leaves the job unfinished, so the force
@@ -390,7 +391,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(finished?.forced).toBe(false)
 
     // And a period the operator swaps in starts inside the hours again.
-    await repository.setForced(forcedFeed, new Date(now.getTime() + 35_000))
+    await repository.setForced(new Date(now.getTime() + 35_000))
     const swappedRunId = randomUUID()
     await repository.startRun({
       ...forcedFeed,
@@ -441,5 +442,85 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const row = await connection.db.select({ firstSeenAt: members.firstSeenAt, snapshotAt: members.snapshotAt }).from(members).where(eq(members.memberKey, firstKey))
     expect(row[0]!.firstSeenAt).toEqual(new Date(1_000))
     expect(row[0]!.snapshotAt).toEqual(new Date(4_000))
+  })
+
+  it('makes a board job with one row per board, most stored posts first, and replaces it whole', async () => {
+    const repository = createCollectionRepository(connection.db)
+    // Two boards from the fixture page: the one with more rows on it comes first.
+    const counts = new Map<string, number>()
+    for (const item of page.items) counts.set(item.boardId, (counts.get(item.boardId) ?? 0) + 1)
+    const expected = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([id]) => id)
+
+    const made = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(5_000) })
+    expect(made.map((row) => row.feed.menuId)).toEqual(expected)
+    expect(made.map((row) => row.queueOrder)).toEqual(expected.map((_, index) => index + 1))
+    expect(made.every((row) => row.boardName !== null)).toBe(true)
+    expect(await repository.readFeedState({ feedKind: 'all_articles', menuId: '0' })).toBeNull()
+
+    await repository.markHorizonReached(made[0]!.feed, new Date(6_000))
+    expect((await repository.listFeedStates())[0]).toMatchObject({ horizonReached: true })
+
+    await repository.setForced(new Date(7_000))
+    expect((await repository.listFeedStates()).every((row) => row.forced)).toBe(true)
+
+    const back = await repository.replaceJob({ scope: 'all_articles', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(8_000) })
+    expect(back).toHaveLength(1)
+    expect(back[0]).toMatchObject({ feed: { feedKind: 'all_articles', menuId: '0' }, horizonReached: false, forced: false })
+  })
+
+  it('describes a board job board by board', async () => {
+    const repository = createCollectionRepository(connection.db)
+    const status = createCollectionStatusQuery(connection.db)
+    const made = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 2_000_000_000_000, at: new Date(5_000) })
+    const first = made[0]!
+    const runId = randomUUID()
+    const state = await repository.startRun({ ...first.feed, id: runId, runKind: 'development', resumeFromCheckpoint: true, targetStartMs: first.targetStartMs, targetEndMs: first.targetEndMs, startedAt: new Date(6_000) })
+    const own = { ...page, items: page.items.filter((item) => item.boardId === first.feed.menuId) }
+    await repository.persistPage({ feed: first.feed, runId, observedAt: new Date(7_000), referencePage: 1, expectedState: state, page: own })
+
+    const read = await status.read()
+    expect(read.job).toMatchObject({ scope: 'board', complete: false })
+    expect(read.job?.boards[0]).toMatchObject({ queueOrder: 1, boardId: first.feed.menuId, name: first.boardName, state: 'walking', insertedPostCount: 0 })
+    expect(read.job?.boards[1]).toMatchObject({ queueOrder: 2, state: 'waiting', cursorPostedAtMs: null })
+    expect(read.running?.boardName).toBe(first.boardName)
+  })
+
+  it('reports a board as failed even when its run falls outside the recent-run window', async () => {
+    const repository = createCollectionRepository(connection.db)
+    const status = createCollectionStatusQuery(connection.db)
+
+    // The previous test left a run in flight on the first board; finish it so we can
+    // replace the job without hitting the running-run guard.
+    const feeds = await repository.listFeedStates()
+    const inFlight = await connection.db.select({ id: collectionRuns.id, menuId: collectionRuns.menuId }).from(collectionRuns).where(eq(collectionRuns.status, 'running')).limit(1)
+    if (inFlight[0] !== undefined) {
+      await repository.finishRun(inFlight[0].id, 'interrupted', 'TEST_SETUP', new Date(9_000))
+    }
+    const first = feeds[0]!
+    const second = feeds[1]!
+
+    // Start and fail the first board's run.
+    const failedRunId = randomUUID()
+    const failedState = await repository.startRun({ ...first.feed, id: failedRunId, runKind: 'development', resumeFromCheckpoint: true, targetStartMs: first.targetStartMs, targetEndMs: first.targetEndMs, startedAt: new Date(11_000) })
+    await repository.persistPage({ feed: first.feed, runId: failedRunId, observedAt: new Date(12_000), referencePage: 1, expectedState: failedState, page: { ...page, items: page.items.filter((item) => item.boardId === first.feed.menuId) } })
+    await repository.finishRun(failedRunId, 'failed', 'BOARD_PAGE_HTTP_ERROR', new Date(13_000))
+
+    // Push more than 24 runs on the second board so the first board's run falls outside
+    // the RECENT_RUN_LIMIT window that the recent-run list covers.
+    let t = 14_000
+    for (let i = 0; i < 25; i++) {
+      const id = randomUUID()
+      await repository.startRun({ ...second.feed, id, runKind: 'development', resumeFromCheckpoint: true, targetStartMs: second.targetStartMs, targetEndMs: second.targetEndMs, startedAt: new Date(t) })
+      t += 1_000
+      await repository.finishRun(id, 'partial', 'PAGE_BUDGET_SPENT', new Date(t))
+      t += 1_000
+    }
+
+    const result = await status.read()
+    // The first board's latest run failed; it must show as failed even though its run is
+    // beyond the RECENT_RUN_LIMIT window pushed out by the second board's 25 runs.
+    expect(result.job?.boards[0]).toMatchObject({ boardId: first.feed.menuId, state: 'failed' })
+    // The second board ran 25 partial runs but wrote no page, so it has no anchor → waiting.
+    expect(result.job?.boards[1]).toMatchObject({ boardId: second.feed.menuId, state: 'waiting' })
   })
 })

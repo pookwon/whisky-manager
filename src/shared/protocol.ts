@@ -1,10 +1,10 @@
 import type { CommentAuthor, ExecutionStrategy } from './types.js'
 import type { CollectedArticlePage } from './cafeArticleList.js'
-import { CAFE_ARTICLE_LIST } from './cafeArticleFixture.js'
+import { CAFE_ARTICLE_LIST, isMenuId } from './cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from './cafeMemberFixture.js'
 import type { CollectedMemberPage } from './cafeMemberList.js'
 
-export const PROTOCOL_VERSION = 9
+export const PROTOCOL_VERSION = 10
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -35,7 +35,8 @@ export interface CollectBoardPageRequest {
   readonly type: 'COLLECT_BOARD_PAGE'
   readonly requestId: string
   readonly cafeId: typeof CAFE_ARTICLE_LIST.cafeId
-  readonly menuId: typeof CAFE_ARTICLE_LIST.menuId
+  /** Digits. `'0'` is the whole cafe; anything else is one board's own list. */
+  readonly menuId: string
   readonly page: number
   readonly pageSize: typeof CAFE_ARTICLE_LIST.pageSize
   readonly sortBy: typeof CAFE_ARTICLE_LIST.sortBy
@@ -196,7 +197,7 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
 }
 
-/** Runtime guard for the fixed, deliberately narrow menu=0 collection contract. */
+/** Runtime guard for one cafe, one list endpoint, any of its menus. */
 export function isCollectBoardPageRequest(value: unknown): value is CollectBoardPageRequest {
   if (typeof value !== 'object' || value === null) return false
   const message = value as Partial<CollectBoardPageRequest>
@@ -204,7 +205,7 @@ export function isCollectBoardPageRequest(value: unknown): value is CollectBoard
     message.type === 'COLLECT_BOARD_PAGE' &&
     typeof message.requestId === 'string' &&
     message.cafeId === CAFE_ARTICLE_LIST.cafeId &&
-    message.menuId === CAFE_ARTICLE_LIST.menuId &&
+    typeof message.menuId === 'string' && isMenuId(message.menuId) &&
     typeof message.page === 'number' &&
     Number.isSafeInteger(message.page) &&
     message.page >= 1 &&

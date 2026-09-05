@@ -1,8 +1,9 @@
 import { kstDayStartMs } from '../shared/kst.js'
-import type { CollectionFeed, CollectionRepository, CollectionFeedState } from './collection-db/repository.js'
+import type { CollectionRepository } from './collection-db/repository.js'
 import type { MemberRepository } from './collection-db/memberRepository.js'
 import type { CollectionRunner, CollectionStartResult } from './collectionRunner.js'
 import type { MemberCollectionRunner } from './memberCollectionRunner.js'
+import { describeJob, type JobDescription } from './collectionScope.js'
 
 export interface CollectionJobProgress {
   readonly exists: boolean
@@ -25,14 +26,13 @@ export interface CollectionJob {
 export function createArticleCollectionJob(deps: {
   repository: () => CollectionRepository | null
   runner: CollectionRunner
-  feed: CollectionFeed
 }): CollectionJob {
-  let last: CollectionFeedState | null = null
+  let last: JobDescription | null = null
   return {
     name: 'articles',
     async readProgress() {
       const repository = deps.repository()
-      last = repository === null ? null : await repository.readFeedState(deps.feed)
+      last = repository === null ? null : describeJob(await repository.listFeedStates())
       return { exists: last !== null, complete: last?.complete ?? false, forced: last?.forced ?? false }
     },
     start(maxPages) {
@@ -41,6 +41,7 @@ export function createArticleCollectionJob(deps: {
         range: { startMs: last.targetStartMs, endMs: last.targetEndMs },
         kind: 'incremental',
         maxPages,
+        feeds: last.remaining.map((row) => row.feed),
         resumeFromCheckpoint: true,
       })
     },

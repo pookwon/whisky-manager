@@ -96,7 +96,9 @@ const JOB: CollectionJob = {
   cursorPostedAtMs: kst('2026-08-13T04:12:00'),
   cursorUpdatedAtMs: kst('2026-08-24T13:42:00'),
   complete: false,
-      forced: false,
+  forced: false,
+  scope: 'all_articles',
+  boards: [],
 }
 
 function running(startedAtMs: number): CollectionRunSummary {
@@ -114,6 +116,7 @@ function running(startedAtMs: number): CollectionRunSummary {
     insertedPostCount: 31,
     observedPostCount: 40,
     cursorPostedAtMs: JOB.cursorPostedAtMs,
+    boardName: null,
   }
 }
 
