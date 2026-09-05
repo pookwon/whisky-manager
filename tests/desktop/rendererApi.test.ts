@@ -817,6 +817,8 @@ describe('asking for a period while a job is unfinished', () => {
       cursorUpdatedAtMs: MON_10_00 - 3_600_000,
       complete: false,
       forced: false,
+      scope: 'all_articles',
+      boards: [],
       ...overrides,
     }
   }
@@ -948,6 +950,8 @@ describe('running the collection around the clock', () => {
       cursorUpdatedAtMs: MON_10_00 - 3_600_000,
       complete: false,
       forced: false,
+      scope: 'all_articles',
+      boards: [],
       ...overrides,
     }
   }

@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { CollectionDatabase } from './client.js'
-import type { CollectionFeed } from './repository.js'
+import type { CollectionFeedKind, StoredFeedState } from './repository.js'
+import { describeJob } from '../collectionScope.js'
 import { boards, collectionRuns, feedState, posts } from './schema.js'
 
 /**
@@ -27,6 +28,8 @@ export interface CollectionRunSummary {
    * progress figure: a page number means something different an hour later.
    */
   readonly cursorPostedAtMs: number | null
+  /** The board this run was walking, or null for a whole-cafe run. */
+  readonly boardName: string | null
 }
 
 export interface CollectionTotals {
@@ -38,6 +41,18 @@ export interface CollectionTotals {
   readonly lastSnapshotAtMs: number | null
 }
 
+export type BoardProgressState = 'waiting' | 'walking' | 'complete' | 'horizon' | 'failed'
+
+export interface BoardProgress {
+  readonly queueOrder: number
+  readonly boardId: string
+  readonly name: string
+  readonly state: BoardProgressState
+  readonly cursorPostedAtMs: number | null
+  /** Posts this job inserted from this board, summed over its runs. */
+  readonly insertedPostCount: number
+}
+
 /**
  * The period being worked through, and how far into it the walk has come.
  *
@@ -47,14 +62,17 @@ export interface CollectionTotals {
  * is happening when in fact a month of backfill is half done.
  */
 export interface CollectionJob {
+  readonly scope: CollectionFeedKind
   readonly targetStartMs: number
   readonly targetEndMs: number
-  /** Posted time of the last committed post; null before the first page lands. */
+  /** For a board job: the oldest cursor among boards still walking. */
   readonly cursorPostedAtMs: number | null
   readonly cursorUpdatedAtMs: number
   readonly complete: boolean
   /** Whether this job was told to keep going outside the operating hours. */
   readonly forced: boolean
+  /** Empty for a whole-cafe job. */
+  readonly boards: readonly BoardProgress[]
 }
 
 export interface CollectionStatus {
@@ -67,7 +85,7 @@ export interface CollectionStatus {
 }
 
 export interface CollectionStatusQuery {
-  read(feed: CollectionFeed): Promise<CollectionStatus>
+  read(): Promise<CollectionStatus>
 }
 
 /**
@@ -100,10 +118,18 @@ function epochFromSeconds(value: string | number | null | undefined): number | n
   return Number.isFinite(seconds) ? Math.round(seconds * 1000) : null
 }
 
+function boardState(row: StoredFeedState, running: boolean, lastFailed: boolean): BoardProgressState {
+  if (row.horizonReached) return 'horizon'
+  if (row.complete) return 'complete'
+  if (running) return 'walking'
+  if (lastFailed) return 'failed'
+  return row.anchorPostId === null ? 'waiting' : 'walking'
+}
+
 export function createCollectionStatusQuery(db: CollectionDatabase): CollectionStatusQuery {
   return {
-    async read(feed) {
-      const [postTotals, boardTotals, runs, jobRows] = await Promise.all([
+    async read() {
+      const [postTotals, boardTotals, feedStateRows, runs] = await Promise.all([
         db
           .select({
             posts: sql<string>`count(*)`,
@@ -114,8 +140,15 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           .from(posts),
         db.select({ boards: sql<string>`count(*)` }).from(boards),
         db
+          .select({ state: feedState, boardName: boards.name })
+          .from(feedState)
+          .leftJoin(boards, and(eq(feedState.feedKind, 'board'), eq(boards.boardId, feedState.menuId)))
+          .orderBy(feedState.feedKind, feedState.queueOrder, feedState.menuId),
+        db
           .select({
             id: collectionRuns.id,
+            feedKind: collectionRuns.feedKind,
+            menuId: collectionRuns.menuId,
             runKind: collectionRuns.runKind,
             status: collectionRuns.status,
             stopReason: collectionRuns.stopReason,
@@ -128,27 +161,33 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
             insertedPostCount: collectionRuns.insertedPostCount,
             observedPostCount: collectionRuns.observedPostCount,
             cursorPostedAt: posts.postedAt,
+            boardName: boards.name,
           })
           .from(collectionRuns)
-          // The cursor is a post id, so its time has to be looked up. A left
-          // join keeps a run whose last post was since deleted.
           .leftJoin(posts, eq(posts.postId, collectionRuns.lastCommittedPostId))
-          .where(and(eq(collectionRuns.feedKind, feed.feedKind), eq(collectionRuns.menuId, feed.menuId)))
+          .leftJoin(boards, and(eq(collectionRuns.feedKind, 'board'), eq(boards.boardId, collectionRuns.menuId)))
           .orderBy(desc(collectionRuns.startedAt))
           .limit(RECENT_RUN_LIMIT),
-        db
-          .select({
-            targetStartMs: feedState.targetStartMs,
-            targetEndMs: feedState.targetEndMs,
-            anchorPostedAt: feedState.anchorPostedAt,
-            completedAt: feedState.completedAt,
-            forcedAt: feedState.forcedAt,
-            updatedAt: feedState.updatedAt,
-          })
-          .from(feedState)
-          .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
-          .limit(1),
       ])
+
+      const storedFeedStates: StoredFeedState[] = feedStateRows.map(({ state, boardName }) => ({
+        stateVersion: state.stateVersion,
+        targetStartMs: state.targetStartMs,
+        targetEndMs: state.targetEndMs,
+        anchorPostId: state.anchorPostId,
+        anchorPostedAtMs: state.anchorPostedAt?.getTime() ?? null,
+        referencePage: state.referencePage,
+        pageIdentity: state.pageIdentity,
+        cursorUpdatedAtMs: state.updatedAt.getTime(),
+        complete: state.completedAt !== null,
+        forced: state.forcedAt !== null,
+        horizonReached: state.horizonReachedAt !== null,
+        feed: { feedKind: state.feedKind as CollectionFeedKind, menuId: state.menuId },
+        queueOrder: state.queueOrder,
+        boardName,
+      }))
+
+      const job = describeJob(storedFeedStates)
 
       const recentRuns: CollectionRunSummary[] = runs.map((run) => ({
         id: run.id,
@@ -164,25 +203,89 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
         insertedPostCount: run.insertedPostCount,
         observedPostCount: run.observedPostCount,
         cursorPostedAtMs: epochMs(run.cursorPostedAt),
+        boardName: run.boardName ?? null,
       }))
 
-      const jobRow = jobRows[0]
-      const cursorPostedAtMs = epochMs(jobRow?.anchorPostedAt ?? null)
-      const job: CollectionJob | null =
-        jobRow === undefined
-          ? null
-          : {
-              targetStartMs: jobRow.targetStartMs,
-              targetEndMs: jobRow.targetEndMs,
-              cursorPostedAtMs,
-              cursorUpdatedAtMs: jobRow.updatedAt.getTime(),
-              // Read, not derived. The cursor is always the time of a post
-              // inside the period, so it never crosses the period's start —
-              // deriving completion from it makes every finished job look
-              // unfinished, and the scheduler re-walks it forever.
-              complete: jobRow.completedAt !== null,
-              forced: jobRow.forcedAt !== null,
+      let collectionJob: CollectionJob | null = null
+      if (job !== null) {
+        // Determine board-level inserted post counts when needed.
+        let boardInsertedCounts = new Map<string, number>()
+        if (job.scope === 'board') {
+          const countRows = await db
+            .select({
+              menuId: collectionRuns.menuId,
+              total: sql<string>`sum(${collectionRuns.insertedPostCount})`,
+            })
+            .from(collectionRuns)
+            .where(
+              and(
+                eq(collectionRuns.feedKind, 'board'),
+                eq(collectionRuns.targetStartMs, job.targetStartMs),
+                eq(collectionRuns.targetEndMs, job.targetEndMs),
+              ),
+            )
+            .groupBy(collectionRuns.menuId)
+          for (const row of countRows) {
+            boardInsertedCounts.set(row.menuId, Number(row.total ?? 0))
+          }
+        }
+
+        // Build a lookup: feed key → most recent run status for determining board state.
+        const runningFeedKey = new Set<string>()
+        const lastFailedFeedKey = new Set<string>()
+        for (const run of [...runs].reverse()) {
+          const key = `${run.feedKind}:${run.menuId}`
+          if (run.status === 'running') runningFeedKey.add(key)
+        }
+        // Walk forward to find last run status per feed.
+        const lastRunStatus = new Map<string, string>()
+        for (const run of [...runs].reverse()) {
+          lastRunStatus.set(`${run.feedKind}:${run.menuId}`, run.status)
+        }
+        // The runs list is newest-first; reverse gives oldest-first so last written wins as newest.
+        for (const [key, status] of lastRunStatus) {
+          if (status === 'failed') lastFailedFeedKey.add(key)
+        }
+
+        const boardProgressList: BoardProgress[] = job.feeds
+          .filter((feed) => feed.feed.feedKind === 'board')
+          .map((feed) => {
+            const key = `board:${feed.feed.menuId}`
+            const running = runningFeedKey.has(key)
+            const lastFailed = lastFailedFeedKey.has(key)
+            return {
+              queueOrder: feed.queueOrder ?? 0,
+              boardId: feed.feed.menuId,
+              name: feed.boardName ?? feed.feed.menuId,
+              state: boardState(feed, running, lastFailed),
+              cursorPostedAtMs: feed.anchorPostedAtMs,
+              insertedPostCount: boardInsertedCounts.get(feed.feed.menuId) ?? 0,
             }
+          })
+
+        // cursorPostedAtMs: whole-cafe → that row's anchorPostedAtMs; board → min among remaining with anchor.
+        let cursorPostedAtMs: number | null = null
+        if (job.scope === 'all_articles') {
+          cursorPostedAtMs = job.feeds[0]?.anchorPostedAtMs ?? null
+        } else {
+          const anchored = job.remaining.map((f) => f.anchorPostedAtMs).filter((ms): ms is number => ms !== null)
+          cursorPostedAtMs = anchored.length > 0 ? Math.min(...anchored) : null
+        }
+
+        // cursorUpdatedAtMs: max over all job rows.
+        const cursorUpdatedAtMs = Math.max(...job.feeds.map((f) => f.cursorUpdatedAtMs))
+
+        collectionJob = {
+          scope: job.scope,
+          targetStartMs: job.targetStartMs,
+          targetEndMs: job.targetEndMs,
+          cursorPostedAtMs,
+          cursorUpdatedAtMs,
+          complete: job.complete,
+          forced: job.forced,
+          boards: boardProgressList,
+        }
+      }
 
       const totalsRow = postTotals[0]
       return {
@@ -193,7 +296,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           newestPostedAtMs: epochFromSeconds(totalsRow?.newest),
           lastSnapshotAtMs: epochFromSeconds(totalsRow?.lastSnapshot),
         },
-        job,
+        job: collectionJob,
         // Only one run per feed can be running, which the schema enforces.
         running: recentRuns.find((run) => run.status === 'running') ?? null,
         recentRuns,

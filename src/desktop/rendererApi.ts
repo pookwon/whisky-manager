@@ -231,7 +231,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     async startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
       const collection = deps.collection()
-      const stored = collection.kind === 'ready' ? await collection.status.read(ALL_ARTICLES_FEED) : null
+      const stored = collection.kind === 'ready' ? await collection.status.read() : null
       const inProgress = stored?.job ?? null
 
       const startFor = (range: CollectionRange, resumeFromCheckpoint: boolean): StartCollectionResult => {
@@ -288,7 +288,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const collection = deps.collection()
       if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
 
-      const stored = await collection.status.read(ALL_ARTICLES_FEED)
+      const stored = await collection.status.read()
       // The force rides on the job, so there has to be one — and a period
       // already walked to its end has nothing left to stay up for.
       if (stored.job === null) return { kind: 'refused', reason: 'NO_JOB' }
@@ -313,7 +313,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const collection = deps.collection()
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
-      return { kind: 'ready', status: await collection.status.read(ALL_ARTICLES_FEED) }
+      return { kind: 'ready', status: await collection.status.read() }
     },
 
     async getMemberCollectionStatus(): Promise<MemberCollectionStatusView> {

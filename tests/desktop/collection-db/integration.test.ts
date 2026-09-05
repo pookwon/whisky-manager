@@ -148,7 +148,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     // The screen's read model, against the rows the writes above just made.
     const status = createCollectionStatusQuery(connection.db)
-    const whileRunning = await status.read(feed)
+    const whileRunning = await status.read()
     expect(whileRunning.totals).toMatchObject({
       posts: 50,
       // However many boards the page's rows actually name — the count comes
@@ -169,7 +169,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     await repository.finishRun(runId, 'interrupted', 'TEST_RANGE_RESUME', new Date(now.getTime() + 3_000))
 
-    const afterFinish = await status.read(feed)
+    const afterFinish = await status.read()
     expect(afterFinish.running).toBeNull()
     expect(afterFinish.recentRuns[0]).toMatchObject({
       id: runId,
@@ -465,5 +465,22 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const back = await repository.replaceJob({ scope: 'all_articles', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(8_000) })
     expect(back).toHaveLength(1)
     expect(back[0]).toMatchObject({ feed: { feedKind: 'all_articles', menuId: '0' }, horizonReached: false, forced: false })
+  })
+
+  it('describes a board job board by board', async () => {
+    const repository = createCollectionRepository(connection.db)
+    const status = createCollectionStatusQuery(connection.db)
+    const made = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 2_000_000_000_000, at: new Date(5_000) })
+    const first = made[0]!
+    const runId = randomUUID()
+    const state = await repository.startRun({ ...first.feed, id: runId, runKind: 'development', resumeFromCheckpoint: true, targetStartMs: first.targetStartMs, targetEndMs: first.targetEndMs, startedAt: new Date(6_000) })
+    const own = { ...page, items: page.items.filter((item) => item.boardId === first.feed.menuId) }
+    await repository.persistPage({ feed: first.feed, runId, observedAt: new Date(7_000), referencePage: 1, expectedState: state, page: own })
+
+    const read = await status.read()
+    expect(read.job).toMatchObject({ scope: 'board', complete: false })
+    expect(read.job?.boards[0]).toMatchObject({ queueOrder: 1, boardId: first.feed.menuId, name: first.boardName, state: 'walking', insertedPostCount: 0 })
+    expect(read.job?.boards[1]).toMatchObject({ queueOrder: 2, state: 'waiting', cursorPostedAtMs: null })
+    expect(read.running?.boardName).toBe(first.boardName)
   })
 })
