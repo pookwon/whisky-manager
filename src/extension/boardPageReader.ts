@@ -26,7 +26,7 @@ export function createBoardPageReader(deps: BoardPageReaderDeps) {
 
       let response: HttpResponse
       try {
-        response = await deps.http({ url: cafeArticleListUrl(request.page) })
+        response = await deps.http({ url: cafeArticleListUrl(request.page, request.menuId) })
       } catch {
         return { ok: false, code: 'BOARD_PAGE_NETWORK_ERROR' }
       }

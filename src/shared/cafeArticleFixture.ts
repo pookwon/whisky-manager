@@ -5,6 +5,7 @@
  */
 export const CAFE_ARTICLE_LIST = {
   cafeId: '14538121',
+  /** The whole-cafe list. A board's own list is the same endpoint with its menu. */
   menuId: '0',
   pageSize: 50,
   sortBy: 'TIME',
@@ -12,14 +13,20 @@ export const CAFE_ARTICLE_LIST = {
 } as const
 
 const API_ORIGIN = 'https://apis.naver.com'
-const ARTICLE_LIST_PATH = `/cafe-web/cafe-boardlist-api/v1/cafes/${CAFE_ARTICLE_LIST.cafeId}/menus/${CAFE_ARTICLE_LIST.menuId}/articles`
+const ARTICLE_LIST_PATH = new RegExp(`^/cafe-web/cafe-boardlist-api/v1/cafes/${CAFE_ARTICLE_LIST.cafeId}/menus/\\d+/articles$`)
+const MENU_ID = /^\d+$/
 
-export function cafeArticleListUrl(page: number): string {
+export function isMenuId(value: string): boolean {
+  return MENU_ID.test(value)
+}
+
+export function cafeArticleListUrl(page: number, menuId: string): string {
   if (!Number.isSafeInteger(page) || page < 1) {
     throw new Error(`page must be a positive safe integer: ${page}`)
   }
+  if (!isMenuId(menuId)) throw new Error(`menuId must be digits: ${menuId}`)
 
-  const url = new URL(`${API_ORIGIN}${ARTICLE_LIST_PATH}`)
+  const url = new URL(`${API_ORIGIN}/cafe-web/cafe-boardlist-api/v1/cafes/${CAFE_ARTICLE_LIST.cafeId}/menus/${menuId}/articles`)
   url.searchParams.set('page', String(page))
   url.searchParams.set('pageSize', String(CAFE_ARTICLE_LIST.pageSize))
   url.searchParams.set('sortBy', CAFE_ARTICLE_LIST.sortBy)
@@ -27,7 +34,7 @@ export function cafeArticleListUrl(page: number): string {
   return url.toString()
 }
 
-/** True for this endpoint regardless of query parameters. */
+/** True for this cafe's list endpoint, whichever menu, regardless of query. */
 export function isCafeArticleListEndpoint(value: string): boolean {
   let url: URL
   try {
@@ -35,8 +42,7 @@ export function isCafeArticleListEndpoint(value: string): boolean {
   } catch {
     return false
   }
-
-  return url.origin === API_ORIGIN && url.pathname === ARTICLE_LIST_PATH
+  return url.origin === API_ORIGIN && ARTICLE_LIST_PATH.test(url.pathname)
 }
 
 /** True only for the exact Phase 0 list request, including its fixed query. */

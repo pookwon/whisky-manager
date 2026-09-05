@@ -33,7 +33,16 @@ describe('BoardPageReader', () => {
       page: 1,
       result: { pageIdentity: 'fnv1a64:99ee2c43e0e8092d', items: expect.arrayContaining([expect.objectContaining({ postId: '925866' })]) },
     })
-    expect(seen).toEqual([cafeArticleListUrl(1)])
+    expect(seen).toEqual([cafeArticleListUrl(1, '0')])
+  })
+
+  it('reads the menu the request names', async () => {
+    const seen: string[] = []
+    const reader = createBoardPageReader({
+      http: async ({ url }) => { seen.push(url); return { status: 200, contentType: 'application/json', text: pageOne } },
+    })
+    await reader.read({ ...request, menuId: '137' })
+    expect(seen).toEqual([cafeArticleListUrl(1, '137')])
   })
 
   it('returns body-free stable errors for invalid requests, HTTP failure, and malformed responses', async () => {

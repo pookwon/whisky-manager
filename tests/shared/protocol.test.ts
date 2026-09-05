@@ -3,6 +3,7 @@ import {
   PROTOCOL_VERSION,
   TIMEOUTS,
   isAppMessage,
+  isCollectBoardPageRequest,
   isExtensionMessage,
   isInterimMessage,
 } from '../../src/shared/protocol.js'
@@ -54,6 +55,15 @@ describe('board page messages', () => {
     expect(isAppMessage({ ...request, page: 0 })).toBe(false)
     expect(isAppMessage({ ...request, cafeId: 'other' })).toBe(false)
     expect(isAppMessage({ ...request, pageSize: 20 })).toBe(false)
+  })
+
+  it('accepts any numeric menu on a board page request and refuses anything else', () => {
+    const base = { type: 'COLLECT_BOARD_PAGE' as const, requestId: 'r', cafeId: '14538121', page: 1, pageSize: 50, sortBy: 'TIME' as const, viewType: 'L' as const }
+    expect(isCollectBoardPageRequest({ ...base, menuId: '137' })).toBe(true)
+    expect(isCollectBoardPageRequest({ ...base, menuId: '0' })).toBe(true)
+    expect(isCollectBoardPageRequest({ ...base, menuId: '' })).toBe(false)
+    expect(isCollectBoardPageRequest({ ...base, menuId: '13a' })).toBe(false)
+    expect(isCollectBoardPageRequest({ ...base, menuId: 137 })).toBe(false)
   })
 
   it('recognises a structurally valid parsed board-page reply', () => {
