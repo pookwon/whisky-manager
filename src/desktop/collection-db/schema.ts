@@ -25,7 +25,13 @@ import { collectionRunStatus } from './collectionRunStatus.js'
  * feed still names itself, because one cafe has several of them — the whole
  * article list, the notices, the recommendations — collected independently.
  */
-export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended'])
+/**
+ * `board` is one board's own list, which the cafe pages separately: every
+ * board gets a thousand pages of its own where the whole-cafe list gets a
+ * thousand in total. A period older than the whole-cafe list can reach is
+ * walked board by board.
+ */
+export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended', 'board'])
 export const collectionRunKind = pgEnum('collection_run_kind', ['development', 'backfill', 'incremental'])
 
 /** Every time this schema records is an instant, stored to the millisecond. */
@@ -149,6 +155,17 @@ export const feedState = pgTable(
      * about.
      */
     forcedAt: observedTimestamp('forced_at'),
+    /**
+     * Where this feed stands in the job's queue; board feeds only. Fixed when
+     * the job is made, so "how far along" means the same thing every day.
+     */
+    queueOrder: integer('queue_order'),
+    /**
+     * When the walk hit the last page the cafe will serve with the period
+     * still unfinished. Not completion: there may be more below, and the cafe
+     * will not show it. Cleared when the period is replaced.
+     */
+    horizonReachedAt: observedTimestamp('horizon_reached_at'),
     updatedAt: observedTimestamp('updated_at').notNull(),
   },
   (table) => [
@@ -156,6 +173,7 @@ export const feedState = pgTable(
     check('feed_state_version', sql`${table.stateVersion} >= 0`),
     check('feed_state_target_range', sql`${table.targetStartMs} < ${table.targetEndMs}`),
     check('feed_state_reference_page', sql`${table.referencePage} is null or ${table.referencePage} >= 1`),
+    check('feed_state_queue_order', sql`${table.queueOrder} is null or ${table.queueOrder} >= 1`),
   ],
 )
 

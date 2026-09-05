@@ -79,6 +79,7 @@ function makeState(overrides: Partial<CollectionFeedState> = {}): CollectionFeed
     anchorPostedAtMs: Date.UTC(2026, 6, 20),
     complete: false,
     forced: false,
+    horizonReached: false,
     cursorUpdatedAtMs: Date.UTC(2026, 7, 1),
     referencePage: 1,
     pageIdentity: 'fnv1a64:0000000000000001',

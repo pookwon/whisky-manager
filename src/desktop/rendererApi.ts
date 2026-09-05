@@ -294,7 +294,6 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (stored.job.complete) return { kind: 'refused', reason: 'JOB_FINISHED' }
 
       await collection.repository.setForced(
-        ALL_ARTICLES_FEED,
         forced ? new Date(deps.clock.now()) : null,
       )
       // The beat already laid was placed under the old rule; re-laying is what

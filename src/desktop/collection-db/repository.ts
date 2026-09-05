@@ -1,14 +1,18 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../shared/cafeArticleList.js'
+import { CAFE_ARTICLE_LIST } from '../../shared/cafeArticleFixture.js'
 import type { CollectionDatabase } from './client.js'
 import { boards, collectionRuns, feedState, posts } from './schema.js'
 
+export type CollectionFeedKind = 'all_articles' | 'board'
+
 /**
  * Which feed of the cafe. The cafe itself is the database, so it is not part of
- * this: one collection database holds one cafe's feeds.
+ * this: one collection database holds one cafe's feeds. `all_articles` is the
+ * whole cafe under menu 0; `board` is one board's own list under its menu.
  */
 export interface CollectionFeed {
-  readonly feedKind: 'all_articles'
+  readonly feedKind: CollectionFeedKind
   readonly menuId: string
 }
 
@@ -49,6 +53,14 @@ export type PersistCollectedPageResult =
 
 export interface CollectionRepository {
   readFeedState(feed: CollectionFeed): Promise<CollectionFeedState | null>
+  /** Every feed row, board rows carrying their board's name. */
+  listFeedStates(): Promise<readonly StoredFeedState[]>
+  /**
+   * Makes the job anew: rows of the other scope go, rows of this scope are
+   * reset to the period, and a board job gets one row per collectable board
+   * ordered by how many of its posts are already stored, most first.
+   */
+  replaceJob(input: ReplaceJobInput): Promise<readonly StoredFeedState[]>
   startRun(input: CreateCollectionRunInput): Promise<CollectionFeedState>
   recordPageRequest(id: string, phase: 'probe' | 'collection'): Promise<void>
   /**
@@ -58,11 +70,10 @@ export interface CollectionRepository {
    * a fact they cannot disagree about.
    */
   finishRun(id: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
-  /**
-   * Turns the operating hours off, or back on, for the job as it stands. Only
-   * the hours: a collection switched off stays off.
-   */
-  setForced(feed: CollectionFeed, forcedAt: Date | null): Promise<void>
+  /** Records that the cafe would serve no more pages for this feed. */
+  markHorizonReached(feed: CollectionFeed, at: Date): Promise<void>
+  /** Turns the operating hours off, or back on, for the whole job as it stands. */
+  setForced(forcedAt: Date | null): Promise<void>
   /** Marks runs left `running` by an abnormal exit as interrupted so the feed's single-running-run constraint stops blocking new runs. */
   reconcileOrphanedRuns(finishedAt: Date): Promise<number>
   persistPage(input: PersistCollectedPageInput): Promise<PersistCollectedPageResult>
@@ -83,6 +94,40 @@ export interface CollectionFeedState extends FeedStateExpectation {
   readonly complete: boolean
   /** Whether this job was asked to keep going outside the operating hours. */
   readonly forced: boolean
+  /** Whether the cafe stopped serving pages before the period was done. */
+  readonly horizonReached: boolean
+}
+
+/** A feed's state together with what identifies it, for reading the job whole. */
+export interface StoredFeedState extends CollectionFeedState {
+  readonly feed: CollectionFeed
+  readonly queueOrder: number | null
+  readonly boardName: string | null
+}
+
+export interface ReplaceJobInput {
+  readonly scope: CollectionFeedKind
+  readonly targetStartMs: number
+  readonly targetEndMs: number
+  readonly at: Date
+}
+
+type FeedStateRow = typeof feedState.$inferSelect
+
+function toFeedState(row: FeedStateRow): CollectionFeedState {
+  return {
+    stateVersion: row.stateVersion,
+    targetStartMs: row.targetStartMs,
+    targetEndMs: row.targetEndMs,
+    anchorPostId: row.anchorPostId,
+    anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null,
+    referencePage: row.referencePage,
+    pageIdentity: row.pageIdentity,
+    cursorUpdatedAtMs: row.updatedAt.getTime(),
+    complete: row.completedAt !== null,
+    forced: row.forcedAt !== null,
+    horizonReached: row.horizonReachedAt !== null,
+  }
 }
 
 /** Thrown inside the transaction so every page write rolls back on CAS failure. */
@@ -127,40 +172,80 @@ function boardRows(items: readonly CollectedPostMetadata[], observedAt: Date) {
 }
 
 export function createCollectionRepository(db: CollectionDatabase): CollectionRepository {
-  return {
+  const repository: CollectionRepository = {
     async readFeedState(feed) {
-      const state = await db
-        .select({
-          stateVersion: feedState.stateVersion,
-          targetStartMs: feedState.targetStartMs,
-          targetEndMs: feedState.targetEndMs,
-          anchorPostId: feedState.anchorPostId,
-          anchorPostedAt: feedState.anchorPostedAt,
-          referencePage: feedState.referencePage,
-          pageIdentity: feedState.pageIdentity,
-          completedAt: feedState.completedAt,
-          forcedAt: feedState.forcedAt,
-          updatedAt: feedState.updatedAt,
-        })
+      const rows = await db
+        .select()
         .from(feedState)
         .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
         .limit(1)
-      const row = state[0]
+      const row = rows[0]
       if (row === undefined) return null
-      return {
-        ...row,
-        anchorPostedAtMs: row.anchorPostedAt?.getTime() ?? null,
-        cursorUpdatedAtMs: row.updatedAt.getTime(),
-        complete: row.completedAt !== null,
-        forced: row.forcedAt !== null,
-      }
+      return toFeedState(row)
     },
 
-    async setForced(feed, forcedAt) {
+    async listFeedStates() {
+      const rows = await db
+        .select({ state: feedState, boardName: boards.name })
+        .from(feedState)
+        .leftJoin(boards, and(eq(feedState.feedKind, 'board'), eq(boards.boardId, feedState.menuId)))
+        .orderBy(feedState.feedKind, feedState.queueOrder, feedState.menuId)
+      return rows.map(({ state, boardName }) => ({
+        ...toFeedState(state),
+        feed: { feedKind: state.feedKind as CollectionFeedKind, menuId: state.menuId },
+        queueOrder: state.queueOrder,
+        boardName,
+      }))
+    },
+
+    async replaceJob(input) {
+      if (!Number.isSafeInteger(input.targetStartMs) || !Number.isSafeInteger(input.targetEndMs) || input.targetStartMs >= input.targetEndMs) {
+        throw new Error('collection job target range must contain a positive interval')
+      }
+      await db.transaction(async (tx) => {
+        const running = await tx.select({ id: collectionRuns.id }).from(collectionRuns).where(eq(collectionRuns.status, 'running')).limit(1)
+        if (running.length > 0) throw new Error('cannot replace the job while a run is writing its cursor')
+        // One job at a time: whatever the other scope held is gone, and its
+        // runs stay in `runs` as history because nothing there points here.
+        await tx.delete(feedState)
+        if (input.scope === 'all_articles') {
+          await tx.insert(feedState).values({
+            feedKind: 'all_articles', menuId: CAFE_ARTICLE_LIST.menuId,
+            targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs,
+            stateVersion: 0, updatedAt: input.at,
+          })
+          return
+        }
+        // Most posts first. The count is what this database already holds,
+        // which is the operator's own measure of where the bulk is.
+        const ordered = await tx
+          .select({ boardId: boards.boardId, stored: sql<string>`count(${posts.postId})` })
+          .from(boards)
+          .leftJoin(posts, eq(posts.boardId, boards.boardId))
+          .where(eq(boards.collectEnabled, true))
+          .groupBy(boards.boardId)
+          .orderBy(sql`count(${posts.postId}) desc`, boards.boardId)
+        if (ordered.length === 0) throw new Error('no collectable boards are known yet')
+        await tx.insert(feedState).values(
+          ordered.map((board, index) => ({
+            feedKind: 'board' as const, menuId: board.boardId,
+            targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs,
+            stateVersion: 0, queueOrder: index + 1, updatedAt: input.at,
+          })),
+        )
+      })
+      return await repository.listFeedStates()
+    },
+
+    async markHorizonReached(feed, at) {
       await db
         .update(feedState)
-        .set({ forcedAt })
+        .set({ horizonReachedAt: at, forcedAt: null })
         .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
+    },
+
+    async setForced(forcedAt) {
+      await db.update(feedState).set({ forcedAt })
     },
 
     async startRun(input) {
@@ -182,7 +267,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         if (input.resumeFromCheckpoint && rangeChanged) throw new Error('cannot resume a checkpoint for a different target range')
         const reset = !input.resumeFromCheckpoint && inserted.length === 0
         const state = reset
-          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, forcedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
+          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, forcedAt: null, horizonReachedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
           : current
         if (state === undefined) throw new Error('collection feed reset failed')
         await tx.insert(collectionRuns).values({
@@ -195,18 +280,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
           status: 'running',
           startedAt: input.startedAt,
         })
-        return {
-          stateVersion: state.stateVersion,
-          targetStartMs: state.targetStartMs,
-          targetEndMs: state.targetEndMs,
-          anchorPostId: state.anchorPostId,
-          anchorPostedAtMs: state.anchorPostedAt?.getTime() ?? null,
-          referencePage: state.referencePage,
-          pageIdentity: state.pageIdentity,
-          cursorUpdatedAtMs: state.updatedAt.getTime(),
-          complete: state.completedAt !== null,
-          forced: state.forcedAt !== null,
-        }
+        return toFeedState(state)
       })
     },
 
@@ -376,4 +450,5 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
       }
     },
   }
+  return repository
 }

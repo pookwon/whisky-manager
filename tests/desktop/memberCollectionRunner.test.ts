@@ -42,9 +42,13 @@ function fullFakeArticleRepo(overrides: Partial<CollectionRepository> = {}): Col
     cursorUpdatedAtMs: 0,
     complete: false,
     forced: false,
+    horizonReached: false,
   }
   return {
     readFeedState: async () => state,
+    listFeedStates: async () => [],
+    replaceJob: async () => [],
+    markHorizonReached: async () => undefined,
     startRun: async () => { throw new Error('quick-exit') },
     recordPageRequest: async () => undefined,
     finishRun: async () => undefined,

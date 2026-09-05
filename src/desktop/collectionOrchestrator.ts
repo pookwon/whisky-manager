@@ -257,6 +257,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
             // A page just landed, so the walk is by definition not finished.
             complete: false,
             forced: state.forced,
+            horizonReached: state.horizonReached,
             referencePage: pageNumber,
             pageIdentity: page.pageIdentity,
             anchorPostedAtMs: committed?.postedAt ?? null,

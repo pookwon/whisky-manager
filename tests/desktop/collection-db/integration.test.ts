@@ -367,7 +367,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     })
     expect((await repository.readFeedState(forcedFeed))?.forced).toBe(false)
 
-    await repository.setForced(forcedFeed, new Date(now.getTime() + 31_000))
+    await repository.setForced(new Date(now.getTime() + 31_000))
     expect((await repository.readFeedState(forcedFeed))?.forced).toBe(true)
 
     // A block that ran out of pages leaves the job unfinished, so the force
@@ -390,7 +390,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(finished?.forced).toBe(false)
 
     // And a period the operator swaps in starts inside the hours again.
-    await repository.setForced(forcedFeed, new Date(now.getTime() + 35_000))
+    await repository.setForced(new Date(now.getTime() + 35_000))
     const swappedRunId = randomUUID()
     await repository.startRun({
       ...forcedFeed,
@@ -441,5 +441,29 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const row = await connection.db.select({ firstSeenAt: members.firstSeenAt, snapshotAt: members.snapshotAt }).from(members).where(eq(members.memberKey, firstKey))
     expect(row[0]!.firstSeenAt).toEqual(new Date(1_000))
     expect(row[0]!.snapshotAt).toEqual(new Date(4_000))
+  })
+
+  it('makes a board job with one row per board, most stored posts first, and replaces it whole', async () => {
+    const repository = createCollectionRepository(connection.db)
+    // Two boards from the fixture page: the one with more rows on it comes first.
+    const counts = new Map<string, number>()
+    for (const item of page.items) counts.set(item.boardId, (counts.get(item.boardId) ?? 0) + 1)
+    const expected = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([id]) => id)
+
+    const made = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(5_000) })
+    expect(made.map((row) => row.feed.menuId)).toEqual(expected)
+    expect(made.map((row) => row.queueOrder)).toEqual(expected.map((_, index) => index + 1))
+    expect(made.every((row) => row.boardName !== null)).toBe(true)
+    expect(await repository.readFeedState({ feedKind: 'all_articles', menuId: '0' })).toBeNull()
+
+    await repository.markHorizonReached(made[0]!.feed, new Date(6_000))
+    expect((await repository.listFeedStates())[0]).toMatchObject({ horizonReached: true })
+
+    await repository.setForced(new Date(7_000))
+    expect((await repository.listFeedStates()).every((row) => row.forced)).toBe(true)
+
+    const back = await repository.replaceJob({ scope: 'all_articles', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(8_000) })
+    expect(back).toHaveLength(1)
+    expect(back[0]).toMatchObject({ feed: { feedKind: 'all_articles', menuId: '0' }, horizonReached: false, forced: false })
   })
 })

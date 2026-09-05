@@ -136,7 +136,10 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
             // Reading is all the api does with storage; a repository that
             // throws on any touch proves that rather than assuming it.
             repository: {
-              setForced: (_feed: unknown, forcedAt: Date | null) => {
+              listFeedStates: async () => [],
+              replaceJob: async () => [],
+              markHorizonReached: async () => undefined,
+              setForced: (forcedAt: Date | null) => {
                 forcedCalls.push(forcedAt)
                 return Promise.resolve()
               },
