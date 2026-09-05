@@ -2,6 +2,7 @@ import type { CollectionJob, CollectionStatus } from './collection-db/statusQuer
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
+import type { CollectionFeedKind } from './collection-db/repository.js'
 import type {
   CollectionRangeProblem,
   CollectionSchedule,
@@ -172,6 +173,14 @@ export interface CollectionScheduleView {
 export interface CollectionRunRequest {
   readonly firstDayMs: number
   readonly lastDayMs: number
+  /**
+   * Which lists to read the period from. The whole-cafe list reaches back
+   * only so far — a thousand pages, about four months at this cafe's rate —
+   * and past that every board's own list has to be walked. Board by board is
+   * the default because it always reaches; the whole list is the cheap
+   * choice for a period it can reach.
+   */
+  readonly scope?: CollectionFeedKind
   /**
    * Carries the operator's answer to being shown what the job in progress
    * would lose. Without it a different period is reported back rather than

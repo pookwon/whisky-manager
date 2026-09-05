@@ -12,7 +12,7 @@ import type { OptionalCollectionContext } from './collectionContext.js'
 import type { CollectionLoop } from './collectionLoop.js'
 import type { CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
-import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
+import { describeJob } from './collectionScope.js'
 import {
   checkCollectionRange,
   collectionRangeOfDays,
@@ -44,16 +44,6 @@ import type {
   ImportConfigResult,
   RendererApi,
 } from './ipc.js'
-
-/**
- * The one feed Phase 1 collects: the whole-cafe article list. Taken from the
- * endpoint contract rather than restated, so a screen can never read a feed the
- * extension is not allowed to fetch.
- */
-const ALL_ARTICLES_FEED: CollectionFeed = {
-  feedKind: 'all_articles',
-  menuId: CAFE_ARTICLE_LIST.menuId,
-}
 
 const PAIRING_TOKEN_KEY = 'pairingToken'
 /**
@@ -234,54 +224,51 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const stored = collection.kind === 'ready' ? await collection.status.read() : null
       const inProgress = stored?.job ?? null
 
-      const startFor = (range: CollectionRange, resumeFromCheckpoint: boolean): StartCollectionResult => {
+      const startFor = (range: CollectionRange, feeds: readonly CollectionFeed[], resumeFromCheckpoint: boolean): StartCollectionResult => {
         const schedule = readCollectionSchedule(settings)
         const started = deps.collectionRunner.start({
-          range,
-          kind: 'backfill',
-          maxPages: pagesPerWorkBlock(schedule.workBlockMinutes),
-          feeds: [ALL_ARTICLES_FEED],
-          resumeFromCheckpoint,
+          range, kind: 'backfill', maxPages: pagesPerWorkBlock(schedule.workBlockMinutes), feeds, resumeFromCheckpoint,
         })
         return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
 
-      // No period named means "carry on", which is the same thing a scheduled
-      // block does: the stored job says which period, and its cursor says where.
-      // This is deliberately not a default window — the feature moves a piece of
-      // the past, so there is no window to assume when nothing has been asked for.
       if (request === undefined) {
         if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
         if (inProgress === null) return { kind: 'refused', reason: 'NO_JOB' }
         if (inProgress.complete) return { kind: 'refused', reason: 'JOB_FINISHED' }
-        return startFor({ startMs: inProgress.targetStartMs, endMs: inProgress.targetEndMs }, true)
+        const rows = describeJob(await collection.repository.listFeedStates())
+        if (rows === null) return { kind: 'refused', reason: 'NO_JOB' }
+        return startFor({ startMs: rows.targetStartMs, endMs: rows.targetEndMs }, rows.remaining.map((row) => row.feed), true)
       }
 
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
       const range = collectionRangeOfDays(request.firstDayMs, request.lastDayMs)
       const problem = checkCollectionRange(range, deps.clock.now())
       if (problem !== null) return { kind: 'rejected', problem }
+      const scope = request.scope ?? 'board'
 
-      const samePeriod =
-        inProgress !== null &&
-        inProgress.targetStartMs === range.startMs &&
-        inProgress.targetEndMs === range.endMs
+      const sameJob =
+        inProgress !== null && inProgress.scope === scope &&
+        inProgress.targetStartMs === range.startMs && inProgress.targetEndMs === range.endMs
 
-      // An unfinished job is not discarded on a press. The screen is handed
-      // what would be lost and asks; only the answer starts the replacement.
-      if (inProgress !== null && !samePeriod && !inProgress.complete && request.replace !== true) {
+      if (inProgress !== null && !sameJob && !inProgress.complete && request.replace !== true) {
         return { kind: 'needs_replace', job: inProgress }
       }
-      // Replacing what a run is still writing would race its cursor, and a walk
-      // ends at its own page boundary rather than mid-page.
-      if (inProgress !== null && !samePeriod && deps.collectionRunner.isRunning()) {
+      if (inProgress !== null && !sameJob && deps.collectionRunner.isRunning()) {
         return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
       }
 
-      // The same unfinished period carries on from its cursor. A new one — or
-      // the same one asked for again after it finished, which is a request to
-      // read it over — starts afresh, resetting the cursor without touching
-      // the posts already collected.
-      return startFor(range, samePeriod && !inProgress.complete)
+      // The same unfinished job carries on from its cursors. Anything else —
+      // a new period, a new scope, or the same one asked for again after it
+      // finished — is made afresh, without touching the posts already held.
+      if (sameJob && !inProgress.complete) {
+        const rows = describeJob(await collection.repository.listFeedStates())
+        if (rows === null) return { kind: 'refused', reason: 'NO_JOB' }
+        return startFor(range, rows.remaining.map((row) => row.feed), true)
+      }
+      const made = describeJob(await collection.repository.replaceJob({ scope, targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(deps.clock.now()) }))
+      if (made === null) return { kind: 'refused', reason: 'NO_JOB' }
+      return startFor(range, made.feeds.map((row) => row.feed), false)
     },
 
     async setCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {
