@@ -95,7 +95,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
       abortRequested = false
       const orchestrator = createCollectionOrchestrator({
         repository,
-        fetcher: createBoardPageFetcher(deps.transport, deps.newId),
+        fetcher: createBoardPageFetcher(deps.transport, deps.newId, ALL_ARTICLES_FEED.menuId),
         clock: deps.clock,
         random: deps.random,
         sleep: deps.sleep,
