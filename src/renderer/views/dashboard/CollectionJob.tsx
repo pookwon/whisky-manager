@@ -185,6 +185,20 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
                 <div className="text-xs leading-[1.125rem]" style={{ color: 'var(--ink-muted)' }}>
                   {TEXT.dashboard.period.direction}
                 </div>
+                {job.boards.length > 0 && (
+                  <div className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    {(() => {
+                      const done = job.boards.filter((b) => b.state === 'complete' || b.state === 'horizon').length
+                      const walkingBoard = job.boards.find((b) => b.state === 'walking')
+                      return (
+                        <>
+                          {TEXT.collection.boards.summary(done, job.boards.length)}
+                          {walkingBoard !== undefined && ` · ${TEXT.collection.boards.walking(walkingBoard.name)}`}
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
               </div>
             </>
           )}

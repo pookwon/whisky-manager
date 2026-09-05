@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { TEXT } from '../../shared/text.js'
 import type { CollectionRunSummary } from '../../desktop/collection-db/statusQuery.js'
+import type { CollectionFeedKind } from '../../desktop/collection-db/repository.js'
 import type {
   CollectionRunRequest,
   CollectionStatusView,
   MemberCollectionStatusView,
   StartCollectionResult,
 } from '../../desktop/ipc.js'
+import { BoardQueue } from './collection/BoardQueue.js'
 import { api } from '../api.js'
 import { progressLine, stopReasonLine } from './memberCollectionCard.js'
 import {
@@ -251,6 +253,7 @@ export function CollectionStatus(): React.JSX.Element {
   const act = useApp((s) => s.act)
   const [firstDay, setFirstDay] = useState(() => kstDateValue(Date.now() - 3 * 86_400_000))
   const [lastDay, setLastDay] = useState(() => kstDateValue(Date.now()))
+  const [scope, setScope] = useState<CollectionFeedKind>('board')
   /** What the last press answered, until the next one. */
   const [refusal, setRefusal] = useState<string | null>(null)
   /**
@@ -398,6 +401,8 @@ export function CollectionStatus(): React.JSX.Element {
         </div>
       </section>
 
+      {job !== null && job.boards.length > 0 && <BoardQueue boards={job.boards} />}
+
       {replacing !== null && job !== null && (
         <section className="panel overflow-hidden">
           <div className="flex">
@@ -489,12 +494,26 @@ export function CollectionStatus(): React.JSX.Element {
             onChange={(event) => setLastDay(event.target.value)}
           />
         </div>
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-[0.6875rem] font-medium uppercase tracking-wider" style={{ color: 'var(--ink-muted)' }}>
+            {TEXT.collection.scope.heading}
+          </legend>
+          {(['board', 'all_articles'] as const).map((value) => (
+            <label key={value} className="flex items-center gap-2 text-sm">
+              <input type="radio" name="collect-scope" value={value} checked={scope === value} onChange={() => setScope(value)} />
+              <span>{value === 'board' ? TEXT.collection.scope.board : TEXT.collection.scope.allArticles}</span>
+              <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                {value === 'board' ? TEXT.collection.scope.boardHint : TEXT.collection.scope.allArticlesHint}
+              </span>
+            </label>
+          ))}
+        </fieldset>
         <button
           type="button"
           className="btn"
           disabled={busy || running !== null}
           onClick={() =>
-            press({ firstDayMs: kstMidnightOf(firstDay), lastDayMs: kstMidnightOf(lastDay) })
+            press({ firstDayMs: kstMidnightOf(firstDay), lastDayMs: kstMidnightOf(lastDay), scope })
           }
         >
           {TEXT.collection.periodRun}
