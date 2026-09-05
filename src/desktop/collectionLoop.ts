@@ -141,7 +141,11 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
             const ordered = [...runnable].sort((a, b) => a.index - b.index)
             const next = ordered.find((entry) => entry.index > lastRunIndex) ?? ordered[0]!
             attempted = next.job.start(maxPages)
-            lastRunIndex = next.index
+            // A turn is a block that ran. A refusal — the extension not there
+            // yet, right after the app starts — is not one, and counting it
+            // would hand the next beat to the other job while this one has
+            // still had nothing.
+            if (attempted.kind === 'started') lastRunIndex = next.index
           }
         }
 

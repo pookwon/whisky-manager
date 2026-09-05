@@ -280,6 +280,21 @@ describe('collection loop', () => {
     expect(names).toContain('members')
   })
 
+  it('does not spend a job\'s turn on a refusal the extension will fix', async () => {
+    // The app beats the moment it starts, before the extension has dialled
+    // back in. That refusal is not a block the first job had; two minutes
+    // later the retry must go to the same job, not hand the block to the next.
+    const first: FakeJobSpec = { name: 'articles', progress: { exists: true, complete: false, forced: false }, startResult: { kind: 'refused', reason: 'BRIDGE_OFFLINE' } }
+    const h = harness(enabled, [first, { name: 'members', progress: { exists: true, complete: false, forced: false } }])
+    h.loop.refresh()
+    await h.advance(1 * HOUR)
+    expect(h.started.map((s) => s.name)).toEqual(['articles'])
+
+    h.setSpecs([{ ...first, startResult: { kind: 'started' } }, { name: 'members', progress: { exists: true, complete: false, forced: false } }])
+    await h.advance(2 * MINUTE)
+    expect(h.started.map((s) => s.name)).toEqual(['articles', 'articles'])
+  })
+
   it('runs the member top-up once when the walk is complete and it is due', async () => {
     let due = true
     const h = harness(enabled, [
