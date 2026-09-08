@@ -5,6 +5,7 @@ import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
 import { describeFailure } from './collectionFailure.js'
+import { pauseUnlessStopped } from './collectionPause.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface CollectionClock { now(): number }
@@ -119,7 +120,8 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     if (phase === 'probe' && probes >= maxProbePages) throw new CollectionPageError('PROBE_PAGE_LIMIT')
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
-    const delay = collectionDelayMs(reads + 1, deps.random); if (delay > 0) await deps.sleep(delay)
+    const delay = collectionDelayMs(reads + 1, deps.random)
+    if (!(await pauseUnlessStopped(delay, deps.sleep, deps.isAbortRequested))) throw new CollectionPageError('ABORTED')
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
     await deps.repository.recordPageRequest(runId, phase); reads += 1; if (phase === 'probe') probes += 1

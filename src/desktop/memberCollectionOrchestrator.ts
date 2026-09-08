@@ -1,5 +1,6 @@
 import { CAFE_MEMBER_LIST } from '../shared/cafeMemberFixture.js'
 import { describeFailure } from './collectionFailure.js'
+import { pauseUnlessStopped } from './collectionPause.js'
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedMemberPage } from '../shared/cafeMemberList.js'
 import type { Random } from '../shared/ports.js'
@@ -94,7 +95,7 @@ function createScheduledReader(deps: MemberCollectionOrchestratorDeps, runId: st
     }
     if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')
     const delay = collectionDelayMs(reads + 1, deps.random)
-    if (delay > 0) await deps.sleep(delay)
+    if (!(await pauseUnlessStopped(delay, deps.sleep, deps.isAbortRequested))) throw new MemberCollectionPageError('ABORTED')
     while (deps.isSessionBusy()) {
       if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')
       await deps.sleep(1_000)

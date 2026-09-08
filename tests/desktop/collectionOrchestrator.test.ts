@@ -538,6 +538,28 @@ describe('collection planning and orchestration', () => {
     expect(finished).toEqual(['failed:COLLECTION_FAILURE: Error: request COLLECT_BOARD_PAGE timed out after 20000ms'])
   })
 
+  it('hears a stop during the long pause between requests', async () => {
+    // Every hundredth request pauses ten to twenty minutes. A stop pressed as
+    // that pause began used to wait it out.
+    const { repo, finished } = repository()
+    // The fake sleep returns at once, so what tells a sliced pause from a
+    // whole one is how much time was asked for before the stop was seen.
+    let sleptMs = 0
+    let stop = false
+    const pages = { 1: page([post('1', 289), post('2', 280)], 3), 2: page([post('3', 270)], 3), 3: page([post('4', 199)], 3) }
+    const orchestrator = createCollectionOrchestrator({
+      ...deps(repo),
+      random: { intInclusive: () => 600_000 },
+      sleep: async (ms) => { sleptMs += ms; if (sleptMs >= 1_000) stop = true },
+      isAbortRequested: () => stop,
+      fetcher: fetcher(pages),
+    })
+    const result = await orchestrator.run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'interrupted', reason: 'ABORTED' })
+    expect(finished).toEqual(['interrupted:ABORTED'])
+    expect(sleptMs).toBe(1_000)
+  })
+
   it('reports how many requests it made so a block can share its budget', async () => {
     const { repo } = repository()
     const pages = { 1: page([post('1', 289), post('2', 280)], 2), 2: page([post('3', 199)], 2) }
