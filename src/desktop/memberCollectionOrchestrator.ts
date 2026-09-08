@@ -1,4 +1,5 @@
 import { CAFE_MEMBER_LIST } from '../shared/cafeMemberFixture.js'
+import { describeFailure } from './collectionFailure.js'
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedMemberPage } from '../shared/cafeMemberList.js'
 import type { Random } from '../shared/ports.js'
@@ -330,7 +331,10 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
           return { kind: 'partial', pagesStored, reason: 'PAGE_BUDGET_SPENT' }
         }
         const code = error instanceof MemberCollectionPageError ? error.code : 'MEMBER_COLLECTION_FAILURE'
-        await deps.repository.finishRun(options.run.id, 'failed', code, now).catch(() => undefined)
+        // An unclassified exception carries its own words: the member rows
+        // never reach an error message, so nothing here can quote them.
+        const stopReason = error instanceof MemberCollectionPageError ? code : `${code}: ${describeFailure(error)}`
+        await deps.repository.finishRun(options.run.id, 'failed', stopReason, now).catch(() => undefined)
         return { kind: 'failed', pagesStored, code }
       }
     },

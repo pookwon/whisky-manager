@@ -525,6 +525,19 @@ describe('collection planning and orchestration', () => {
     expect(horizon).toEqual([])
   })
 
+  it('leaves the unclassified exception on the run so the list says what broke', async () => {
+    // A bare COLLECTION_FAILURE hid a real failure on 2026-09-08: a board's
+    // walk ended mid-block and nothing recorded whether the bridge timed out
+    // or the database refused the page.
+    const { repo, finished } = repository()
+    repo.persistPage = async () => { throw new Error('request COLLECT_BOARD_PAGE timed out after 20000ms') }
+    const pages = { 1: page([post('1', 289), post('2', 280)], 2), 2: page([post('3', 199)], 2) }
+    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: fetcher(pages) })
+    const result = await orchestrator.run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'failed', code: 'COLLECTION_FAILURE' })
+    expect(finished).toEqual(['failed:COLLECTION_FAILURE: Error: request COLLECT_BOARD_PAGE timed out after 20000ms'])
+  })
+
   it('reports how many requests it made so a block can share its budget', async () => {
     const { repo } = repository()
     const pages = { 1: page([post('1', 289), post('2', 280)], 2), 2: page([post('3', 199)], 2) }

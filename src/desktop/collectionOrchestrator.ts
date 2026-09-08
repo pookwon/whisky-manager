@@ -4,6 +4,7 @@ import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import type { Random } from '../shared/ports.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
+import { describeFailure } from './collectionFailure.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface CollectionClock { now(): number }
@@ -319,7 +320,10 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
       const code = error instanceof CollectionPageError ? error.code : 'COLLECTION_FAILURE'
       // The stop reason carries the detail so the run list itself explains the
       // failure; the returned code stays bare for callers that match on it.
-      const stopReason = error instanceof CollectionPageError && error.detail !== undefined ? `${code}: ${error.detail}` : code
+      const stopReason =
+        error instanceof CollectionPageError
+          ? error.detail === undefined ? code : `${code}: ${error.detail}`
+          : `${code}: ${describeFailure(error)}`
       await deps.repository.finishRun(options.run.id, 'failed', stopReason, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, requests: reader?.reads ?? 0, code }
     }
   } }
