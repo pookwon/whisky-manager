@@ -6,7 +6,7 @@ import type { CollectedMember, CollectedMemberPage } from '../../src/shared/cafe
 const run = { id: '00000000-0000-4000-8000-000000000001', runKind: 'backfill' as const, resumeFromCheckpoint: false, startedAt: new Date(1_000) }
 
 function members(prefix: string, count: number, joinDate: string): CollectedMember[] {
-  return Array.from({ length: count }, (_, i) => ({ memberKey: `${prefix}-${i}`, nickname: null, joinDate, levelName: '', isManager: false, isStaff: false }))
+  return Array.from({ length: count }, (_, i) => ({ memberKey: `${prefix}-${i}`, nickname: null, joinDate, levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false }))
 }
 function page(items: CollectedMember[], totalMemberCount: number | null = null): CollectedMemberPage {
   return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}`, totalMemberCount }
@@ -136,7 +136,7 @@ describe('member collection orchestrator', () => {
       ...p1Items.slice(0, 49),          // a-0..a-48  (index 0–48)
       p1Items[99]!,                     // a-99       (index 49)
       ...p1Items.slice(49, 98),         // a-49..a-97 (index 50–98)
-      { memberKey: 'extra-0', nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false },
+      { memberKey: 'extra-0', nickname: null, joinDate: '2026-08-23', levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false },
     ]
     const p1Orig = { items: p1Items, pageIdentity: 'p1-orig', totalMemberCount: null }
     const p1Shifted = { items: shiftedItems, pageIdentity: 'p1-shifted', totalMemberCount: null }
@@ -167,7 +167,7 @@ describe('member collection orchestrator', () => {
     // continuity check (previousTailKey found at index 0) never triggers a rewind.
     const total = TOPUP_MAX_PAGES * (MEMBERS_PER_PAGE - 1) + 1
     const flat: CollectedMember[] = Array.from({ length: total }, (_, i) => ({
-      memberKey: `m-${i}`, nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false,
+      memberKey: `m-${i}`, nickname: null, joinDate: '2026-08-23', levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false,
     }))
     // Page n (1-indexed) is flat[(n-1)*(MEMBERS_PER_PAGE-1) .. n*(MEMBERS_PER_PAGE-1)].
     const pageOf = (n: number): CollectedMemberPage => {
@@ -227,7 +227,7 @@ describe('member collection orchestrator', () => {
     // Reviewer's reproduction: resume at page 49, pages 50 and 51 are real,
     // page 52 and beyond silently return page 1's content. seenIdentities is
     // per-run and cannot catch this — page 1 was read in a different run.
-    const p49tail: CollectedMember = { memberKey: 'p49-tail', nickname: null, joinDate: '2026-08-20', levelName: '', isManager: false, isStaff: false }
+    const p49tail: CollectedMember = { memberKey: 'p49-tail', nickname: null, joinDate: '2026-08-20', levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false }
     const p49 = page([...members('p49', MEMBERS_PER_PAGE - 1, '2026-08-21'), p49tail])
     const p50 = fullPage('p50', '2026-08-19')
     const p51 = fullPage('p51', '2026-08-18')
@@ -415,8 +415,8 @@ describe('member collection orchestrator', () => {
     // Page 1 has a join date that increases (should be non-increasing).
     const badPage: CollectedMemberPage = {
       items: [
-        { memberKey: 'a', nickname: null, joinDate: '2026-08-22', levelName: '', isManager: false, isStaff: false },
-        { memberKey: 'b', nickname: null, joinDate: '2026-08-23', levelName: '', isManager: false, isStaff: false }, // newer than previous → invalid
+        { memberKey: 'a', nickname: null, joinDate: '2026-08-22', levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false },
+        { memberKey: 'b', nickname: null, joinDate: '2026-08-23', levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false }, // newer than previous → invalid
       ],
       pageIdentity: 'bad',
       totalMemberCount: null,

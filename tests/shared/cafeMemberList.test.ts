@@ -21,9 +21,9 @@ const sample = loadFixture('cafe-member-list-sample.json')
 const MARKER_RE = /^<[A-Za-z0-9_/:]+>$/
 
 describe('real fixture sanity', () => {
-  const PARSER_KEYS = new Set(['memberKey', 'nickname', 'joinDate', 'memberLevelName', 'manager', 'staff'])
+  const PARSER_KEYS = new Set(['memberKey', 'nickname', 'joinDate', 'memberLevelName', 'manager', 'staff', 'ageGroup', 'sex'])
   for (const name of ['cafe-member-list-page-1.json', 'cafe-member-list-page-1000.json', 'cafe-member-list-page-2096.json', 'cafe-member-list-page-2097.json', 'cafe-member-list-page-2098.json']) {
-    it(`${name} has no raw strings outside the six parser keys`, () => {
+    it(`${name} has no raw strings outside the eight parser keys`, () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fixture: any = loadFixture(name)
       const mems: unknown[] = fixture.result.members
@@ -81,6 +81,8 @@ describe('parseCafeMemberList', () => {
       nickname: '새회원하나',
       joinDate: '2026-08-23',
       levelName: '정물&<>',
+      ageGroup: null,
+      sex: null,
       isManager: false,
       isStaff: false,
     })
@@ -98,6 +100,30 @@ describe('parseCafeMemberList', () => {
     // Distinct from the article identity for the same key set because the canonical
     // string embeds the feed name; the same keys must not produce the same hash.
     expect(cafeMemberPageIdentity(['k1', 'k2'])).not.toBe(cafeArticlePageIdentity(['k1', 'k2']))
+  })
+
+  it('reads ageGroup and sex as verbatim strings, decoding HTML entities for ageGroup', () => {
+    const input = {
+      isSuccess: true,
+      result: {
+        members: [
+          { memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', nickname: null, joinDate: '2026.08.23.', memberLevelName: '정회원', manager: false, staff: false, ageGroup: '30대', sex: 'F' },
+          { memberKey: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', nickname: null, joinDate: '2026.08.23.', memberLevelName: '정회원', manager: false, staff: false, ageGroup: '&#51064;생', sex: '   ' },
+          { memberKey: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC', nickname: null, joinDate: '2026.08.22.', memberLevelName: '정회원', manager: false, staff: false },
+        ],
+        pageOption: { totalCount: 3 },
+      },
+    }
+    const page = parseCafeMemberList(input)
+    expect(page.items[0]?.ageGroup).toBe('30대')
+    expect(page.items[0]?.sex).toBe('F')
+    // entity-encoded ageGroup decodes
+    expect(page.items[1]?.ageGroup).toBe('인생')
+    // whitespace-only sex becomes null
+    expect(page.items[1]?.sex).toBeNull()
+    // absent fields become null
+    expect(page.items[2]?.ageGroup).toBeNull()
+    expect(page.items[2]?.sex).toBeNull()
   })
 
   it('rejects a whole page on any contract violation', () => {

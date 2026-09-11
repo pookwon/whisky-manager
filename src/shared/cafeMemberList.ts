@@ -15,6 +15,10 @@ export interface CollectedMember {
   readonly joinDate: string
   /** HTML entities decoded. */
   readonly levelName: string
+  /** HTML entities decoded; null when absent, non-string, or empty after trim. */
+  readonly ageGroup: string | null
+  /** Null when absent, non-string, or empty after trim. */
+  readonly sex: string | null
   readonly isManager: boolean
   readonly isStaff: boolean
 }
@@ -96,6 +100,13 @@ function joinDateIso(record: JsonRecord, path: string): string {
   return `${match[1]}-${match[2]}-${match[3]}`
 }
 
+function optionalDecodedString(record: JsonRecord, key: string): string | null {
+  const value = record[key]
+  if (typeof value !== 'string') return null
+  const trimmed = decodeHtmlEntities(value).trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 function parseMember(entry: unknown, index: number): CollectedMember {
   const path = `result.members[${index}]`
   if (!isRecord(entry)) fail('INVALID_MEMBER', `${path} must be an object`)
@@ -104,6 +115,8 @@ function parseMember(entry: unknown, index: number): CollectedMember {
     nickname: nullableString(entry, 'nickname', path),
     joinDate: joinDateIso(entry, path),
     levelName: decodeHtmlEntities(requiredString(entry, 'memberLevelName', path)),
+    ageGroup: optionalDecodedString(entry, 'ageGroup'),
+    sex: optionalDecodedString(entry, 'sex'),
     isManager: requiredBoolean(entry, 'manager', path),
     isStaff: requiredBoolean(entry, 'staff', path),
   }
