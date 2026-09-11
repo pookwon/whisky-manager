@@ -16,6 +16,7 @@ const candidate: Candidate = {
   authorNickname: '신입회원',
   authorId: 'member-1',
   postedAt: 1_700_000_000_000,
+  prefix: null,
 }
 
 function ctx(overrides: Partial<GuardContext> = {}): GuardContext {

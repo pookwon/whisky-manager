@@ -129,7 +129,7 @@ export function createCafeClient(deps: CafeClientDeps): CafeClient {
         const response = await deps.http({ url: memoListUrl(source, page) })
         if (response.status !== 200) break
 
-        const memos = parseMemoList(response.text)
+        const memos = parseMemoList(response.text, source.boardId)
         // No memos means this is not the board — a login or error page. Never
         // treat that as "nothing new", which would advance past real greetings.
         if (memos.length === 0) break

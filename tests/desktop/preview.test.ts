@@ -13,6 +13,7 @@ const NOW = Date.UTC(2026, 7, 23, 3, 0)
 
 function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
   return {
+    boardId: '5',
     postId: '1001',
     title: null,
     bodyText: '안녕하세요 잘부탁드립니다',
@@ -20,6 +21,7 @@ function raw(overrides: Partial<RawCandidate> = {}): RawCandidate {
     authorId: 'member-1',
     postedAt: NOW,
     commentCount: 0,
+    prefix: null,
     ...overrides,
   }
 }

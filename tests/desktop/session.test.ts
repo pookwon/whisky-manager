@@ -32,6 +32,7 @@ const BOARD = 'board-under-test'
 
 function candidate(postId: string, nickname: string | null = '신입회원'): RawCandidate {
   return {
+    boardId: BOARD,
     postId,
     title: '가입인사',
     bodyText: nickname ? `${nickname}님이 우리 카페에 가입하였습니다.\n댓글로 ${nickname}님을 환영해주세요.` : '반갑습니다',
@@ -39,6 +40,7 @@ function candidate(postId: string, nickname: string | null = '신입회원'): Ra
     authorId: 'm1',
     postedAt: MON_10_00 - 60_000,
     commentCount: 0,
+    prefix: null,
   }
 }
 

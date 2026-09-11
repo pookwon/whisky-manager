@@ -15,6 +15,7 @@ function candidate(authorId: string | null): Candidate {
     authorNickname: '왕밤이',
     authorId,
     postedAt: NOW - 60_000,
+    prefix: null,
   }
 }
 

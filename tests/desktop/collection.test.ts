@@ -13,6 +13,7 @@ const NEXT_DAY = Date.UTC(2026, 7, 24, 0, 0)
 
 function raw(postId: string, postedAt: number): RawCandidate {
   return {
+    boardId: SOURCE.boardId,
     postId,
     title: null,
     bodyText: '안녕하세요',
@@ -20,6 +21,7 @@ function raw(postId: string, postedAt: number): RawCandidate {
     authorId: `member-${postId}`,
     postedAt,
     commentCount: 0,
+    prefix: null,
   }
 }
 

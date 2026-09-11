@@ -4,7 +4,7 @@ import { CAFE_ARTICLE_LIST, isMenuId } from './cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from './cafeMemberFixture.js'
 import type { CollectedMemberPage } from './cafeMemberList.js'
 
-export const PROTOCOL_VERSION = 10
+export const PROTOCOL_VERSION = 11
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -49,6 +49,8 @@ export interface SourceRef {
 }
 
 export interface RawCandidate {
+  /** NEW: the board the post is on. */
+  readonly boardId: string
   readonly postId: string
   readonly title: string | null
   readonly bodyText: string | null
@@ -61,6 +63,8 @@ export interface RawCandidate {
    * to be resolved against the post before it can be judged.
    */
   readonly commentCount: number | null
+  /** NEW: 말머리, null when the post has none. */
+  readonly prefix: string | null
 }
 
 /** Semantic action. Endpoints, tokens and selectors stay inside the extension. */

@@ -11,7 +11,7 @@ const NEWEST_POSTED_AT = Date.UTC(2026, 7, 22, 12, 42)
 
 describe('parseMemoList', () => {
   it('reads every memo the page rendered, newest first', () => {
-    expect(parseMemoList(html).map((c) => c.postId)).toEqual([
+    expect(parseMemoList(html, '5').map((c) => c.postId)).toEqual([
       '334381',
       '334380',
       '334379',
@@ -21,9 +21,10 @@ describe('parseMemoList', () => {
   })
 
   it('extracts the fields the automation needs from a memo', () => {
-    const [newest] = parseMemoList(html)
+    const [newest] = parseMemoList(html, '5')
 
     expect(newest).toEqual({
+      boardId: '5',
       postId: '334381',
       // Memos have no title; the field exists for other boards.
       title: null,
@@ -32,19 +33,20 @@ describe('parseMemoList', () => {
       authorId: 'FIXTUREMEMBER01xxxxxxxxxxxxxxxxxxxxxxxxxxxx',
       postedAt: NEWEST_POSTED_AT,
       commentCount: 0,
+      prefix: null,
     })
   })
 
   it('reads a member-written greeting the same way as an auto-generated one', () => {
     // The board is dedicated, so nothing keys off the auto-generated wording.
-    const manual = parseMemoList(html).find((c) => c.postId === '334378')
+    const manual = parseMemoList(html, '5').find((c) => c.postId === '334378')
 
     expect(manual?.bodyText).toBe('안녕하세요 잘부탁드립니다')
     expect(manual?.authorNickname).toBe('가입자넷')
   })
 
   it('reads the comment count from the list', () => {
-    const byId = new Map(parseMemoList(html).map((c) => [c.postId, c]))
+    const byId = new Map(parseMemoList(html, '5').map((c) => [c.postId, c]))
 
     // "댓글 0" is proof no comments exist; "댓글 1" says there is one, but
     // the list never names the authors, so a count above zero has to be
@@ -76,7 +78,7 @@ describe('parseMemoList', () => {
         </div>
       </div>
     `
-    const [result] = parseMemoList(html)
+    const [result] = parseMemoList(html, '5')
     expect(result?.commentCount).toBe(3)
   })
 
@@ -103,13 +105,23 @@ describe('parseMemoList', () => {
         </div>
       </div>
     `
-    const [result] = parseMemoList(html)
+    const [result] = parseMemoList(html, '5')
     expect(result?.commentCount).toBeNull()
   })
 
   it('returns nothing when the memo section is missing', () => {
     // A login page or an error page must not be mistaken for an empty board;
     // the caller distinguishes them, but the parser must not invent rows.
-    expect(parseMemoList('<html><body><h1>로그인</h1></body></html>')).toEqual([])
+    expect(parseMemoList(html, '5')).not.toEqual([])
+    expect(parseMemoList('<html><body><h1>로그인</h1></body></html>', '5')).toEqual([])
+  })
+
+  it('stamps every candidate with the board it was read from and no prefix', () => {
+    const candidates = parseMemoList(html, '5')
+    expect(candidates.length).toBeGreaterThan(0)
+    for (const candidate of candidates) {
+      expect(candidate.boardId).toBe('5')
+      expect(candidate.prefix).toBeNull()
+    }
   })
 })

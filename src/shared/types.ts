@@ -58,6 +58,8 @@ export interface Candidate {
   readonly authorId: string | null
   /** Epoch milliseconds when the source post was written. */
   readonly postedAt: number
+  /** 말머리 the board list showed for the post; null when it carries none. */
+  readonly prefix: string | null
 }
 
 export interface Template {

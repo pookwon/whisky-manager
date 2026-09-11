@@ -83,13 +83,14 @@ function toCandidate(raw: RawCandidate, ctx: ScreeningContext): Candidate {
   return {
     automationId: ctx.automationId,
     cafeId: ctx.source.cafeId,
-    boardId: ctx.source.boardId,
+    boardId: raw.boardId,
     postId: raw.postId,
     title: raw.title,
     bodyText: raw.bodyText,
     authorNickname: raw.authorNickname,
     authorId: raw.authorId,
     postedAt: raw.postedAt,
+    prefix: raw.prefix,
   }
 }
 

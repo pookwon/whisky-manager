@@ -78,6 +78,7 @@ function fakeTransport(options: FakeTransportOptions = {}) {
 
 function candidate(postId: string, postedAt = MON_10_00 - 60_000): RawCandidate {
   return {
+    boardId: '5',
     postId,
     title: '가입인사',
     bodyText: '반갑습니다',
@@ -85,6 +86,7 @@ function candidate(postId: string, postedAt = MON_10_00 - 60_000): RawCandidate 
     authorId: `m${postId}`,
     postedAt,
     commentCount: 0,
+    prefix: null,
   }
 }
 
@@ -148,6 +150,7 @@ describe('firstPostIdByAuthor', () => {
   it('returns the earliest post by each author', () => {
     const sameAuthorId = 'author-1'
     const post1: RawCandidate = {
+      boardId: '5',
       postId: '1001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -155,8 +158,11 @@ describe('firstPostIdByAuthor', () => {
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
+      prefix: null,
+
     }
     const post2: RawCandidate = {
+      boardId: '5',
       postId: '1002',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -164,6 +170,8 @@ describe('firstPostIdByAuthor', () => {
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
       commentCount: 0,
+      prefix: null,
+
     }
     const result = firstPostIdByAuthor([post1, post2])
     expect(result.get(sameAuthorId)).toBe('1001')
@@ -173,6 +181,7 @@ describe('firstPostIdByAuthor', () => {
     const sameAuthorId = 'author-1'
     const sameTimestamp = MON_10_00 - 60_000
     const post1: RawCandidate = {
+      boardId: '5',
       postId: '2001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -180,8 +189,11 @@ describe('firstPostIdByAuthor', () => {
       authorId: sameAuthorId,
       postedAt: sameTimestamp,
       commentCount: 0,
+      prefix: null,
+
     }
     const post2: RawCandidate = {
+      boardId: '5',
       postId: '1001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -189,6 +201,8 @@ describe('firstPostIdByAuthor', () => {
       authorId: sameAuthorId,
       postedAt: sameTimestamp,
       commentCount: 0,
+      prefix: null,
+
     }
     const result = firstPostIdByAuthor([post1, post2])
     // When times are identical, lower post ID wins (comparePostId('1001', '2001') < 0)
@@ -699,6 +713,7 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
   it('records NOT_FIRST_POST reason when the same author has two posts', async () => {
     const sameAuthorId = 'author-shared'
     const earlierPost: RawCandidate = {
+      boardId: '5',
       postId: '2001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -706,8 +721,11 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
+      prefix: null,
+
     }
     const laterPost: RawCandidate = {
+      boardId: '5',
       postId: '2002',
       title: '가입인사',
       bodyText: '또 반갑습니다',
@@ -715,6 +733,8 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
       commentCount: 0,
+      prefix: null,
+
     }
 
     const transport = fakeTransport({ candidates: [earlierPost, laterPost] })
@@ -739,6 +759,7 @@ describe('runSession — first post detection', () => {
   it('identifies earliest post per author regardless of collection order', async () => {
     const sameAuthorId = 'author-1'
     const post1: RawCandidate = {
+      boardId: '5',
       postId: '1001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -746,8 +767,11 @@ describe('runSession — first post detection', () => {
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
+      prefix: null,
+
     }
     const post2: RawCandidate = {
+      boardId: '5',
       postId: '1002',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -755,6 +779,8 @@ describe('runSession — first post detection', () => {
       authorId: sameAuthorId,
       postedAt: MON_10_00 - 30_000,
       commentCount: 0,
+      prefix: null,
+
     }
 
     // Test with oldest-first order
@@ -770,6 +796,7 @@ describe('runSession — first post detection', () => {
 
   it('records AUTHOR_UNKNOWN risk flag for posts with null authorId under AUTO policy', async () => {
     const unknownAuthorPost: RawCandidate = {
+      boardId: '5',
       postId: '1001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -777,6 +804,8 @@ describe('runSession — first post detection', () => {
       authorId: null,
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
+      prefix: null,
+
     }
     await runSession(deps({ transport: fakeTransport({ candidates: [unknownAuthorPost] }), policy: 'AUTO' }))
 
@@ -790,6 +819,7 @@ describe('runSession — first post detection', () => {
 
   it('does not disturb first-post judgement for other authors when one post has null authorId', async () => {
     const author1Post: RawCandidate = {
+      boardId: '5',
       postId: '1001',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -797,8 +827,11 @@ describe('runSession — first post detection', () => {
       authorId: 'author-1',
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
+      prefix: null,
+
     }
     const unknownAuthorPost: RawCandidate = {
+      boardId: '5',
       postId: '1002',
       title: '가입인사',
       bodyText: '반갑습니다',
@@ -806,6 +839,8 @@ describe('runSession — first post detection', () => {
       authorId: null,
       postedAt: MON_10_00 - 45_000,
       commentCount: 0,
+      prefix: null,
+
     }
     const transport = fakeTransport({ candidates: [author1Post, unknownAuthorPost] })
     const outcome = await runSession(deps({ transport, policy: 'AUTO' }))

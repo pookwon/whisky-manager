@@ -15,6 +15,7 @@ function collectMessage(requestId: string, sincePostedAt: number): AppMessage {
 
 function post(postId: string): RawCandidate {
   return {
+    boardId: SOURCE.boardId,
     postId,
     title: null,
     bodyText: null,
@@ -22,6 +23,7 @@ function post(postId: string): RawCandidate {
     authorId: null,
     postedAt: TODAY,
     commentCount: 0,
+    prefix: null,
   }
 }
 

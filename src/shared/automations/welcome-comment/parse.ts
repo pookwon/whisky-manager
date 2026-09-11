@@ -57,7 +57,7 @@ function commentCount(replyBox: HTMLElement): number | null {
   return match === null ? null : Number(match[1])
 }
 
-export function parseMemoList(html: string): RawCandidate[] {
+export function parseMemoList(html: string, boardId: string): RawCandidate[] {
   const section = parse(html).querySelector(SECTION)
   if (section === null) return []
 
@@ -81,6 +81,7 @@ export function parseMemoList(html: string): RawCandidate[] {
     const when = postedAt(titBox)
     if (id !== null && when !== null) {
       candidates.push({
+        boardId,
         postId: id[1] as string,
         title: null,
         bodyText: bodyText(memo),
@@ -88,6 +89,7 @@ export function parseMemoList(html: string): RawCandidate[] {
         authorId: memberId(titBox),
         postedAt: when,
         commentCount: commentCount(node),
+        prefix: null,
       })
     }
     titBox = null

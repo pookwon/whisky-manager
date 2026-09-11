@@ -20,6 +20,7 @@ function candidate(authorNickname: string | null): Candidate {
     authorNickname,
     authorId: 'm1',
     postedAt: 0,
+    prefix: null,
   }
 }
 
