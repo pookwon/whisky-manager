@@ -17,7 +17,7 @@ export interface CollectedMember {
   readonly levelName: string
   /** HTML entities decoded; null when absent, non-string, or empty after trim. */
   readonly ageGroup: string | null
-  /** Null when absent, non-string, or empty after trim. */
+  /** HTML entities decoded; null when absent, non-string, or empty after trim. */
   readonly sex: string | null
   readonly isManager: boolean
   readonly isStaff: boolean
