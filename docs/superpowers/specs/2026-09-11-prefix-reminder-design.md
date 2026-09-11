@@ -163,6 +163,21 @@ parsePrefixReminderOptions(json: string): PrefixReminderOptions   // 깨진 값�
 
 `boardId` 열은 새 자동화에서 쓰지 않는다. `NOT_CONFIGURED` 판정은 `cafeId`만 본다.
 
+### 초기 제외 목록
+
+운영자가 2026-09-11에 정한 목록. 설정 화면에서 입력하는 값이고 코드에 박지 않는다 — 이 문서는 운영자가 첫 설정 때 옮겨 적을 자리다.
+
+| 게시판 | id |
+|---|---|
+| 필독 공지 | 147 |
+| 중요 공지 | 179 |
+| 일반 공지 | 1 |
+| 징계 공지 | 165 |
+| 가이드 & FAQ | 87 |
+| Member of the Month | 207 |
+
+id는 게시판 주소 `cafe.naver.com/f-e/cafes/14538121/menus/<id>`의 마지막 숫자다.
+
 ### 설정 이관
 
 `ConfigBundle.automations[]`에 `options: Record<string, unknown>`이 추가된다(`version` 범프). 가져올 때 그대로 `options_json`에 쓴다. 빠지면 이관한 기계에서 문구가 비어 세션이 `NO_TEMPLATE`으로 거부된다. 구버전 번들은 `options`가 없으면 `{}`로 읽는다.
