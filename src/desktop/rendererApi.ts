@@ -1,5 +1,5 @@
 import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
-import { parseConfigBundle, serializeConfigBundle } from '../shared/configBundle.js'
+import { parseConfigBundle, parseJsonRecord, serializeConfigBundle } from '../shared/configBundle.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { kstDayRange } from '../shared/kst.js'
@@ -461,15 +461,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     getAutomationSettings(automationId): Promise<AutomationSettingsView> {
       const current = setting(automationId)
-      let options: Record<string, unknown> = {}
-      try {
-        const parsed: unknown = JSON.parse(current?.optionsJson ?? '{}')
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          options = parsed as Record<string, unknown>
-        }
-      } catch {
-        // Malformed stored JSON falls back to empty object — caller never sees raw JSON.
-      }
+      const options = parseJsonRecord(current?.optionsJson ?? '{}')
       return Promise.resolve({
         policy: current?.policy ?? 'AUTO',
         enabled: current?.enabled ?? false,

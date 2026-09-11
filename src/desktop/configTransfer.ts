@@ -1,6 +1,7 @@
 import { AUTOMATIONS, findAutomation } from '../shared/automations/catalog.js'
 import {
   CONFIG_BUNDLE_VERSION,
+  parseJsonRecord,
   type BundleAutomation,
   type ConfigBundle,
 } from '../shared/configBundle.js'
@@ -64,6 +65,7 @@ export function buildBundle(deps: ConfigTransferDeps): ConfigBundle {
       templates: deps.templates
         .listAll(automation.id)
         .map((template) => ({ body: template.body, enabled: template.enabled })),
+      options: parseJsonRecord(setting?.optionsJson ?? '{}'),
     }
   })
 
@@ -110,7 +112,7 @@ export function applyBundle(deps: ConfigTransferDeps, bundle: ConfigBundle): Imp
         limits: deps.automationSettings.get(automation.id)?.limits ?? {},
         enabled: automation.enabled,
         boardId: automation.boardId === '' ? null : automation.boardId,
-        optionsJson: deps.automationSettings.get(automation.id)?.optionsJson ?? '{}',
+        optionsJson: JSON.stringify(automation.options),
       })
 
       deps.templates.replaceAll(

@@ -789,7 +789,7 @@ describe('exportConfig', () => {
     expect(await api.exportConfig()).toEqual({ kind: 'SAVED', path: '/picked/settings.json' })
     expect(files.written).toHaveLength(1)
     expect(JSON.parse(files.written[0]!.text)).toMatchObject({
-      version: 1,
+      version: 2,
       common: { cafeId: '10000000', cafeUrlName: 'devcafe' },
     })
   })
@@ -815,7 +815,7 @@ describe('exportConfig', () => {
 
 describe('importConfig', () => {
   const FILE = JSON.stringify({
-    version: 1,
+    version: 2,
     exportedAt: 0,
     common: { cafeId: '31068798', cafeUrlName: 'whiskyclub', operatorAccounts: ['staff1'] },
     automations: [
@@ -825,6 +825,7 @@ describe('importConfig', () => {
         boardId: '42',
         enabled: true,
         templates: [{ body: '환영합니다', enabled: true }],
+        options: {},
       },
     ],
   })

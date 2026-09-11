@@ -21,6 +21,7 @@ const VALID: ConfigBundle = {
       boardId: '42',
       enabled: true,
       templates: [{ body: '{닉네임}님 환영합니다', enabled: true }],
+      options: {},
     },
   ],
 }
@@ -120,6 +121,16 @@ describe('parseConfigBundle', () => {
       ],
     })
     expect(result.ok && result.bundle.automations[0]?.templates[0]?.enabled).toBe(false)
+  })
+
+  it('carries each automation\'s options and reads a missing one as empty', () => {
+    const parsed = parseConfigBundle(JSON.stringify({ version: 2, exportedAt: 1, common: { cafeId: '1', cafeUrlName: 'x', operatorAccounts: [] },
+      automations: [{ id: 'a', policy: 'AUTO', boardId: '', enabled: false, templates: [], options: { commentText: 'hi' } }, { id: 'b', policy: 'AUTO', boardId: '', enabled: false, templates: [] }] }))
+    expect(parsed.ok && parsed.bundle.automations.map((a) => a.options)).toEqual([{ commentText: 'hi' }, {}])
+  })
+
+  it('refuses a version-1 file', () => {
+    expect(parseConfigBundle(JSON.stringify({ version: 1, common: { cafeId: '1' }, automations: [] }))).toEqual({ ok: false, problem: 'UNSUPPORTED_VERSION' })
   })
 
   it('trims the cafe and board rather than storing padded ids', () => {

@@ -11,7 +11,28 @@ import type { ApprovalPolicy } from './types.js'
  */
 
 /** Bumped when the shape changes in a way an older build cannot read. */
-export const CONFIG_BUNDLE_VERSION = 1
+export const CONFIG_BUNDLE_VERSION = 2
+
+/**
+ * Parses a JSON string to a plain object, falling back to `{}` on any
+ * problem (malformed JSON, null, array, primitive). The caller never sees
+ * the raw stored string — it only ever sees a usable options object.
+ *
+ * Extracted from the inline try/catch in `rendererApi.getAutomationSettings`
+ * so that `configTransfer.buildBundle` can reuse the same logic without a
+ * second copy.
+ */
+export function parseJsonRecord(json: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(json)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // Malformed stored JSON falls back to empty object.
+  }
+  return {}
+}
 
 const POLICIES: readonly ApprovalPolicy[] = ['AUTO', 'SEMI', 'MANUAL']
 
@@ -32,6 +53,14 @@ export interface BundleAutomation {
    */
   readonly enabled: boolean
   readonly templates: readonly BundleTemplate[]
+  /**
+   * Automation-specific options (e.g. prefix-reminder comment text, excluded
+   * boards). A file that omits this field is read as `{}` — forward
+   * compatibility for files written before this field existed is not possible
+   * because version-1 files are refused as UNSUPPORTED_VERSION; this default
+   * is for hand-written files and future-proofing within version 2.
+   */
+  readonly options: Record<string, unknown>
 }
 
 export interface BundleCommon {
@@ -116,6 +145,7 @@ function parseAutomations(value: unknown): BundleAutomation[] | null {
       boardId: str(record, 'boardId'),
       enabled: record.enabled === true,
       templates: parseTemplates(record.templates),
+      options: asRecord(record.options) ?? {},
     })
   }
   return parsed

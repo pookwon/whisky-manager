@@ -48,6 +48,7 @@ function bundle(overrides: Partial<ConfigBundle> = {}): ConfigBundle {
           { body: '첫 번째', enabled: true },
           { body: '두 번째', enabled: false },
         ],
+        options: {},
       },
     ],
     ...overrides,
@@ -67,7 +68,7 @@ function seedConfigured(deps: ConfigTransferDeps): void {
     limits: {},
     enabled: true,
     boardId: '5',
-      optionsJson: "{}",
+    optionsJson: '{}',
   })
   deps.templates.add({ id: 'old-1', automationId: WELCOME_AUTOMATION_ID, body: '개발 문구', createdAt: 1 })
 }
@@ -98,6 +99,7 @@ describe('buildBundle', () => {
           boardId: '5',
           enabled: true,
           templates: [{ body: '개발 문구', enabled: true }],
+          options: {},
         },
         {
           id: PREFIX_REMINDER_AUTOMATION_ID,
@@ -105,6 +107,7 @@ describe('buildBundle', () => {
           boardId: '',
           enabled: false,
           templates: [],
+          options: {},
         },
       ],
     })
@@ -133,7 +136,7 @@ describe('buildBundle', () => {
       limits: { actionIntervalMinMs: 3_000, perSessionCap: 5 },
       enabled: false,
       boardId: '5',
-      optionsJson: "{}",
+      optionsJson: '{}',
     })
 
     expect(JSON.stringify(buildBundle(deps))).not.toContain('actionIntervalMinMs')
@@ -160,7 +163,23 @@ describe('buildBundle', () => {
       boardId: '',
       enabled: false,
       templates: [],
+      options: {},
     })
+  })
+
+  it('carries optionsJson as options in the bundle', () => {
+    const deps = build()
+    deps.automationSettings.upsert({
+      automationId: WELCOME_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: false,
+      boardId: null,
+      optionsJson: JSON.stringify({ commentText: '안녕하세요' }),
+    })
+
+    const built = buildBundle(deps)
+    expect(built.automations[0]?.options).toEqual({ commentText: '안녕하세요' })
   })
 })
 
@@ -220,7 +239,7 @@ describe('applyBundle', () => {
       limits: { perSessionCap: 9 },
       enabled: false,
       boardId: '5',
-      optionsJson: "{}",
+      optionsJson: '{}',
     })
 
     applyBundle(deps, bundle())
@@ -271,6 +290,19 @@ describe('applyBundle', () => {
     expect(deps.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId).toBeNull()
   })
 
+  it('stores the bundle options as optionsJson', () => {
+    const deps = build()
+    const file = bundle()
+    applyBundle(deps, {
+      ...file,
+      automations: [{ ...file.automations[0]!, options: { commentText: '안녕하세요' } }],
+    })
+
+    expect(deps.automationSettings.get(WELCOME_AUTOMATION_ID)?.optionsJson).toBe(
+      JSON.stringify({ commentText: '안녕하세요' }),
+    )
+  })
+
   it('ignores an automation this build has never heard of', () => {
     const deps = build()
     const file = bundle()
@@ -278,7 +310,7 @@ describe('applyBundle', () => {
       ...file,
       automations: [
         ...file.automations,
-        { id: 'from-the-future', policy: 'AUTO', boardId: '9', enabled: true, templates: [] },
+        { id: 'from-the-future', policy: 'AUTO', boardId: '9', enabled: true, templates: [], options: {} },
       ],
     })
 
