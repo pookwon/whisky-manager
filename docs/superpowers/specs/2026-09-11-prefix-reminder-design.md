@@ -49,33 +49,45 @@
 
 `CollectedPostMetadata → RawCandidate` 변환: `boardId`, `prefix`, `commentCount`, `title`, `authorId`(memberKey), `authorNickname`, `postedAt`을 옮긴다. `bodyText`는 목록에 없으므로 `null`. 고정 문구라 본문은 필요 없다.
 
-## 5. 판정 — 가드
+### 걸러내기는 claim 앞에서
+
+오케스트레이터는 수집된 글을 **모두** claim하고(`executions` 행), 댓글이 있는 글은 댓글 작성자를 조회한 뒤에야 가드를 돌린다. 가입인사 게시판은 하루 수십 건이라 그래도 되지만, 전체 카페는 하루 300건 안팎이고 대부분 말머리가 있다. 그대로 두면 회차마다 300행을 갱신하고 댓글 있는 글마다 댓글 목록을 읽는다 — 하루 7회면 수천 건의 헛된 요청이다.
+
+말머리 유무, 제외 게시판, 운영자 글은 **목록만으로 판정된다.** 그래서 이 셋은 가드가 아니라 수집기 안의 순수 함수로 두고, 수집기는 후보만 돌려준다.
 
 ```ts
-export function prefixReminderGuards(options): readonly Guard[] {
-  return [
-    operatorAlreadyCommentedGuard,          // 기존
-    authorIsOperatorGuard,                  // 신규, shared/guards.ts
-    hasPrefixGuard,                         // 신규
-    excludedBoardGuard(options.excludedBoardIds), // 신규
-  ]
+// prefix-reminder/eligibility.ts
+export type Ineligibility = 'HAS_PREFIX' | 'EXCLUDED_BOARD' | 'AUTHOR_IS_OPERATOR'
+export interface EligibilityRules {
+  readonly excludedBoardIds: ReadonlySet<string>
+  readonly operatorAccounts: readonly string[]
+}
+export function classifyPost(post: CollectedPostMetadata, rules: EligibilityRules): 'ELIGIBLE' | Ineligibility
+
+export interface EligibilityTally {
+  readonly read: number                           // 오늘 글 전체
+  readonly eligible: number                       // 후보로 넘긴 수
+  readonly droppedBy: Record<Ineligibility, number>
 }
 ```
 
-| 가드 | 판정 | 결과 |
-|---|---|---|
-| `operatorAlreadyCommentedGuard` | 운영자 계정 중 하나가 댓글을 달았다 | `SKIP 'ALREADY_COMMENTED'`. 댓글 확인 실패는 `RISK 'COMMENT_CHECK_FAILED'`. |
-| `authorIsOperatorGuard` | 글쓴이의 `authorId` 또는 `authorNickname`이 운영자 계정에 있다 | `SKIP 'AUTHOR_IS_OPERATOR'` |
-| `hasPrefixGuard` | `candidate.prefix !== null` | `SKIP 'HAS_PREFIX'` |
-| `excludedBoardGuard` | `candidate.boardId`가 제외 목록에 있다 | `SKIP 'EXCLUDED_BOARD'` |
+수집기는 `EligibilityTally`를 `onTally` 콜백으로 보고한다. §10의 세션 로그가 이 수를 적는다. 후보가 아닌 글은 `executions`에 행이 생기지 않는다 — 판정 이력이 필요한 것은 댓글을 달까 말까 했던 글이지, 말머리가 있어 볼 일이 없던 글이 아니다.
 
-`SkipReason`에 `'HAS_PREFIX' | 'EXCLUDED_BOARD' | 'AUTHOR_IS_OPERATOR'`가 추가되고, `text.ts`의 건너뜀 사유 문구에 셋이 추가된다(Record라 빠지면 빌드가 깨진다).
+## 5. 판정 — 가드
+
+수집기가 후보만 넘기므로 가드는 하나다.
+
+```ts
+export const PREFIX_REMINDER_GUARDS: readonly Guard[] = [operatorAlreadyCommentedGuard]
+```
+
+운영자 계정 중 하나가 이미 댓글을 달았으면 `SKIP 'ALREADY_COMMENTED'`, 댓글 확인 실패는 `RISK 'COMMENT_CHECK_FAILED'`. 기존 가드 그대로다. 쓰기 직전 재확인(`runJob`)도 그대로 돈다.
 
 `firstPostOnlyGuard`는 넣지 않는다. 한 사람이 말머리 없는 글을 둘 올리면 둘 다 안내를 받는다 — 안내는 글에 대한 것이지 사람에 대한 것이 아니다.
 
 댓글 확인은 `commentCount > 0`인 글만 실제로 읽는다(`CommentAuthorLookup`, 기존). `CHECK_COMMENTS`는 `automationId`를 실어 보내므로 확장에서 일반 글 클라이언트로 간다(§6).
 
-가드 목록은 세션마다 설정에서 다시 만든다. 제외 목록을 고치면 다음 세션부터 적용된다.
+제외 목록과 운영자 계정은 세션마다 설정에서 다시 읽는다. 고치면 다음 세션부터 적용된다.
 
 ## 6. 댓글 경로 — 일반 글
 
@@ -193,7 +205,35 @@ id는 게시판 주소 `cafe.naver.com/f-e/cafes/14538121/menus/<id>`의 마지�
 
 새 자동화의 시작 미리보기(전체 카페를 한 번 더 걷는 비용), 제외 게시판을 이름으로 고르는 UI, 승인 항목의 게시판 이름, 템플릿 변수. 운영 단계라 표면을 최소로 잡는다. 필요해지면 그때.
 
-## 10. 오류 처리
+## 10. 처리 현황 로그
+
+지금 남는 기록은 둘이다: 글 하나당 `executions` 행(상태·사유), 그리고 거부된 세션만 적는 `refused-sessions.log`. 열린 세션이 몇 페이지를 읽고 몇 건을 걸렀는지는 메모리에만 있다가 재시작하면 사라진다. 문제가 생겼을 때 "그 회차에 무슨 일이 있었나"를 답하려면 세션 한 줄이 남아야 한다.
+
+### `sessions.log`
+
+`userData/sessions.log`. 세션 하나에 한 줄, 두 자동화 모두. `refused-sessions.log`는 이 파일로 합쳐진다 — 거부 줄의 형식(`formatRefusal`)은 그대로 쓰고, 파일만 하나가 된다.
+
+```
+2026-09-11 14:03:12.418 KST  prefix-reminder  SCHEDULED  opened  pages=7 read=312 eligible=11 dropped[HAS_PREFIX=289 EXCLUDED_BOARD=10 AUTHOR_IS_OPERATOR=2]  executed=9 skipped=2 awaiting=0 failed=0  took=6m12s
+2026-09-11 14:03:12.418 KST  welcome-comment  SCHEDULED  opened  pages=1 read=14  executed=3 skipped=11 awaiting=0 failed=0  took=2m40s
+2026-09-11 16:01:07.002 KST  prefix-reminder  SCHEDULED  refused OUTSIDE_ACTIVE_HOURS  scheduled 2026-09-11 16:00:59.000 KST  woke 8002ms late
+```
+
+- 열린 세션: 자동화 id, 실행 모드, `opened`, 수집 요약, 결과 집계, 걸린 시간. 수집 요약은 `SessionOutcome`이 아니라 수집기가 `onProgress`·`onTally`로 보고한 값이므로, 런타임이 세션 동안 모아 두었다가 한 줄로 합친다. 가입인사에는 `eligible`/`dropped`가 없다 — 그 수집기는 거르지 않는다.
+- 거부된 세션: 지금의 거부 줄에 자동화 id와 모드가 앞에 붙는다.
+- 어제 정산과 오늘을 한 세션이 함께 일하면 수집 요약은 날마다 한 덩어리씩 두 번 적힌다(`day=09-10 pages=… / day=09-11 pages=…`).
+
+기록 실패는 세션을 세우지 않는다(`appendRefusal`과 같은 이유).
+
+### 글 단위 이력
+
+후보로 넘어간 글은 `executions` 행이 이력이다: 상태, 사유, 위험 플래그, 시도 횟수, 실행 시각. 승인 큐 화면과 SQLite 파일 자체로 읽는다. 후보가 아니어서 걸러진 글은 §4대로 행이 없고, 세션 줄의 `dropped` 합계로만 남는다. 어느 글이 왜 걸러졌는지까지 남기려면 하루 300행을 회차마다 갱신해야 하는데, 그 답은 목록 API를 한 번 다시 읽으면 언제든 얻을 수 있다.
+
+### 대시보드
+
+새 자동화 카드의 "마지막 결과" 줄은 `SessionOutcome`의 집계(`executed`/`skipped`/`awaiting`/`failed`)를 지금의 가입인사 카드와 같은 문구로 보여 준다. 수집 요약은 카드에 넣지 않는다 — 로그 파일이 그 자리다.
+
+## 11. 오류 처리
 
 | 상황 | 처리 |
 |---|---|
@@ -205,23 +245,25 @@ id는 게시판 주소 `cafe.naver.com/f-e/cafes/14538121/menus/<id>`의 마지�
 | 제외 목록에 숫자 아닌 값 | 저장 시 거부. 화면에 문구. |
 | `options_json`이 깨짐 | 기본값(`commentText: ''`, `excludedBoardIds: []`)으로 읽고, 결과적으로 `NO_TEMPLATE` 거부. 조용히 전체 게시판에 댓글을 다는 쪽으로 기울지 않는다. |
 
-## 11. 테스트
+## 12. 테스트
 
 기존 구조(`tests/shared`, `tests/desktop`, `tests/extension`, `tests/renderer`)를 따르고 TDD로 간다.
 
-- `shared/automations/prefix-reminder/`: 댓글 파서는 캡처한 픽스처로. 가드는 `Candidate` 표로 — 말머리 있음/없음, 제외 게시판, 운영자 글, 운영자 댓글 있음, 댓글 확인 실패. `articleCafe.ts`의 URL·요청 빌더는 문자열 비교. `options.ts`는 깨진 JSON, 빈 값, 숫자 아닌 id.
-- 수집: 가짜 transport로 `COLLECT_BOARD_PAGE` 응답을 흉내내어 "자정 이전 글을 만나면 멈춤", "빈 페이지", "같은 페이지 반복", "읽기 실패 → null", "자정 전 글 잘라냄".
+- `shared/automations/prefix-reminder/`: 댓글 파서는 캡처한 픽스처로. `classifyPost`는 `CollectedPostMetadata` 표로 — 말머리 있음/없음, 제외 게시판, 운영자 글(memberKey로, 닉네임으로). `articleCafe.ts`의 URL·요청 빌더는 문자열 비교. `options.ts`는 깨진 JSON, 빈 값, 숫자 아닌 id.
+- 수집: 가짜 transport로 `COLLECT_BOARD_PAGE` 응답을 흉내내어 "자정 이전 글을 만나면 멈춤", "빈 페이지", "같은 페이지 반복", "읽기 실패 → null", "자정 전 글 잘라냄", "후보만 돌려주고 `onTally`에 걸러진 수가 맞음".
+- 세션 로그: `formatSessionLine`이 열린 세션·거부된 세션·두 날을 일한 세션을 예시 형식대로 적는지 문자열 비교.
 - 오케스트레이터 리팩터링: `orchestrator.test.ts`, `session.test.ts`가 동작 변화 없이 통과. 주입된 `collectDay`를 통해 같은 시나리오를 돌린다.
 - 확장: `dispatch`가 `automationId`별로 클라이언트를 고르는지 가짜 http로. 모르는 id는 `ERROR`.
 - 부트스트랩: `assertRuntimesRegistered`가 두 id를 요구. 시작/중지가 두 루프를 함께 움직임. `onHalt`가 둘을 함께 세움.
 - 렌더러: 카드가 자동화별로 그려짐. 설정 섹션이 키로 갈림. 번들 가져오기가 `options`를 쓰고, 없으면 `{}`.
 
-## 12. 작업 순서
+## 13. 작업 순서
 
 1. **Phase 0**: 일반 글 댓글 읽기·쓰기 계약 캡처 → 계약 문서 + 픽스처.
 2. **리팩터링 커밋**: §3의 표. 동작 변화 없음. 기존 테스트 전부 통과.
 3. 프로토콜 범프, `RawCandidate.boardId/prefix`, 확장 라우팅, `articleCafe` 클라이언트.
-4. `prefix-reminder` 모듈(수집·가드·옵션·렌더) + 카탈로그 등록 + 런타임 조립 + 자동화별 제어.
-5. `options_json` 마이그레이션, 설정 API, 설정 패널 분리, 대시보드 카드 자동화별.
-6. 설정 이관 번들에 `options` 포함.
-7. 릴리스: 프로토콜 범프에 따른 확장 재패키징 (`repackage-after-protocol-bump` 메모).
+4. `prefix-reminder` 모듈(수집·판정·옵션·렌더) + 카탈로그 등록 + 런타임 조립 + 자동화별 제어.
+5. `sessions.log` — 두 자동화의 세션 줄, 거부 줄 합류.
+6. `options_json` 마이그레이션, 설정 API, 설정 패널 분리, 대시보드 카드 자동화별.
+7. 설정 이관 번들에 `options` 포함.
+8. 릴리스: 프로토콜 범프에 따른 확장 재패키징 (`repackage-after-protocol-bump` 메모).
