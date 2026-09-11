@@ -73,6 +73,7 @@ describe('automationSettingsRepo', () => {
       limits: { hourlyCap: 50 },
       enabled: false,
       boardId: null,
+      optionsJson: "{}",
     })
 
     expect(repo.get('welcome-comment')).toEqual({
@@ -81,6 +82,7 @@ describe('automationSettingsRepo', () => {
       limits: { hourlyCap: 50 },
       enabled: false,
       boardId: null,
+      optionsJson: "{}",
     })
   })
 
@@ -92,6 +94,7 @@ describe('automationSettingsRepo', () => {
       limits: {},
       enabled: true,
       boardId: null,
+      optionsJson: "{}",
     })
     repo.upsert({
       automationId: 'welcome-comment',
@@ -99,6 +102,7 @@ describe('automationSettingsRepo', () => {
       limits: {},
       enabled: true,
       boardId: null,
+      optionsJson: "{}",
     })
     expect(repo.get('welcome-comment')?.policy).toBe('AUTO')
   })

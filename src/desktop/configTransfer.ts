@@ -110,6 +110,7 @@ export function applyBundle(deps: ConfigTransferDeps, bundle: ConfigBundle): Imp
         limits: deps.automationSettings.get(automation.id)?.limits ?? {},
         enabled: automation.enabled,
         boardId: automation.boardId === '' ? null : automation.boardId,
+        optionsJson: deps.automationSettings.get(automation.id)?.optionsJson ?? '{}',
       })
 
       deps.templates.replaceAll(

@@ -161,6 +161,7 @@ function enable(repos: ReturnType<typeof build>['repos'], boardId: string | null
     limits: {},
     enabled: true,
     boardId,
+    optionsJson: '{}',
   })
 }
 
@@ -276,6 +277,7 @@ describe('createSessionRunner — the day to work', () => {
       limits: {},
       enabled: true,
       boardId: BOARD,
+      optionsJson: "{}",
     })
     repos.templates.add({
       id: 't1',
@@ -300,6 +302,7 @@ describe('createSessionRunner', () => {
       limits: {},
       enabled: true,
       boardId: '77',
+      optionsJson: "{}",
     })
     repos.templates.add({
       id: 't1',
@@ -367,6 +370,7 @@ describe('createSessionRunner', () => {
       limits: {},
       enabled: false,
       boardId: BOARD,
+      optionsJson: "{}",
     })
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
 
@@ -419,6 +423,7 @@ describe('createSessionRunner', () => {
       limits: {},
       enabled: true,
       boardId: BOARD,
+      optionsJson: "{}",
     })
 
     expect(await run()).toMatchObject({ opened: true, executed: 0, awaitingApproval: 1 })
@@ -432,6 +437,7 @@ describe('createSessionRunner', () => {
       limits: { perSessionCap: 1 },
       enabled: true,
       boardId: BOARD,
+      optionsJson: "{}",
     })
     repos.templates.add({ id: 't1', automationId: WELCOME_AUTOMATION_ID, body: 'hi', createdAt: 1 })
 

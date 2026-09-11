@@ -10,6 +10,8 @@ export interface AutomationSetting {
   readonly enabled: boolean
   /** `null` means never configured; the reader falls back to the default board. */
   readonly boardId: string | null
+  /** Raw JSON string. '{}' when the column was absent (pre-migration rows). */
+  readonly optionsJson: string
 }
 
 export interface AutomationSettingsRepo {
@@ -41,6 +43,7 @@ export function createAutomationSettingsRepo(db: AppDatabase): AutomationSetting
         limits: parseLimits(row.limitsJson),
         enabled: row.enabled,
         boardId: row.boardId,
+        optionsJson: row.optionsJson,
       }
     },
     upsert(setting) {
@@ -50,6 +53,7 @@ export function createAutomationSettingsRepo(db: AppDatabase): AutomationSetting
         limitsJson: JSON.stringify(setting.limits),
         enabled: setting.enabled,
         boardId: setting.boardId,
+        optionsJson: setting.optionsJson,
       }
       db.insert(automationSettings)
         .values(values)
@@ -60,6 +64,7 @@ export function createAutomationSettingsRepo(db: AppDatabase): AutomationSetting
             limitsJson: values.limitsJson,
             enabled: values.enabled,
             boardId: values.boardId,
+            optionsJson: values.optionsJson,
           },
         })
         .run()

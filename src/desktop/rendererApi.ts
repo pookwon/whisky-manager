@@ -194,7 +194,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
   const upsert = (
     automationId: string,
-    patch: Partial<{ policy: ApprovalPolicy; enabled: boolean; boardId: string }>,
+    patch: Partial<{ policy: ApprovalPolicy; enabled: boolean; boardId: string; optionsJson: string }>,
   ): void => {
     const current = setting(automationId)
     repos.automationSettings.upsert({
@@ -203,6 +203,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       limits: current?.limits ?? {},
       enabled: patch.enabled ?? current?.enabled ?? false,
       boardId: patch.boardId ?? current?.boardId ?? null,
+      optionsJson: patch.optionsJson ?? current?.optionsJson ?? '{}',
     })
   }
 
@@ -465,10 +466,20 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     getAutomationSettings(automationId): Promise<AutomationSettingsView> {
       const current = setting(automationId)
+      let options: Record<string, unknown> = {}
+      try {
+        const parsed: unknown = JSON.parse(current?.optionsJson ?? '{}')
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          options = parsed as Record<string, unknown>
+        }
+      } catch {
+        // Malformed stored JSON falls back to empty object — caller never sees raw JSON.
+      }
       return Promise.resolve({
         policy: current?.policy ?? 'AUTO',
         enabled: current?.enabled ?? false,
         boardId: current?.boardId ?? '',
+        options,
       })
     },
 
@@ -491,6 +502,11 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     setBoardId(automationId, boardId) {
       upsert(automationId, { boardId: boardId.trim() })
+      return Promise.resolve()
+    },
+
+    setAutomationOptions(automationId, options) {
+      upsert(automationId, { optionsJson: JSON.stringify(options) })
       return Promise.resolve()
     },
 

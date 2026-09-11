@@ -543,6 +543,7 @@ describe('settings', () => {
       policy: 'AUTO',
       enabled: false,
       boardId: '',
+      options: {},
     })
   })
 
@@ -564,7 +565,14 @@ describe('settings', () => {
       policy: 'SEMI',
       enabled: true,
       boardId: '7',
+      options: {},
     })
+  })
+
+  it('stores automation options as json and hands them back parsed', async () => {
+    const { api } = build()
+    await api.setAutomationOptions('welcome-comment', { commentText: '안내', excludedBoardIds: ['1'] })
+    expect((await api.getAutomationSettings('welcome-comment')).options).toEqual({ commentText: '안내', excludedBoardIds: ['1'] })
   })
 
   it('keeps templates separate per automation', async () => {
@@ -805,6 +813,7 @@ describe('importConfig', () => {
       policy: 'SEMI',
       enabled: true,
       boardId: '42',
+      options: {},
     })
   })
 

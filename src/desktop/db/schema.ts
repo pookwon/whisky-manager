@@ -61,6 +61,11 @@ export const automationSettings = sqliteTable('automation_settings', {
   // Nullable: a board nobody has named yet, which the session refuses on. Adding NOT NULL to an
   // existing SQLite table means rewriting it, which buys nothing here.
   boardId: text('board_id'),
+  // Per-automation configuration bag. Each automation owns its own keys inside
+  // this JSON object; the schema for those keys lives next to the automation
+  // that reads them (Task 6 parse*). Defaulting to '{}' means rows written
+  // before this column existed read back as an empty object with no migration.
+  optionsJson: text('options_json').notNull().default('{}'),
 })
 
 export const appSettings = sqliteTable('app_settings', {

@@ -20,6 +20,20 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+describe('automationSettingsRepo optionsJson', () => {
+  it('stores and returns options json, defaulting to an empty object', () => {
+    const repo = createAutomationSettingsRepo(db)
+    repo.upsert({ automationId: 'a', policy: 'AUTO', limits: {}, enabled: false, boardId: null, optionsJson: '{"commentText":"x"}' })
+    expect(repo.get('a')?.optionsJson).toBe('{"commentText":"x"}')
+  })
+
+  it('reads rows written before the column existed as {}', () => {
+    const repo = createAutomationSettingsRepo(db)
+    db.run('INSERT INTO automation_settings (automation_id, policy) VALUES (\'old\', \'AUTO\')')
+    expect(repo.get('old')?.optionsJson).toBe('{}')
+  })
+})
+
 describe('automationSettingsRepo boardId', () => {
   it('round-trips a board id', () => {
     const repo = createAutomationSettingsRepo(db)
@@ -29,6 +43,7 @@ describe('automationSettingsRepo boardId', () => {
       limits: {},
       enabled: true,
       boardId: '5',
+      optionsJson: '{}',
     })
 
     expect(repo.get('welcome-comment')?.boardId).toBe('5')
@@ -42,6 +57,7 @@ describe('automationSettingsRepo boardId', () => {
       limits: {},
       enabled: false,
       boardId: null,
+      optionsJson: '{}',
     })
 
     expect(repo.get('welcome-comment')?.boardId).toBeNull()
@@ -55,6 +71,7 @@ describe('automationSettingsRepo boardId', () => {
       limits: {},
       enabled: true,
       boardId: '5',
+      optionsJson: '{}',
     })
     const current = repo.get('welcome-comment')
     if (current === undefined) throw new Error('seed failed')

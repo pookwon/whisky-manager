@@ -57,6 +57,13 @@
       "when": 1787579620280,
       "tag": "0007_blue_jamie_braddock",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789103286276,
+      "tag": "0008_right_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

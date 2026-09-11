@@ -183,6 +183,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       limits: {},
       enabled: false,
       boardId: local?.boardId ?? null,
+      optionsJson: '{}',
     })
   }
 

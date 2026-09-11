@@ -42,6 +42,7 @@ export const IPC_CHANNELS = {
   setPolicy: 'wm:setPolicy',
   setEnabled: 'wm:setEnabled',
   setBoardId: 'wm:setBoardId',
+  setAutomationOptions: 'wm:setAutomationOptions',
   setOperatorAccounts: 'wm:setOperatorAccounts',
   setCafe: 'wm:setCafe',
   getPairingToken: 'wm:getPairingToken',
@@ -234,6 +235,8 @@ export interface AutomationSettingsView {
   readonly policy: ApprovalPolicy
   readonly enabled: boolean
   readonly boardId: string
+  /** Parsed options bag. Automations validate the keys they care about on read. */
+  readonly options: Record<string, unknown>
 }
 
 export interface AutomationStatus {
@@ -314,6 +317,8 @@ export interface RendererApi {
   setPolicy(automationId: string, policy: ApprovalPolicy): Promise<void>
   setEnabled(automationId: string, enabled: boolean): Promise<void>
   setBoardId(automationId: string, boardId: string): Promise<void>
+  /** Stores `options` as JSON; each automation validates the keys it cares about on read. */
+  setAutomationOptions(automationId: string, options: Record<string, unknown>): Promise<void>
   setOperatorAccounts(accounts: string[]): Promise<void>
   setCafe(cafeId: string, cafeUrlName: string): Promise<void>
   getPairingToken(): Promise<string>

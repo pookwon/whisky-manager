@@ -78,6 +78,7 @@ const automationSettings: AutomationSettingsView = {
   policy: 'AUTO',
   enabled: false,
   boardId: '5',
+  options: {},
 }
 
 const memberCollectionReady = {

@@ -45,6 +45,7 @@ function options(path: string) {
     profile: 'debug' as const,
     bridgePort: 0,
     localConfig: { cafeId: 'cafe-under-test', boardId: 'board-under-test' },
+      optionsJson: "{}",
   }
 }
 
@@ -103,6 +104,7 @@ describe('createAppContext', () => {
         limits: {},
         enabled: true,
         boardId: null,
+      optionsJson: "{}",
       })
       unconfigured.repos.templates.add({
         id: 't1',
@@ -145,6 +147,7 @@ describe('createAppContext', () => {
       limits: {},
       enabled: true,
       boardId: 'board-under-test',
+      optionsJson: "{}",
     })
 
     await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
@@ -158,6 +161,7 @@ describe('createAppContext', () => {
       limits: {},
       enabled: true,
       boardId: 'board-under-test',
+      optionsJson: "{}",
     })
     ctx.repos.templates.add({
       id: 't1',

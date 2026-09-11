@@ -1,0 +1,1 @@
+ALTER TABLE `automation_settings` ADD `options_json` text DEFAULT '{}' NOT NULL;

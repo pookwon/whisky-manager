@@ -67,6 +67,7 @@ function seedConfigured(deps: ConfigTransferDeps): void {
     limits: {},
     enabled: true,
     boardId: '5',
+      optionsJson: "{}",
   })
   deps.templates.add({ id: 'old-1', automationId: WELCOME_AUTOMATION_ID, body: '개발 문구', createdAt: 1 })
 }
@@ -125,6 +126,7 @@ describe('buildBundle', () => {
       limits: { actionIntervalMinMs: 3_000, perSessionCap: 5 },
       enabled: false,
       boardId: '5',
+      optionsJson: "{}",
     })
 
     expect(JSON.stringify(buildBundle(deps))).not.toContain('actionIntervalMinMs')
@@ -211,6 +213,7 @@ describe('applyBundle', () => {
       limits: { perSessionCap: 9 },
       enabled: false,
       boardId: '5',
+      optionsJson: "{}",
     })
 
     applyBundle(deps, bundle())
