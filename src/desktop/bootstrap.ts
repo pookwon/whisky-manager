@@ -55,7 +55,7 @@ import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
-import { appendRefusal } from './refusalLog.js'
+import { createSessionRecorder, type SessionRecorder } from './sessionLog.js'
 import {
   openOptionalCollectionContext,
   type CollectionUnavailableCode,
@@ -76,10 +76,11 @@ export interface AppContextOptions {
    */
   readonly collectionConfigPath?: string
   /**
-   * Where refused sessions are written down. Omitted means they are not: a
-   * dev run or a test has the outcome in front of it already.
+   * Where every session — opened or refused, for every automation — is written
+   * down, one line each. Omitted means they are not: a dev run or a test has
+   * the outcome in front of it already.
    */
-  readonly refusalLogPath?: string
+  readonly sessionLogPath?: string
   readonly profile: Profile
   readonly bridgePort: number
   /** Fired when the loop stops itself; the shell should show the new state. */
@@ -340,7 +341,12 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     readonly hasBody: () => boolean
     readonly loginBoardId: () => string | null
     readonly requiresBoard: boolean
+    /** Gathers this runtime's session line and writes it when the session ends. */
+    readonly recorder: SessionRecorder
   }
+
+  const makeRecorder = (automationId: string): SessionRecorder =>
+    createSessionRecorder({ automationId, path: options.sessionLogPath, now: () => systemClock.now() })
 
   const runtimes = new Map<string, AutomationRuntime>()
   const buildRuntime = (spec: RuntimeSpec): AutomationRuntime => {
@@ -349,37 +355,41 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       limits: spec.limits,
       clock: systemClock,
       random: systemRandom,
-      runSession: createSessionRunner({
-        automationId: spec.automationId,
-        profile: options.profile,
-        clock: systemClock,
-        random: systemRandom,
-        transport,
-        repos,
-        settings,
-        isKilled: () => killed,
-        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        newId: () => randomUUID(),
-        renderBody: spec.renderBody,
-        hasBody: spec.hasBody,
-        guards: spec.guards,
-        collector: spec.collector,
-        settledDayKey: settledDayKeyFor(spec.automationId),
-        loginBoardId: spec.loginBoardId,
-        requiresBoard: spec.requiresBoard,
-        onProgress: (progress) => runtime.reportProgress(progress),
-      }),
-      onOutcome: (outcome, wake) => {
-        // A refusal is the one outcome that leaves nothing behind: no executions
-        // to read afterwards, and the outcome itself only lives until a restart.
-        if (!outcome.opened && options.refusalLogPath !== undefined) {
-          appendRefusal(options.refusalLogPath, {
-            reason: outcome.reason,
-            judgedAt: systemClock.now(),
-            wake,
-          })
+      runSession: (() => {
+        const run = createSessionRunner({
+          automationId: spec.automationId,
+          profile: options.profile,
+          clock: systemClock,
+          random: systemRandom,
+          transport,
+          repos,
+          settings,
+          isKilled: () => killed,
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          newId: () => randomUUID(),
+          renderBody: spec.renderBody,
+          hasBody: spec.hasBody,
+          guards: spec.guards,
+          collector: spec.collector,
+          settledDayKey: settledDayKeyFor(spec.automationId),
+          loginBoardId: spec.loginBoardId,
+          requiresBoard: spec.requiresBoard,
+          onProgress: (progress) => {
+            spec.recorder.observe(progress)
+            runtime.reportProgress(progress)
+          },
+        })
+        // The mode and the day list belong to the session, so they are reset the
+        // moment one opens rather than when the last one's line was written.
+        return (request?: SessionRequest) => {
+          spec.recorder.begin(request?.mode ?? 'MANUAL')
+          return run(request)
         }
-      },
+      })(),
+      // Every session leaves a line, opened or refused: an opened one is what a
+      // refusal cannot leave — the read counts and what was done about them — and
+      // both share the one file so the day reads in the order sessions closed.
+      onOutcome: (outcome, wake) => spec.recorder.complete(outcome, wake),
       onError: (error) => console.error(`[session:${spec.automationId}]`, error),
       onHalt: (reason) => {
         console.warn(`[session:${spec.automationId}] halted:`, reason)
@@ -412,6 +422,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     hasBody: () => enabledTemplates().length > 0,
     loginBoardId: () => null,
     requiresBoard: true,
+    recorder: makeRecorder(WELCOME_AUTOMATION_ID),
   })
 
   /**
@@ -424,6 +435,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       repos.automationSettings.get(PREFIX_REMINDER_AUTOMATION_ID)?.optionsJson ?? '{}',
     )
 
+  // Created ahead of the runtime so the collector can report each day's tally
+  // into the same recorder the runtime writes the session line from.
+  const prefixRecorder = makeRecorder(PREFIX_REMINDER_AUTOMATION_ID)
   buildRuntime({
     automationId: PREFIX_REMINDER_AUTOMATION_ID,
     limits: { ...PROFILES[options.profile], ...PREFIX_REMINDER_LIMITS[options.profile] },
@@ -437,9 +451,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         },
         random: systemRandom,
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        onTally: () => {
-          // Task 7 keeps this for the session line; nothing reads it yet.
-        },
+        onTally: prefixRecorder.recordTally,
       }),
     renderBody: () => renderPrefixReminder(prefixOptions().commentText),
     hasBody: () => renderPrefixReminder(prefixOptions().commentText).ok,
@@ -447,6 +459,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     // rather than from a board this one does not have.
     loginBoardId: () => repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? null,
     requiresBoard: false,
+    recorder: prefixRecorder,
   })
 
   // Adding a catalogue entry without building its runtime above fails the boot,

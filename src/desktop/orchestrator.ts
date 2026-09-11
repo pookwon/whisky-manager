@@ -113,7 +113,7 @@ interface PostWalk {
  * lists it is.
  */
 export type SessionProgress =
-  | { readonly phase: 'COLLECTING'; readonly pagesRead?: number; readonly collected?: number }
+  | { readonly phase: 'COLLECTING'; readonly dayStartMs: number; readonly pagesRead?: number; readonly collected?: number }
   | ({ readonly phase: 'BACKLOG' } & PostWalk)
   | ({ readonly phase: 'WORKING' } & PostWalk)
 
@@ -367,9 +367,9 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, sessionCount: number
 async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Promise<DayResult> {
   // The whole day, every session. A post passed over earlier has to come back
   // into view, because what disqualified it can change on the cafe's side.
-  deps.onProgress?.({ phase: 'COLLECTING' })
+  deps.onProgress?.({ phase: 'COLLECTING', dayStartMs })
   const raws = await deps.collectDay(dayStartMs, (pagesRead, collected) =>
-    deps.onProgress?.({ phase: 'COLLECTING', pagesRead, collected }),
+    deps.onProgress?.({ phase: 'COLLECTING', dayStartMs, pagesRead, collected }),
   )
   if (raws === null) return 'COLLECT_FAILED'
 

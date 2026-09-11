@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,6 +42,7 @@ function options(path: string) {
   return {
     databasePath: path,
     migrationsFolder: MIGRATIONS,
+    sessionLogPath: join(dir, 'sessions.log'),
     profile: 'debug' as const,
     bridgePort: 0,
     localConfig: { cafeId: 'cafe-under-test', boardId: 'board-under-test' },
@@ -186,6 +187,12 @@ describe('createAppContext', () => {
     // DISABLED, not KILLED: starting again lifted the kill switch.
     expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'DISABLED' })
     ctx.automation.stop()
+  })
+
+  it('writes every session, opened or refused, to the session log', async () => {
+    await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
+    const log = readFileSync(join(dir, 'sessions.log'), 'utf8')
+    expect(log).toContain('welcome-comment  MANUAL  refused')
   })
 
   it('leaves no progress behind once a session ends', async () => {

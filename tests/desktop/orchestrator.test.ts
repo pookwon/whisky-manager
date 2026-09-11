@@ -656,7 +656,7 @@ describe('runSession — progress', () => {
     )
 
     expect(seen).toEqual([
-      { phase: 'COLLECTING' },
+      { phase: 'COLLECTING', dayStartMs: TODAY },
       { phase: 'WORKING', done: 0, total: 2, nickname: 'nick' },
       { phase: 'WORKING', done: 1, total: 2, nickname: 'nick' },
     ])
@@ -683,7 +683,7 @@ describe('runSession — progress', () => {
     // against its own length, today's posts against theirs.
     expect(seen).toEqual([
       { phase: 'BACKLOG', done: 0, total: 1, nickname: 'nick' },
-      { phase: 'COLLECTING' },
+      { phase: 'COLLECTING', dayStartMs: TODAY },
       { phase: 'WORKING', done: 0, total: 2, nickname: 'nick' },
       { phase: 'WORKING', done: 1, total: 2, nickname: 'nick' },
     ])

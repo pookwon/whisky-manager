@@ -35,7 +35,7 @@ describe('createAutomationRuntime', () => {
   it('clears progress once the session ends, even one that threw', async () => {
     const rt = createAutomationRuntime({
       automationId: 'x', limits: PROFILES.debug, clock: new FakeClock(MON_10_00), random: new SequenceRandom([0]),
-      runSession: () => { rt.reportProgress({ phase: 'COLLECTING' }); return Promise.reject(new Error('boom')) },
+      runSession: () => { rt.reportProgress({ phase: 'COLLECTING', dayStartMs: 0 }); return Promise.reject(new Error('boom')) },
       onOutcome: () => {}, onHalt: () => {}, onError: () => {}, setTimer: () => 1, clearTimer: () => {},
     })
     await rt.runOnce()

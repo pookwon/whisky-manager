@@ -199,8 +199,8 @@ describe('getBridgeStatusText', () => {
 
 describe('progressSummary', () => {
   it('names the phase when collecting, and the counts once it has read a page', () => {
-    expect(progressSummary({ phase: 'COLLECTING' })).toBe(TEXT.progress.collecting)
-    expect(progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })).toBe(
+    expect(progressSummary({ phase: 'COLLECTING', dayStartMs: 0 })).toBe(TEXT.progress.collecting)
+    expect(progressSummary({ phase: 'COLLECTING', dayStartMs: 0, pagesRead: 2, collected: 87 })).toBe(
       TEXT.progress.collectingCounted(2, 87),
     )
   })

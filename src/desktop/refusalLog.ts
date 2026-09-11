@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs'
 import { KST_OFFSET_MS } from '../shared/kst.js'
 import type { SessionRefusal } from './orchestrator.js'
 import type { WakeRecord } from './sessionLoop.js'
@@ -16,8 +15,24 @@ export interface RefusedSession {
  * one — a session refused for being outside a window it was aimed at the
  * opening of — and rounding to the second would hide exactly that.
  */
-function stamp(epochMs: number): string {
+export function stamp(epochMs: number): string {
   return new Date(epochMs + KST_OFFSET_MS).toISOString().replace('T', ' ').replace('Z', '')
+}
+
+/**
+ * The reason and, if the run was scheduled, how far the wake drifted — the tail
+ * of a refusal line, without the leading timestamp. Shared so the one-line
+ * session log can reuse the same wording after its own automation and mode,
+ * rather than spelling the drift out a second time.
+ */
+export function formatRefusalFields(session: RefusedSession): string[] {
+  if (session.wake === null) return [session.reason, 'unscheduled']
+  const driftMs = session.wake.wokeAt - session.wake.scheduledFor
+  return [
+    session.reason,
+    `scheduled ${stamp(session.wake.scheduledFor)} KST`,
+    driftMs < 0 ? `woke ${-driftMs}ms early` : `woke ${driftMs}ms late`,
+  ]
 }
 
 /**
@@ -30,24 +45,5 @@ function stamp(epochMs: number): string {
  * the next restart. This is the line that survives.
  */
 export function formatRefusal(session: RefusedSession): string {
-  const fields = [`${stamp(session.judgedAt)} KST`, session.reason]
-  if (session.wake === null) {
-    fields.push('unscheduled')
-  } else {
-    const driftMs = session.wake.wokeAt - session.wake.scheduledFor
-    fields.push(
-      `scheduled ${stamp(session.wake.scheduledFor)} KST`,
-      driftMs < 0 ? `woke ${-driftMs}ms early` : `woke ${driftMs}ms late`,
-    )
-  }
-  return `${fields.join('  ')}\n`
-}
-
-export function appendRefusal(path: string, session: RefusedSession): void {
-  try {
-    appendFileSync(path, formatRefusal(session))
-  } catch {
-    // A diagnostic that takes the session down with it when the disk is full
-    // is worse than no diagnostic.
-  }
+  return `${[`${stamp(session.judgedAt)} KST`, ...formatRefusalFields(session)].join('  ')}\n`
 }

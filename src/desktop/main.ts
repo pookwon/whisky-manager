@@ -231,7 +231,7 @@ void app.whenReady().then(async () => {
   const profile = app.isPackaged ? 'production' : 'debug'
   context = await createAppContext({
     databasePath: join(app.getPath('userData'), 'whisky-manager.db'),
-    refusalLogPath: join(app.getPath('userData'), 'refused-sessions.log'),
+    sessionLogPath: join(app.getPath('userData'), 'sessions.log'),
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
     collectionMigrationsFolder: join(app.getAppPath(), 'drizzle-collection'),
     collectionConfigPath: collectionConfigPath(),

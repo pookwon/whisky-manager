@@ -14,8 +14,8 @@ import type { SessionProgress } from '../../src/desktop/orchestrator.js'
  * the numbers an operator is deciding on actually reach the string.
  */
 const STATES: SessionProgress[] = [
-  { phase: 'COLLECTING' },
-  { phase: 'COLLECTING', pagesRead: 2, collected: 87 },
+  { phase: 'COLLECTING', dayStartMs: 0 },
+  { phase: 'COLLECTING', dayStartMs: 0, pagesRead: 2, collected: 87 },
   { phase: 'BACKLOG', done: 0, total: 3, nickname: '왕밤이' },
   { phase: 'BACKLOG', done: 1, total: 3, nickname: null },
   { phase: 'WORKING', done: 4, total: 120, nickname: '깡총이' },
@@ -37,7 +37,7 @@ describe('progress wording', () => {
   })
 
   it('shows the counts once collection has read a page', () => {
-    const text = progressSummary({ phase: 'COLLECTING', pagesRead: 2, collected: 87 })
+    const text = progressSummary({ phase: 'COLLECTING', dayStartMs: 0, pagesRead: 2, collected: 87 })
     expect(text).toContain('2')
     expect(text).toContain('87')
   })
