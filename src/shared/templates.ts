@@ -23,7 +23,9 @@ export type RenderResult = { ok: true; text: string } | { ok: false; missing: st
  * comment nobody meant to post.
  */
 export type RenderOutcome =
-  | { ok: true; templateId: string; body: string }
+  // `templateId` is null when the wording came from no template — a
+  // prefix-reminder renders fixed operator text, so there is no template to name.
+  | { ok: true; templateId: string | null; body: string }
   | { ok: false; missing: string[] }
 
 /**

@@ -27,11 +27,24 @@ export interface AutomationDescriptor {
  */
 export const WELCOME_AUTOMATION_ID = 'welcome-comment'
 
+/**
+ * The second automation: reminds a member who posted without choosing a 말머리.
+ * Its wording is a single fixed comment rather than a set of templates, so it
+ * owns a settings panel but no templates panel — the settings panel is where
+ * that one comment and the excluded boards are entered.
+ */
+export const PREFIX_REMINDER_AUTOMATION_ID = 'prefix-reminder'
+
 export const AUTOMATIONS: readonly AutomationDescriptor[] = [
   {
     id: WELCOME_AUTOMATION_ID,
     labelKey: 'welcomeComment',
     panels: ['approvals', 'templates', 'settings'],
+  },
+  {
+    id: PREFIX_REMINDER_AUTOMATION_ID,
+    labelKey: 'prefixReminder',
+    panels: ['approvals', 'settings'],
   },
 ]
 

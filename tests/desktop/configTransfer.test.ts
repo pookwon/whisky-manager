@@ -8,7 +8,7 @@ import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from '../../src/desktop/configTransfer.js'
-import { WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
+import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { CONFIG_BUNDLE_VERSION, type ConfigBundle } from '../../src/shared/configBundle.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
@@ -98,6 +98,13 @@ describe('buildBundle', () => {
           boardId: '5',
           enabled: true,
           templates: [{ body: '개발 문구', enabled: true }],
+        },
+        {
+          id: PREFIX_REMINDER_AUTOMATION_ID,
+          policy: 'AUTO',
+          boardId: '',
+          enabled: false,
+          templates: [],
         },
       ],
     })

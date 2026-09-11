@@ -1,10 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import { WELCOME_AUTOMATION_ID, assertRuntimesRegistered } from '../shared/automations/catalog.js'
+import {
+  PREFIX_REMINDER_AUTOMATION_ID,
+  WELCOME_AUTOMATION_ID,
+  assertRuntimesRegistered,
+} from '../shared/automations/catalog.js'
 import { WELCOME_GUARDS } from '../shared/automations/welcome-comment/guards.js'
 import {
   renderAnyWelcomeComment,
   renderWelcomeComment,
 } from '../shared/automations/welcome-comment/render.js'
+import { PREFIX_REMINDER_GUARDS } from '../shared/automations/prefix-reminder/guards.js'
+import { PREFIX_REMINDER_LIMITS } from '../shared/automations/prefix-reminder/limits.js'
+import { parsePrefixReminderOptions } from '../shared/automations/prefix-reminder/options.js'
+import { renderPrefixReminder } from '../shared/automations/prefix-reminder/render.js'
+import { createTodayArticleCollector } from './prefixReminderCollection.js'
+import { createBoardPageFetcher } from './collectionOrchestrator.js'
+import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import type { Guard } from '../shared/guards.js'
 import { PROFILES } from '../shared/profiles.js'
 import { TIMEOUTS } from '../shared/protocol.js'
@@ -183,6 +194,20 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       limits: {},
       enabled: false,
       boardId: local?.boardId ?? null,
+      optionsJson: '{}',
+    })
+  }
+
+  if (automationSettings.get(PREFIX_REMINDER_AUTOMATION_ID) === undefined) {
+    // Disabled by default, and with no board of its own: the reminder reads the
+    // whole-cafe list, and which boards it stays off is stored in its options
+    // rather than as the single board a greeting watches.
+    automationSettings.upsert({
+      automationId: PREFIX_REMINDER_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: false,
+      boardId: null,
       optionsJson: '{}',
     })
   }
@@ -387,6 +412,41 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     hasBody: () => enabledTemplates().length > 0,
     loginBoardId: () => null,
     requiresBoard: true,
+  })
+
+  /**
+   * Read fresh on every use, like the greeting's templates: an operator editing
+   * the wording or the excluded boards mid-run takes effect on the next session
+   * rather than at the next restart.
+   */
+  const prefixOptions = () =>
+    parsePrefixReminderOptions(
+      repos.automationSettings.get(PREFIX_REMINDER_AUTOMATION_ID)?.optionsJson ?? '{}',
+    )
+
+  buildRuntime({
+    automationId: PREFIX_REMINDER_AUTOMATION_ID,
+    limits: { ...PROFILES[options.profile], ...PREFIX_REMINDER_LIMITS[options.profile] },
+    guards: PREFIX_REMINDER_GUARDS,
+    collector: (ctx) =>
+      createTodayArticleCollector({
+        fetcher: createBoardPageFetcher(transport, () => randomUUID(), CAFE_ARTICLE_LIST.menuId),
+        rules: {
+          excludedBoardIds: new Set(prefixOptions().excludedBoardIds),
+          operatorAccounts: ctx.operatorAccounts,
+        },
+        random: systemRandom,
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        onTally: () => {
+          // Task 7 keeps this for the session line; nothing reads it yet.
+        },
+      }),
+    renderBody: () => renderPrefixReminder(prefixOptions().commentText),
+    hasBody: () => renderPrefixReminder(prefixOptions().commentText).ok,
+    // Login is cafe-wide, so it is read where the first automation stores it
+    // rather than from a board this one does not have.
+    loginBoardId: () => repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? null,
+    requiresBoard: false,
   })
 
   // Adding a catalogue entry without building its runtime above fails the boot,

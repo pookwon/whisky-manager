@@ -46,6 +46,7 @@ export const TEXT = {
   },
   automation: {
     welcomeComment: '환영 댓글',
+    prefixReminder: '말머리 안내',
   },
   collectionSettings: {
     heading: '수집 설정',

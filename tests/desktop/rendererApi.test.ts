@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WELCOME_AUTOMATION_ID } from '../../src/desktop/bootstrap.js'
+import { PREFIX_REMINDER_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSettingsRepo.js'
 import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
@@ -356,6 +357,16 @@ describe('getDashboard', () => {
       automations: [
         {
           id: WELCOME_AUTOMATION_ID,
+          enabled: false,
+          awaitingApproval: 0,
+          executedToday: 0,
+          lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
+          lastOutcomeAt: null,
+          nextSessionAt: null,
+          sessionProgress: null,
+        },
+        {
+          id: PREFIX_REMINDER_AUTOMATION_ID,
           enabled: false,
           awaitingApproval: 0,
           executedToday: 0,
