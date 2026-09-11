@@ -5,14 +5,18 @@
 import { TEXT } from '../../shared/text.js'
 import type { MemberCollectionStatus } from '../../desktop/collection-db/memberStatusQuery.js'
 
+const MEMBERS_PER_PAGE = 100
+
 export function progressLine(
   status: Pick<MemberCollectionStatus, 'pagesStored' | 'totalMemberCount'>,
 ): string {
   const { pagesStored, totalMemberCount } = status
   if (totalMemberCount !== null && totalMemberCount > 0) {
-    // Estimated total pages = totalMemberCount / 100 (one page holds ~100 members).
-    const percent = Math.min(100, Math.max(0, Math.round((pagesStored / (totalMemberCount / 100)) * 100)))
-    return TEXT.memberCollection.progress(percent)
+    // One page holds 100 members; the cafe's total is approximate, so both the
+    // page estimate and the percentage are clamped rather than trusted.
+    const totalPages = Math.max(1, Math.ceil(totalMemberCount / MEMBERS_PER_PAGE))
+    const percent = Math.min(100, Math.max(0, Math.round((pagesStored / totalPages) * 100)))
+    return TEXT.memberCollection.progress(pagesStored, Math.max(totalPages, pagesStored), percent)
   }
   // No total available: show pages read so the card is never stuck on a
   // placeholder that can never resolve.

@@ -5,11 +5,7 @@ import { posts } from './schema.js'
 
 export interface MemberCollectionStatus {
   readonly memberCount: number
-  /**
-   * Pages the walk has processed in the current run, derived from the cursor
-   * (`member_feed_state.reference_page`) rather than a lifetime sum, so it
-   * does not grow without bound across rewinds and daily top-ups.
-   */
+  /** Pages of the list the walk has reached — see `walkPagesStored`. */
   readonly pagesStored: number
   readonly totalMemberCount: number | null
   readonly complete: boolean
@@ -34,6 +30,24 @@ function count(value: string | number | null | undefined): number {
   return Number(value ?? 0)
 }
 
+/**
+ * How far through the list the walk is.
+ *
+ * Until the walk completes, the cursor belongs to it alone — top-ups only run
+ * after completion — so its page is the walk's position, and a restarted walk
+ * reads from page 1 again instead of inheriting an earlier walk's high-water
+ * mark. Once complete, the cursor is reset to page 1 by every daily top-up, so
+ * the figure comes from the furthest page any walk committed instead.
+ */
+export function walkPagesStored(state: {
+  readonly complete: boolean
+  readonly referencePage: number | null
+  readonly maxCommittedWalkPage: number
+}): number {
+  if (!state.complete) return state.referencePage ?? 0
+  return state.maxCommittedWalkPage
+}
+
 function epochMs(value: Date | null | undefined): number | null {
   return value === null || value === undefined ? null : value.getTime()
 }
@@ -46,6 +60,7 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
         db
           .select({
             totalMemberCount: memberFeedState.totalMemberCount,
+            referencePage: memberFeedState.referencePage,
             completedAt: memberFeedState.completedAt,
             toppedUpAt: memberFeedState.toppedUpAt,
             forcedAt: memberFeedState.forcedAt,
@@ -59,11 +74,7 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
           .from(memberRuns)
           .orderBy(sql`${memberRuns.startedAt} desc`)
           .limit(1),
-        // Walk page count from the walk itself, not the shared cursor: the
-        // shared cursor resets to 1 on every top-up commit, so reading it
-        // after any top-up permanently collapses the stored-pages figure.
-        // max(last_committed_page) over non-topup runs is stable once the
-        // walk finishes and is not affected by later top-up runs.
+        // The furthest page any walk committed; used once the walk is complete.
         db
           .select({ maxPage: sql<string>`max(${memberRuns.lastCommittedPage})` })
           .from(memberRuns)
@@ -85,11 +96,11 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
       const matchRow = match.rows[0]
       return {
         memberCount: count(memberTotals[0]?.members),
-        // Use the walk's own max page rather than the shared cursor: the cursor
-        // resets to 1 on every top-up commit, so it always reads 1 after any
-        // daily top-up. max(last_committed_page) over non-topup runs is stable
-        // once the walk finishes and is unaffected by subsequent top-ups.
-        pagesStored: count(walkPages[0]?.maxPage),
+        pagesStored: walkPagesStored({
+          complete: state?.completedAt != null,
+          referencePage: state?.referencePage ?? null,
+          maxCommittedWalkPage: count(walkPages[0]?.maxPage),
+        }),
         totalMemberCount: state?.totalMemberCount ?? null,
         complete: state?.completedAt != null,
         forced: state?.forcedAt != null,

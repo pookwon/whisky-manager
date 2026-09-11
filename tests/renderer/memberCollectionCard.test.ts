@@ -23,6 +23,10 @@ const base: MemberCollectionStatus = {
 }
 
 describe('member card — progressLine', () => {
+  it('shows a live backfill as pages out of the estimated total', () => {
+    expect(progressLine({ pagesStored: 20, totalMemberCount: 209_321 })).toBe('20 / 2,094쪽 · 약 1%')
+  })
+
   it('shows pages read when total is unknown (never-run state)', () => {
     const line = progressLine({ pagesStored: 0, totalMemberCount: null })
     expect(line).toBe(TEXT.memberCollection.pagesStored(0))
@@ -31,17 +35,17 @@ describe('member card — progressLine', () => {
   it('shows percentage when total is known', () => {
     const line = progressLine({ pagesStored: 5, totalMemberCount: 1000 })
     // 1000 members → 10 pages total; 5/10 = 50%
-    expect(line).toBe(TEXT.memberCollection.progress(50))
+    expect(line).toBe(TEXT.memberCollection.progress(5, 10, 50))
   })
 
   it('clamps percentage to 100 when cursor overshoots', () => {
     const line = progressLine({ pagesStored: 999, totalMemberCount: 100 })
-    expect(line).toBe(TEXT.memberCollection.progress(100))
+    expect(line).toBe(TEXT.memberCollection.progress(999, 999, 100))
   })
 
   it('clamps percentage to 0 for a zero cursor', () => {
     const line = progressLine({ pagesStored: 0, totalMemberCount: 1000 })
-    expect(line).toBe(TEXT.memberCollection.progress(0))
+    expect(line).toBe(TEXT.memberCollection.progress(0, 10, 0))
   })
 })
 
@@ -108,10 +112,9 @@ describe('member card — stats line composition (Fix 4: no duplicate page count
     expect(occurrences).toBe(1)
   })
 
-  it('includes percentage (not page count) when totalMemberCount is known', () => {
+  it('shows pages out of the estimated total with the percentage when the total is known', () => {
     const composed = `${TEXT.memberCollection.memberCount(500)} · ${progressLine({ pagesStored: 5, totalMemberCount: 1000 })}`
-    // Should not contain the raw page-count string when a percentage is shown
     expect(composed).not.toContain(TEXT.memberCollection.pagesStored(5))
-    expect(composed).toContain(TEXT.memberCollection.progress(50))
+    expect(composed).toContain(TEXT.memberCollection.progress(5, 10, 50))
   })
 })
