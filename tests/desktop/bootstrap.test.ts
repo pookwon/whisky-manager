@@ -111,9 +111,9 @@ describe('createAppContext', () => {
         createdAt: 1,
       })
 
-      await unconfigured.automation.runOnce()
+      await unconfigured.automation.runOnce(WELCOME_AUTOMATION_ID)
 
-      expect(unconfigured.lastOutcome()).toEqual({ opened: false, reason: 'NOT_CONFIGURED' })
+      expect(unconfigured.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'NOT_CONFIGURED' })
     } finally {
       await unconfigured.shutdown()
       rmSync(bare, { recursive: true, force: true })
@@ -127,8 +127,15 @@ describe('createAppContext', () => {
   it('runs a real session instead of a placeholder that always throws', async () => {
     // No extension is connected, so the login check cannot be answered. What
     // matters is that a genuine refusal comes back rather than a wiring error.
-    await ctx.automation.runOnce()
-    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'DISABLED' })
+    await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
+    expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'DISABLED' })
+  })
+
+  it('boots a runtime for every catalogued automation', async () => {
+    for (const automation of AUTOMATIONS) {
+      await ctx.automation.runOnce(automation.id)
+      expect(ctx.lastOutcome(automation.id)).not.toBeNull()
+    }
   })
 
   it('reports a real refusal once the automation is enabled but has no template', async () => {
@@ -140,8 +147,8 @@ describe('createAppContext', () => {
       boardId: 'board-under-test',
     })
 
-    await ctx.automation.runOnce()
-    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'NO_TEMPLATE' })
+    await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
+    expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'NO_TEMPLATE' })
   })
 
   it('refuses while the kill switch is engaged', async () => {
@@ -160,9 +167,9 @@ describe('createAppContext', () => {
     })
 
     ctx.automation.kill()
-    await ctx.automation.runOnce()
+    await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
 
-    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'KILLED' })
+    expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'KILLED' })
     expect(ctx.automation.isRunning()).toBe(false)
   })
 
@@ -171,18 +178,18 @@ describe('createAppContext', () => {
     ctx.automation.start()
     expect(ctx.automation.isRunning()).toBe(true)
 
-    await ctx.automation.runOnce()
+    await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
     // DISABLED, not KILLED: starting again lifted the kill switch.
-    expect(ctx.lastOutcome()).toEqual({ opened: false, reason: 'DISABLED' })
+    expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'DISABLED' })
     ctx.automation.stop()
   })
 
   it('leaves no progress behind once a session ends', async () => {
     // The session refuses at once here; what matters is that the reporter is
     // cleared either way, so the dashboard never claims a finished run is live.
-    expect(ctx.sessionProgress()).toBeNull()
-    await ctx.automation.runOnce()
-    expect(ctx.sessionProgress()).toBeNull()
+    expect(ctx.sessionProgress(WELCOME_AUTOMATION_ID)).toBeNull()
+    await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
+    expect(ctx.sessionProgress(WELCOME_AUTOMATION_ID)).toBeNull()
   })
 
   it('listens on a bridge port', () => {

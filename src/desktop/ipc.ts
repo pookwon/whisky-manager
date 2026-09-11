@@ -242,6 +242,12 @@ export interface AutomationStatus {
   readonly awaitingApproval: number
   readonly executedToday: number
   readonly lastOutcome: SessionOutcome | null
+  /** When this automation's last outcome arrived, or null if it never ran. */
+  readonly lastOutcomeAt: number | null
+  /** When this automation's next session is scheduled, or null if it is not running. */
+  readonly nextSessionAt: number | null
+  /** What this automation's session in flight is doing, or null when none is running. */
+  readonly sessionProgress: SessionProgress | null
 }
 
 /**
@@ -340,7 +346,7 @@ export interface RendererApi {
    * `force` carries the operator's answer to being told what it overrides.
    * `dayStartMs` picks the day to work; omitted means today.
    */
-  runOnce(request?: { force?: boolean; dayStartMs?: number }): Promise<void>
+  runOnce(automationId: string, request?: { force?: boolean; dayStartMs?: number }): Promise<void>
   /**
    * How many greetings a run would answer, without answering any. Reaches the
    * cafe, so it belongs behind a deliberate press rather than the poll loop.

@@ -5,10 +5,11 @@ import {
   renderAnyWelcomeComment,
   renderWelcomeComment,
 } from '../shared/automations/welcome-comment/render.js'
+import type { Guard } from '../shared/guards.js'
 import { PROFILES } from '../shared/profiles.js'
 import { TIMEOUTS } from '../shared/protocol.js'
 import type { RenderOutcome } from '../shared/templates.js'
-import type { Candidate, Profile } from '../shared/types.js'
+import type { Candidate, Limits, Profile } from '../shared/types.js'
 import { createAutomationSettingsRepo, type AutomationSettingsRepo } from './db/automationSettingsRepo.js'
 import { openDatabase, type AppDatabase } from './db/client.js'
 import { createSqliteDedupeStore, type DedupeStore } from './db/dedupeStore.js'
@@ -17,7 +18,7 @@ import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
-import type { SessionRequest } from './session.js'
+import type { CollectorContext, SessionRequest } from './session.js'
 import {
   createSessionRunner,
   settledDayKeyFor,
@@ -25,8 +26,8 @@ import {
   parseOperatorAccounts,
   isConfigured,
 } from './session.js'
-import { createWelcomeDayCollector } from './collection.js'
-import { createSessionLoop } from './sessionLoop.js'
+import { createWelcomeDayCollector, type DayCollector } from './collection.js'
+import { createAutomationRuntime, type AutomationRuntime } from './automationRuntime.js'
 import { createSessionWarmer, type WarmCheck } from './sessionWarmer.js'
 import type { LocalConfig } from './localConfig.js'
 import { generateToken } from './ws/pairing.js'
@@ -96,10 +97,12 @@ export interface AutomationControl {
   stop(): void
   /** Stops now and refuses every session until started again. */
   kill(): void
+  /** True when any automation's loop is running. */
   isRunning(): boolean
-  runOnce(request?: SessionRequest): Promise<void>
-  /** Returns the epoch timestamp of the next scheduled session, or null if not running. */
-  nextRunAt(): number | null
+  /** Runs one named automation now; rejects when no runtime is registered for it. */
+  runOnce(automationId: string, request?: SessionRequest): Promise<void>
+  /** Epoch timestamp of that automation's next scheduled session, or null if not running. */
+  nextRunAt(automationId: string): number | null
 }
 
 export interface AppContext {
@@ -118,12 +121,14 @@ export interface AppContext {
   readonly automation: AutomationControl
   /** Rotates the pairing token and clears both persistent and live extension trust. */
   resetExtensionPairing(): string
-  /** Result of the most recent session, for the tray and the dashboard. */
-  lastOutcome(): SessionOutcome | null
-  /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
-  lastOutcomeAt(): number | null
-  /** What the running session is doing, or null when none is in flight. */
-  sessionProgress(): SessionProgress | null
+  /** Result of one automation's most recent session, for the tray and the dashboard. */
+  lastOutcome(automationId: string): SessionOutcome | null
+  /** Epoch timestamp when that automation's last outcome arrived, or null if it never ran. */
+  lastOutcomeAt(automationId: string): number | null
+  /** What that automation's running session is doing, or null when none is in flight. */
+  sessionProgress(automationId: string): SessionProgress | null
+  /** True while any automation has a session in flight; the collection walks yield to it. */
+  isAnySessionInFlight(): boolean
   /**
    * Count of greeting targets available at startup, once the bridge connects.
    * Null while not yet counted; a READY or UNAVAILABLE result once obtained.
@@ -204,9 +209,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   }
 
   let killed = false
-  let lastOutcome: SessionOutcome | null = null
-  let lastOutcomeAt: number | null = null
-  let sessionProgress: SessionProgress | null = null
   let startupPreview: StartupPreview | null = null
   let previewMonitorHandle: NodeJS.Timeout | null = null
   let lastBridgeConnectedAt: number | null = null
@@ -251,12 +253,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     return lookupInUse.lookup
   }
 
-  // The one runtime this build ships. Adding a catalogue entry without adding
-  // it here fails the boot, which is the point: the seam where a second
-  // automation's runtime gets wired is visible in the code rather than left to
-  // a developer's memory.
-  assertRuntimesRegistered([WELCOME_AUTOMATION_ID])
-
   const enabledTemplates = () => repos.templates.listEnabled(WELCOME_AUTOMATION_ID)
 
   /**
@@ -274,49 +270,6 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    */
   const couldRenderWelcomeBody = (candidate: Candidate): RenderOutcome =>
     renderAnyWelcomeComment(enabledTemplates(), candidate)
-
-  const runSession = createSessionRunner({
-    automationId: WELCOME_AUTOMATION_ID,
-    profile: options.profile,
-    clock: systemClock,
-    random: systemRandom,
-    transport,
-    repos,
-    settings,
-    isKilled: () => killed,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    newId: () => randomUUID(),
-    renderBody: renderWelcomeBody,
-    guards: WELCOME_GUARDS,
-    collector: (ctx) =>
-      createWelcomeDayCollector({
-        transport,
-        automationId: WELCOME_AUTOMATION_ID,
-        source: { cafeId: ctx.cafeId, boardId: ctx.boardId ?? '' },
-        newRequestId: () => randomUUID(),
-      }),
-    settledDayKey: settledDayKeyFor(WELCOME_AUTOMATION_ID),
-    loginBoardId: () => null,
-    requiresBoard: true,
-    hasBody: () => repos.templates.listEnabled(WELCOME_AUTOMATION_ID).length > 0,
-    onProgress: (progress) => {
-      sessionProgress = progress
-    },
-  })
-
-  /**
-   * Progress only means anything while a session is in flight. Clearing it here
-   * rather than in the loop's outcome handler covers the throwing run too — a
-   * session that died would otherwise leave the dashboard claiming it is still
-   * working on someone.
-   */
-  const runSessionReportingProgress = async (request?: SessionRequest): Promise<SessionOutcome> => {
-    try {
-      return await runSession(request)
-    } finally {
-      sessionProgress = null
-    }
-  }
 
   /**
    * The browser holds the login, so the automation is only ever as alive as the
@@ -346,35 +299,106 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
   })
 
-  const loop = createSessionLoop({
+  /**
+   * All that differs between one automation and the next: its limits, what it
+   * screens against, how it collects, what it posts, and which board its login
+   * check reads. Everything else — the loop, the progress bookkeeping, the
+   * outcome plumbing — is the same for every automation and lives in the runtime.
+   */
+  interface RuntimeSpec {
+    readonly automationId: string
+    readonly limits: Limits
+    readonly guards: readonly Guard[]
+    readonly collector: (ctx: CollectorContext) => DayCollector
+    readonly renderBody: (candidate: Candidate) => RenderOutcome
+    readonly hasBody: () => boolean
+    readonly loginBoardId: () => string | null
+    readonly requiresBoard: boolean
+  }
+
+  const runtimes = new Map<string, AutomationRuntime>()
+  const buildRuntime = (spec: RuntimeSpec): AutomationRuntime => {
+    const runtime: AutomationRuntime = createAutomationRuntime({
+      automationId: spec.automationId,
+      limits: spec.limits,
+      clock: systemClock,
+      random: systemRandom,
+      runSession: createSessionRunner({
+        automationId: spec.automationId,
+        profile: options.profile,
+        clock: systemClock,
+        random: systemRandom,
+        transport,
+        repos,
+        settings,
+        isKilled: () => killed,
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        newId: () => randomUUID(),
+        renderBody: spec.renderBody,
+        hasBody: spec.hasBody,
+        guards: spec.guards,
+        collector: spec.collector,
+        settledDayKey: settledDayKeyFor(spec.automationId),
+        loginBoardId: spec.loginBoardId,
+        requiresBoard: spec.requiresBoard,
+        onProgress: (progress) => runtime.reportProgress(progress),
+      }),
+      onOutcome: (outcome, wake) => {
+        // A refusal is the one outcome that leaves nothing behind: no executions
+        // to read afterwards, and the outcome itself only lives until a restart.
+        if (!outcome.opened && options.refusalLogPath !== undefined) {
+          appendRefusal(options.refusalLogPath, {
+            reason: outcome.reason,
+            judgedAt: systemClock.now(),
+            wake,
+          })
+        }
+      },
+      onError: (error) => console.error(`[session:${spec.automationId}]`, error),
+      onHalt: (reason) => {
+        console.warn(`[session:${spec.automationId}] halted:`, reason)
+        // Login is cafe-wide: one runtime finding it gone means every runtime's
+        // next session would too, so they all stop rather than take turns
+        // rediscovering the same logout.
+        for (const other of runtimes.values()) other.stop()
+        warmer.stop()
+        options.onHalt?.(reason)
+      },
+      setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+      clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
+    })
+    runtimes.set(spec.automationId, runtime)
+    return runtime
+  }
+
+  buildRuntime({
+    automationId: WELCOME_AUTOMATION_ID,
     limits: PROFILES[options.profile],
-    clock: systemClock,
-    random: systemRandom,
-    runSession: runSessionReportingProgress,
-    onOutcome: (outcome, wake) => {
-      lastOutcome = outcome
-      lastOutcomeAt = systemClock.now()
-      // A refusal is the one outcome that leaves nothing behind: no executions
-      // to read afterwards, and the outcome itself only lives until a restart.
-      if (!outcome.opened && options.refusalLogPath !== undefined) {
-        appendRefusal(options.refusalLogPath, {
-          reason: outcome.reason,
-          judgedAt: lastOutcomeAt,
-          wake,
-        })
-      }
-    },
-    onError: (error) => console.error('[session]', error),
-    onHalt: (reason) => {
-      console.warn('[session] halted:', reason)
-      // The loop stopped itself, so its traffic stops with it. Warming a
-      // session the operator has to restore by hand buys nothing.
-      warmer.stop()
-      options.onHalt?.(reason)
-    },
-    setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
-    clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
+    guards: WELCOME_GUARDS,
+    collector: (ctx) =>
+      createWelcomeDayCollector({
+        transport,
+        automationId: WELCOME_AUTOMATION_ID,
+        source: { cafeId: ctx.cafeId, boardId: ctx.boardId ?? '' },
+        newRequestId: () => randomUUID(),
+      }),
+    renderBody: renderWelcomeBody,
+    hasBody: () => enabledTemplates().length > 0,
+    loginBoardId: () => null,
+    requiresBoard: true,
   })
+
+  // Adding a catalogue entry without building its runtime above fails the boot,
+  // which is the point: the seam where a second automation's runtime gets wired
+  // is visible in the code rather than left to a developer's memory.
+  assertRuntimesRegistered([...runtimes.keys()])
+
+  /**
+   * The collection walks yield to any greeting session in flight: a session has
+   * a person waiting on it, where a backfill has hours to spare.
+   */
+  const isAnySessionInFlight = (): boolean =>
+    [...runtimes.values()].some((runtime) => runtime.sessionProgress() !== null)
 
   /**
    * The collection walks the board through the same gate the greeting session
@@ -389,7 +413,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     clock: systemClock,
     random: systemRandom,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    isSessionBusy: () => sessionProgress !== null,
+    isSessionBusy: isAnySessionInFlight,
     lock: collectionLock,
     newId: () => randomUUID(),
     onError: (error) => console.error('[collection]', error),
@@ -401,7 +425,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     clock: systemClock,
     random: systemRandom,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    isSessionBusy: () => sessionProgress !== null,
+    isSessionBusy: isAnySessionInFlight,
     lock: collectionLock,
     newId: () => randomUUID(),
     onError: (error) => {
@@ -438,21 +462,23 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   const automation: AutomationControl = {
     start() {
       killed = false
-      loop.start()
+      for (const runtime of runtimes.values()) runtime.start()
       warmer.start()
     },
     stop() {
-      loop.stop()
+      for (const runtime of runtimes.values()) runtime.stop()
       warmer.stop()
     },
     kill() {
       killed = true
-      loop.stop()
+      for (const runtime of runtimes.values()) runtime.stop()
       warmer.stop()
     },
-    isRunning: () => loop.isRunning(),
-    nextRunAt: () => loop.nextRunAt(),
-    runOnce: (request) => loop.runOnce(request),
+    isRunning: () => [...runtimes.values()].some((runtime) => runtime.isRunning()),
+    nextRunAt: (automationId) => runtimes.get(automationId)?.nextRunAt() ?? null,
+    runOnce: (automationId, request) =>
+      runtimes.get(automationId)?.runOnce(request) ??
+      Promise.reject(new Error(`no runtime: ${automationId}`)),
   }
 
   /**
@@ -559,9 +585,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       bridge.resetPairing(nextToken)
       return nextToken
     },
-    lastOutcome: () => lastOutcome,
-    lastOutcomeAt: () => lastOutcomeAt,
-    sessionProgress: () => sessionProgress,
+    lastOutcome: (automationId) => runtimes.get(automationId)?.lastOutcome() ?? null,
+    lastOutcomeAt: (automationId) => runtimes.get(automationId)?.lastOutcomeAt() ?? null,
+    sessionProgress: (automationId) => runtimes.get(automationId)?.sessionProgress() ?? null,
+    isAnySessionInFlight,
     getStartupPreview: () => startupPreview,
     previewDay: (dayStartMs?) => {
       const source = configuredSource()
@@ -604,7 +631,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       if (monitorConnectionHandle !== null) {
         clearInterval(monitorConnectionHandle)
       }
-      loop.stop()
+      for (const runtime of runtimes.values()) runtime.stop()
       collectionLoop.stop()
       // A walk in flight is asked to end at its page boundary; the page it is
       // on is either committed whole or dropped whole, never half.

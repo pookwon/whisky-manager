@@ -92,18 +92,18 @@ export interface RendererApiDeps {
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
   readonly lastOutcome: (automationId: string) => SessionOutcome | null
-  /** Epoch timestamp when the last outcome arrived, or null if no session has run. */
-  readonly lastOutcomeAt: () => number | null
+  /** Epoch timestamp when that automation's last outcome arrived, or null if it never ran. */
+  readonly lastOutcomeAt: (automationId: string) => number | null
   /** Greeting target count available at startup, or null if not yet counted. */
   readonly getStartupPreview: () => import('./preview.js').StartupPreview | null
   /** Current narrowing preview for a day under preview, or null if none. */
   readonly getDayPreview: () => import('./preview.js').StartupPreview | null
   /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   readonly lastBridgeConnectedAt: () => number | null
-  /** When the next session is scheduled to run, or null if the loop is not running. */
-  readonly nextSessionAt: () => number | null
-  /** What the session in flight is doing, or null when none is running. */
-  readonly sessionProgress: () => import('./orchestrator.js').SessionProgress | null
+  /** When that automation's next session is scheduled to run, or null if it is not running. */
+  readonly nextSessionAt: (automationId: string) => number | null
+  /** What that automation's session in flight is doing, or null when none is running. */
+  readonly sessionProgress: (automationId: string) => import('./orchestrator.js').SessionProgress | null
   /** The last read taken to keep the browser's naver login in use, or null. */
   readonly lastWarm: () => import('./sessionWarmer.js').WarmCheck | null
   /** Counts what a run on that day would answer. Reaches the cafe. */
@@ -354,7 +354,19 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         awaitingApproval: repos.executions.countByStatus(automation.id, 'AWAITING_APPROVAL'),
         executedToday: repos.executions.countExecutedForDay(automation.id, dayStart, dayEnd),
         lastOutcome: deps.lastOutcome(automation.id),
+        lastOutcomeAt: deps.lastOutcomeAt(automation.id),
+        nextSessionAt: deps.nextSessionAt(automation.id),
+        sessionProgress: deps.sessionProgress(automation.id),
       }))
+
+      // The banner and the DayRhythm speak for the welcome automation; the top
+      // level keeps its values so those screens read one automation without
+      // knowing there could be more. The next session, though, is whichever
+      // automation runs soonest — the earliest across them all.
+      const welcome = automations.find((automation) => automation.id === WELCOME_AUTOMATION_ID)
+      const nextTimes = automations
+        .map((automation) => automation.nextSessionAt)
+        .filter((time): time is number => time !== null)
 
       const sum = (pick: (automation: AutomationStatus) => number): number =>
         automations.reduce((total, automation) => total + pick(automation), 0)
@@ -374,15 +386,13 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         failedToday: sumByStatus('FAILED'),
         // Named rather than positional: the banner answers "why is it quiet?",
         // and reordering the catalogue must not silently turn that into null.
-        lastOutcome:
-          automations.find((automation) => automation.id === WELCOME_AUTOMATION_ID)?.lastOutcome ??
-          null,
+        lastOutcome: welcome?.lastOutcome ?? null,
         automations,
         startupPreview: deps.getStartupPreview(),
         dayPreview: deps.getDayPreview(),
-        lastOutcomeAt: deps.lastOutcomeAt(),
-        nextSessionAt: deps.nextSessionAt(),
-        sessionProgress: deps.sessionProgress(),
+        lastOutcomeAt: welcome?.lastOutcomeAt ?? null,
+        nextSessionAt: nextTimes.length === 0 ? null : Math.min(...nextTimes),
+        sessionProgress: welcome?.sessionProgress ?? null,
         lastWarm: deps.lastWarm(),
         bridgeStatus: calculateBridgeStatus(),
         extensionEverPaired: settings.get(BOUND_EXTENSION_ID_KEY) !== undefined,
@@ -535,14 +545,14 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return deps.previewDay(dayStartMs)
     },
 
-    runOnce(request = {}) {
+    runOnce(automationId, request = {}) {
       // Resolves once the session has started rather than when it ends. A full
       // day's greetings take the better part of an hour, and a renderer waiting
       // that out would hold its controls — the stop switches included — shut
       // for the whole run. Failures inside the session are the loop's to report.
       const mode = request.force === true ? 'FORCED' : 'MANUAL'
       void deps.automation
-        .runOnce({ mode, ...(request.dayStartMs === undefined ? {} : { dayStartMs: request.dayStartMs }) })
+        .runOnce(automationId, { mode, ...(request.dayStartMs === undefined ? {} : { dayStartMs: request.dayStartMs }) })
         .catch((error: unknown) => {
           console.error('[session] run-once failed to start:', error)
         })

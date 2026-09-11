@@ -29,7 +29,7 @@ const MON_10_00 = Date.UTC(2026, 7, 24, 10, 0, 0)
 let dir: string
 let db: AppDatabase
 let counter = 0
-let control: { running: boolean; killed: boolean; ranOnce: number }
+let control: { running: boolean; killed: boolean; ranOnce: number; ranOnceFor: string | null }
 let shell: { setupOpened: number; recoveryOpened: number; copied: string[] }
 /**
  * A filesystem the size of this test. `savePath`/`openPath` stand in for what
@@ -91,7 +91,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     dedupe: createSqliteDedupeStore(db, () => `exec-${++counter}`),
   }
   const settings = createSettingsRepo(db)
-  control = { running: false, killed: false, ranOnce: 0 }
+  control = { running: false, killed: false, ranOnce: 0, ranOnceFor: null }
   shell = { setupOpened: 0, recoveryOpened: 0, copied: [] }
   files = {
     savePath: '/picked/settings.json',
@@ -117,8 +117,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     },
     isRunning: () => control.running,
     nextRunAt: () => null,
-    runOnce: () => {
+    runOnce: (automationId) => {
       control.ranOnce += 1
+      control.ranOnceFor = automationId
       return Promise.resolve()
     },
   }
@@ -252,14 +253,14 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       nextRunAt: () => null,
     },
     automation,
-    lastOutcome: () => ({ opened: false, reason: 'NO_TEMPLATE' }),
-    lastOutcomeAt: () => null,
+    lastOutcome: (_automationId: string) => ({ opened: false, reason: 'NO_TEMPLATE' }),
+    lastOutcomeAt: (_automationId: string) => null,
     getStartupPreview: () => null,
     getDayPreview: () => null,
     lastBridgeConnectedAt: () => bridge.lastSeenConnectedAt ?? null,
-    nextSessionAt: () => null,
+    nextSessionAt: (_automationId: string) => null,
     lastWarm: () => lastWarm,
-    sessionProgress: () => progress,
+    sessionProgress: (_automationId: string) => progress,
     previewDay: () =>
       Promise.resolve({ kind: 'READY' as const, count: 0, alreadyHandled: 0, pending: 0, checkedAt: 0 }),
     openExtensionSetup: () => {
@@ -359,6 +360,9 @@ describe('getDashboard', () => {
           awaitingApproval: 0,
           executedToday: 0,
           lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
+          lastOutcomeAt: null,
+          nextSessionAt: null,
+          sessionProgress: null,
         },
       ],
       startupPreview: null,
@@ -614,10 +618,11 @@ describe('automation control', () => {
     expect(control.killed).toBe(true)
   })
 
-  it('runs a single session on demand', async () => {
+  it('runs a single session on demand for the named automation', async () => {
     const { api } = build()
-    await api.runOnce()
+    await api.runOnce(WELCOME_AUTOMATION_ID)
     expect(control.ranOnce).toBe(1)
+    expect(control.ranOnceFor).toBe(WELCOME_AUTOMATION_ID)
   })
 
   it('exposes the pairing token', async () => {

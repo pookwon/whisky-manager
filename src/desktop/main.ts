@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { PROFILES } from '../shared/profiles.js'
 import { TEXT } from '../shared/text.js'
-import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from './bootstrap.js'
+import { createAppContext, type AppContext } from './bootstrap.js'
 import { openChrome, systemChromeHost } from './chromeLauncher.js'
 import { stageExtension } from './extensionBundle.js'
 import {
@@ -259,16 +259,13 @@ void app.whenReady().then(async () => {
       collectionRunner: appContext.collectionRunner,
       memberCollectionRunner: appContext.memberCollectionRunner,
       collectionLoop: appContext.collectionLoop,
-      // Only one automation has a runtime, so its outcome is the only one there
-      // is to report. When a second runtime appears this becomes a lookup.
-      lastOutcome: (automationId) =>
-        automationId === WELCOME_AUTOMATION_ID ? appContext.lastOutcome() : null,
-      lastOutcomeAt: () => appContext.lastOutcomeAt(),
+      lastOutcome: (automationId) => appContext.lastOutcome(automationId),
+      lastOutcomeAt: (automationId) => appContext.lastOutcomeAt(automationId),
       getStartupPreview: () => appContext.getStartupPreview(),
       getDayPreview: () => appContext.getDayPreview(),
       lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
-      nextSessionAt: () => appContext.automation.nextRunAt(),
-      sessionProgress: () => appContext.sessionProgress(),
+      nextSessionAt: (automationId) => appContext.automation.nextRunAt(automationId),
+      sessionProgress: (automationId) => appContext.sessionProgress(automationId),
       lastWarm: () => appContext.lastWarm(),
       previewDay: (dayStartMs) => appContext.previewDay(dayStartMs),
       openExtensionSetup,

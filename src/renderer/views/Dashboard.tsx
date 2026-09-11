@@ -236,7 +236,7 @@ export function Dashboard(): React.JSX.Element {
         onDayChange={setDay}
         onRunOnce={() => {
           if (dashboard.withinActiveHours) {
-            void act(() => api.runOnce())
+            void act(() => api.runOnce(WELCOME_AUTOMATION_ID))
             return
           }
           void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
@@ -320,7 +320,7 @@ export function Dashboard(): React.JSX.Element {
                       ? { force: true }
                       : { force: true, dayStartMs: pending.dayStartMs }
                     setPending(null)
-                    void act(() => api.runOnce(request))
+                    void act(() => api.runOnce(WELCOME_AUTOMATION_ID, request))
                   }}
                 >
                   {TEXT.run.confirm}
