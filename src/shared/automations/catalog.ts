@@ -2,12 +2,20 @@
  * What the app offers, as data. There is no `Automation` interface and no
  * registry of behaviour here: the 2026-08-22 design spec (§5.1) defers that
  * until a second automation exists, because an interface drawn from one case is
- * usually wrong for the second. This list only says what the sidebar renders
- * and which panels each entry owns.
+ * usually wrong for the second. This list only says what the sidebar renders,
+ * which panels each entry owns and which settings section each one draws.
  */
 import type { AutomationLabelKey } from '../text.js'
 
 export type AutomationPanel = 'approvals' | 'templates' | 'settings'
+
+/**
+ * Names the renderer's own part of an automation's settings panel. A key
+ * rather than a component because this file is shared with the main process,
+ * which must not import React; the renderer maps each key to a component in a
+ * `Record`, so a key with no component fails to compile.
+ */
+export type SettingsSectionKey = 'welcomeBoard' | 'prefixReminder'
 
 export interface AutomationDescriptor {
   readonly id: string
@@ -18,6 +26,12 @@ export interface AutomationDescriptor {
    * data is what stops the navigation from assuming they all look alike.
    */
   readonly panels: readonly AutomationPanel[]
+  /**
+   * What sits under the switch and the approval policy, which every
+   * automation shares: a board to watch for one, a comment and the boards to
+   * leave alone for another.
+   */
+  readonly settingsSection: SettingsSectionKey
 }
 
 /**
@@ -40,11 +54,13 @@ export const AUTOMATIONS: readonly AutomationDescriptor[] = [
     id: WELCOME_AUTOMATION_ID,
     labelKey: 'welcomeComment',
     panels: ['approvals', 'templates', 'settings'],
+    settingsSection: 'welcomeBoard',
   },
   {
     id: PREFIX_REMINDER_AUTOMATION_ID,
     labelKey: 'prefixReminder',
     panels: ['approvals', 'settings'],
+    settingsSection: 'prefixReminder',
   },
 ]
 

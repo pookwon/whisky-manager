@@ -354,6 +354,8 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         enabled: setting(automation.id)?.enabled ?? false,
         awaitingApproval: repos.executions.countByStatus(automation.id, 'AWAITING_APPROVAL'),
         executedToday: repos.executions.countExecutedForDay(automation.id, dayStart, dayEnd),
+        succeededToday: repos.executions.countByStatusForDay(automation.id, 'SUCCESS', dayStart, dayEnd),
+        failedToday: repos.executions.countByStatusForDay(automation.id, 'FAILED', dayStart, dayEnd),
         lastOutcome: deps.lastOutcome(automation.id),
         lastOutcomeAt: deps.lastOutcomeAt(automation.id),
         nextSessionAt: deps.nextSessionAt(automation.id),
@@ -372,19 +374,12 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const sum = (pick: (automation: AutomationStatus) => number): number =>
         automations.reduce((total, automation) => total + pick(automation), 0)
 
-      const sumByStatus = (status: 'SUCCESS' | 'FAILED'): number =>
-        AUTOMATIONS.reduce(
-          (total, automation) =>
-            total + repos.executions.countByStatusForDay(automation.id, status, dayStart, dayEnd),
-          0,
-        )
-
       return Promise.resolve({
         loopRunning: deps.automation.isRunning(),
         awaitingApproval: sum((automation) => automation.awaitingApproval),
         executedToday: sum((automation) => automation.executedToday),
-        succeededToday: sumByStatus('SUCCESS'),
-        failedToday: sumByStatus('FAILED'),
+        succeededToday: sum((automation) => automation.succeededToday),
+        failedToday: sum((automation) => automation.failedToday),
         // Named rather than positional: the banner answers "why is it quiet?",
         // and reordering the catalogue must not silently turn that into null.
         lastOutcome: welcome?.lastOutcome ?? null,

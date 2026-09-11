@@ -360,6 +360,8 @@ describe('getDashboard', () => {
           enabled: false,
           awaitingApproval: 0,
           executedToday: 0,
+          succeededToday: 0,
+          failedToday: 0,
           lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
           lastOutcomeAt: null,
           nextSessionAt: null,
@@ -370,6 +372,8 @@ describe('getDashboard', () => {
           enabled: false,
           awaitingApproval: 0,
           executedToday: 0,
+          succeededToday: 0,
+          failedToday: 0,
           lastOutcome: { opened: false, reason: 'NO_TEMPLATE' },
           lastOutcomeAt: null,
           nextSessionAt: null,
@@ -479,6 +483,31 @@ describe('getDashboard', () => {
       succeededToday: 0,
       failedToday: 1,
     })
+  })
+
+  it('credits today\'s results to the automation that produced them', async () => {
+    // Each automation has its own card; a failure one of them had must not
+    // show up as the other's.
+    const { api, repos } = build()
+    const succeeded = await seedAwaiting(repos, '1003')
+    const failed = await seedAwaiting(repos, '1004')
+    repos.executions.applyPatch(succeeded, {
+      status: 'SUCCESS',
+      executedAt: MON_10_00 - 1_000,
+      resolvedAt: MON_10_00 - 1_000,
+    })
+    repos.executions.applyPatch(failed, {
+      status: 'FAILED',
+      executedAt: MON_10_00 - 1_000,
+      resolvedAt: MON_10_00 - 1_000,
+    })
+
+    const { automations } = await api.getDashboard()
+
+    expect(automations.map(({ id, succeededToday, failedToday }) => ({ id, succeededToday, failedToday }))).toEqual([
+      { id: WELCOME_AUTOMATION_ID, succeededToday: 1, failedToday: 1 },
+      { id: PREFIX_REMINDER_AUTOMATION_ID, succeededToday: 0, failedToday: 0 },
+    ])
   })
 })
 

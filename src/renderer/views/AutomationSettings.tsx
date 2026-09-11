@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { findAutomation } from '../../shared/automations/catalog.js'
 import { TEXT } from '../../shared/text.js'
 import type { ApprovalPolicy } from '../../shared/types.js'
 import { api } from '../api.js'
 import { useApp } from '../store.js'
+import { SETTINGS_SECTIONS } from './settings/sections.js'
 
 const POLICIES: ApprovalPolicy[] = ['AUTO', 'SEMI', 'MANUAL']
 
@@ -21,15 +22,15 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
   const settings = useApp((s) => s.automationSettings)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
+  const automation = findAutomation(automationId)
 
-  const [boardId, setBoardId] = useState('')
+  if (settings === null || automation === undefined) {
+    return <div style={{ color: 'var(--ink-muted)' }}>…</div>
+  }
 
-  useEffect(() => {
-    if (settings === null) return
-    setBoardId(settings.boardId)
-  }, [settings])
-
-  if (settings === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
+  // The switch and the policy are every automation's; what follows them is
+  // this one's own, picked by the key its catalogue entry names.
+  const Section = SETTINGS_SECTIONS[automation.settingsSection]
 
   return (
     <div className="flex max-w-2xl flex-col gap-7">
@@ -88,27 +89,7 @@ export function AutomationSettings({ automationId }: AutomationSettingsProps): R
         ))}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2
-          className="text-[0.6875rem] font-medium uppercase tracking-wider"
-          style={{ color: 'var(--ink-muted)' }}
-        >
-          {TEXT.settings.board}
-        </h2>
-        <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          {TEXT.settings.boardId}
-          <input className="field" value={boardId} onChange={(e) => setBoardId(e.target.value)} />
-          <span className="mt-0.5">{TEXT.settings.boardIdHint}</span>
-        </label>
-        <button
-          type="button"
-          className="btn btn-primary self-start"
-          disabled={busy}
-          onClick={() => void act(() => api.setBoardId(automationId, boardId))}
-        >
-          {TEXT.settings.save}
-        </button>
-      </section>
+      <Section key={automationId} automationId={automationId} settings={settings} />
     </div>
   )
 }

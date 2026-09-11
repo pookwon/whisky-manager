@@ -244,6 +244,8 @@ export interface AutomationStatus {
   readonly enabled: boolean
   readonly awaitingApproval: number
   readonly executedToday: number
+  readonly succeededToday: number
+  readonly failedToday: number
   readonly lastOutcome: SessionOutcome | null
   /** When this automation's last outcome arrived, or null if it never ran. */
   readonly lastOutcomeAt: number | null

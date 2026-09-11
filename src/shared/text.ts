@@ -216,11 +216,12 @@ export const TEXT = {
     /**
      * The two jobs, named as jobs. They are different kinds of thing — one runs
      * in sessions through the day, the other walks a fixed past period across
-     * many runs — and the screen says so before it says anything else.
+     * many runs — and the screen says so before it says anything else. A
+     * comment card is titled by its automation's name, so its hint says only
+     * the kind of job and fits every automation that comments.
      */
     job: {
-      comment: '댓글 작업',
-      commentHint: '가입인사 자동 댓글 · 세션 단위',
+      commentHint: '자동 댓글 · 세션 단위',
       collection: '게시판 수집',
       collectionHint: '과거 기간 DB화 · 작업 단위',
       /** State words, kept apart from the buttons that change state. */
@@ -411,6 +412,14 @@ export const TEXT = {
     board: '감시 게시판',
     boardId: '게시판 ID',
     boardIdHint: '이 기능이 감시할 게시판입니다. 바꾸면 새 게시판의 새 글부터 다시 시작합니다',
+    /** The prefix reminder's own section: one fixed comment and the boards it leaves alone. */
+    prefix: {
+      commentText: '안내 댓글 문구',
+      commentTextHint: '말머리 없는 글에 그대로 달립니다. 변수는 없습니다.',
+      excludedBoards: '제외 게시판 id',
+      excludedBoardsHint: '한 줄에 하나. 게시판 주소 menus/ 뒤의 숫자입니다.',
+      invalidBoardId: (value: string) => `게시판 id는 숫자여야 합니다: ${value}`,
+    },
     cafe: '카페',
     cafeId: '카페 ID',
     cafeUrlName: '카페 주소',

@@ -7,9 +7,6 @@ import type { StartCollectionResult } from '../../desktop/ipc.js'
 import {
   activeWindowLabel,
   estimatedMinutes,
-  outcomeSummary,
-  progressSummary,
-  isRefusalStale,
   disabledAutomationNames,
   warmSummary,
   getBridgeStatusText,
@@ -18,8 +15,9 @@ import {
 import { useApp } from '../store.js'
 import { CollectionJob } from './dashboard/CollectionJob.js'
 import { CommentJob } from './dashboard/CommentJob.js'
+import { commentCards, type CommentCard } from './dashboard/commentCards.js'
 import { DayRhythm } from './dashboard/DayRhythm.js'
-import { collectionJobState, commentJobState } from './dashboard/quiet.js'
+import { collectionJobState } from './dashboard/quiet.js'
 
 /** A run described to the operator and waiting on their answer. */
 interface PendingRun {
@@ -48,11 +46,12 @@ function collectionRefusalText(result: StartCollectionResult): string | null {
 /**
  * The dashboard, organised by job.
  *
- * Two things run here and they are not the same kind of thing: greetings go out
- * in sessions through the day, while the collection walks a fixed past period
- * across many runs and many days. The screen is laid out to say which is which
- * before it says anything else — the day band on top shows both at once, and
- * below it each job owns one panel and nothing outside it.
+ * Two kinds of thing run here and they are not alike: comments go out in
+ * sessions through the day, one card per automation, while the collection
+ * walks a fixed past period across many runs and many days. The screen is laid
+ * out to say which is which before it says anything else — the day band on top
+ * shows both at once, and below it each job owns one panel and nothing outside
+ * it.
  */
 export function Dashboard(): React.JSX.Element {
   const dashboard = useApp((s) => s.dashboard)
@@ -77,8 +76,6 @@ export function Dashboard(): React.JSX.Element {
   if (dashboard === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
   const nowMs = Date.now()
-  const progress =
-    dashboard.sessionProgress === null ? null : progressSummary(dashboard.sessionProgress)
 
   /**
    * Shows the run before it happens, then counts what it would answer. The
@@ -120,29 +117,19 @@ export function Dashboard(): React.JSX.Element {
     </dl>
   )
 
-  // The banner's outcome is the welcome automation's, picked by name where it
-  // is assembled. Its switch has to be picked the same way: reading position 0
-  // pairs one automation's result with another's state the day a second exists.
-  const welcome = dashboard.automations.find(
-    (automation) => automation.id === WELCOME_AUTOMATION_ID,
-  )
-  const automationIsEnabled = welcome?.enabled ?? true
-
-  const summary = outcomeSummary(dashboard.lastOutcome)
-  const lastOutcomeText = isRefusalStale(dashboard.lastOutcome, automationIsEnabled)
-    ? TEXT.outcome.neverWithCurrentConfig
-    : summary.text
-
-  const commentState = commentJobState({
-    loopRunning: dashboard.loopRunning,
-    automationEnabled: automationIsEnabled,
-    withinActiveHours: dashboard.withinActiveHours,
-    activeHourStart: dashboard.activeHourStart,
-    activeHourEnd: dashboard.activeHourEnd,
-    nextSessionAt: dashboard.nextSessionAt,
-    bridgeStatus: dashboard.bridgeStatus,
-    progress,
-  })
+  /**
+   * Outside the window the welcome card asks before it runs, because only it
+   * can say beforehand what a forced run would answer — the count is of
+   * greetings. Every other card runs straight away and, outside the window,
+   * reports the refusal like any session would.
+   */
+  const runOnce = (card: CommentCard): void => {
+    if (card.showDayControls && !dashboard.withinActiveHours) {
+      void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
+      return
+    }
+    void act(() => api.runOnce(card.automationId))
+  }
 
   const collectionState =
     collection === null
@@ -218,35 +205,37 @@ export function Dashboard(): React.JSX.Element {
         workBlockMs={schedule === null ? null : schedule.schedule.workBlockMinutes * 60_000}
       />
 
-      <CommentJob
-        state={commentState}
-        executedToday={dashboard.executedToday}
-        succeededToday={dashboard.succeededToday}
-        failedToday={dashboard.failedToday}
-        awaitingApproval={dashboard.awaitingApproval}
-        lastOutcomeText={lastOutcomeText}
-        lastOutcomeAt={dashboard.lastOutcomeAt}
-        startupPreview={dashboard.startupPreview}
-        nowMs={nowMs}
-        loopRunning={dashboard.loopRunning}
-        sessionInFlight={progress !== null}
-        busy={busy}
-        day={day}
-        maxDay={kstDateValue(nowMs)}
-        onDayChange={setDay}
-        onRunOnce={() => {
-          if (dashboard.withinActiveHours) {
-            void act(() => api.runOnce(WELCOME_AUTOMATION_ID))
-            return
+      {commentCards(dashboard).map((card) => (
+        <CommentJob
+          key={card.automationId}
+          title={card.title}
+          showDayControls={card.showDayControls}
+          state={card.state}
+          executedToday={card.executedToday}
+          succeededToday={card.succeededToday}
+          failedToday={card.failedToday}
+          awaitingApproval={card.awaitingApproval}
+          lastOutcomeText={card.lastOutcomeText}
+          lastOutcomeAt={card.lastOutcomeAt}
+          startupPreview={dashboard.startupPreview}
+          nowMs={nowMs}
+          loopRunning={dashboard.loopRunning}
+          sessionInFlight={card.sessionInFlight}
+          busy={busy}
+          day={day}
+          maxDay={kstDateValue(nowMs)}
+          onDayChange={setDay}
+          onRunOnce={() => runOnce(card)}
+          onRunDay={() => void openConfirmation({ dayStartMs: kstMidnightOf(day), reason: 'CHOSEN_DAY' })}
+          // Start, stop and kill move every automation's loop together — the
+          // tray has one of each too. One automation alone is paused with its
+          // own switch in settings.
+          onToggleLoop={() =>
+            void act(() => (dashboard.loopRunning ? api.stopAutomation() : api.startAutomation()))
           }
-          void openConfirmation({ dayStartMs: null, reason: 'OUTSIDE_HOURS' })
-        }}
-        onRunDay={() => void openConfirmation({ dayStartMs: kstMidnightOf(day), reason: 'CHOSEN_DAY' })}
-        onToggleLoop={() =>
-          void act(() => (dashboard.loopRunning ? api.stopAutomation() : api.startAutomation()))
-        }
-        onKill={() => void act(() => api.killSwitch())}
-      />
+          onKill={() => void act(() => api.killSwitch())}
+        />
+      ))}
 
       {collection !== null && collectionState !== null && (
         <CollectionJob

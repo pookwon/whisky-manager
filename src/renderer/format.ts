@@ -107,21 +107,25 @@ export function progressSummary(progress: SessionProgress): string {
 }
 
 /**
+ * An automation's name as the sidebar says it. An id the catalogue does not
+ * know still gets named — as itself — because an automation that cannot run
+ * and cannot be named is the worst of both.
+ */
+export function automationName(id: string): string {
+  const descriptor = findAutomation(id)
+  return descriptor === undefined ? id : TEXT.automation[descriptor.labelKey]
+}
+
+/**
  * What is switched off, named, for the banner that says nothing can run.
- *
  * Empty means everything is on and the banner does not belong on the screen.
- * An id the catalogue does not know still gets named — as itself — because an
- * automation that cannot run and cannot be named is the worst of both.
  */
 export function disabledAutomationNames(
   automations: readonly Pick<AutomationStatus, 'id' | 'enabled'>[],
 ): string[] {
   return automations
     .filter((automation) => !automation.enabled)
-    .map((automation) => {
-      const descriptor = findAutomation(automation.id)
-      return descriptor === undefined ? automation.id : TEXT.automation[descriptor.labelKey]
-    })
+    .map((automation) => automationName(automation.id))
 }
 
 /**

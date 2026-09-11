@@ -5,16 +5,25 @@ import { CommentIcon } from './DayRhythm.js'
 import type { JobState } from './quiet.js'
 
 /**
- * The comment job, whole: what it is, why it is quiet, what it did today, and
- * the presses that change it.
+ * One automation's comment job, whole: what it is, why it is quiet, what it did
+ * today, and the presses that change it. The dashboard draws one per
+ * automation.
  *
- * Everything about greetings lives inside this panel and nothing else does,
- * which is the point — the screen used to mix a session's result, a collection's
- * progress and a day picker into one column, and an operator had to know the
- * tool to tell which belonged to what.
+ * Everything about that automation lives inside this panel and nothing else
+ * does, which is the point — the screen used to mix a session's result, a
+ * collection's progress and a day picker into one column, and an operator had
+ * to know the tool to tell which belonged to what.
  */
 
 interface CommentJobProps {
+  readonly title: string
+  /**
+   * The day picker and the startup preview. Off, the card keeps only the
+   * presses every automation has — run now, start or stop, kill — because a
+   * preview that counts nothing and a day that re-reads nothing would each be
+   * a control that looks like it works.
+   */
+  readonly showDayControls: boolean
   readonly state: JobState
   readonly executedToday: number
   readonly succeededToday: number
@@ -64,7 +73,8 @@ function previewLine(preview: StartupPreview | null): string | null {
 }
 
 export function CommentJob(props: CommentJobProps): React.JSX.Element {
-  const preview = props.sessionInFlight ? null : previewLine(props.startupPreview)
+  const preview =
+    !props.showDayControls || props.sessionInFlight ? null : previewLine(props.startupPreview)
   const lastSession =
     props.lastOutcomeAt === null
       ? props.lastOutcomeText
@@ -79,7 +89,7 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
           <div className="flex items-center justify-between gap-5">
             <div className="flex min-w-0 items-center gap-2">
               <CommentIcon />
-              <span className="text-sm font-bold">{TEXT.dashboard.job.comment}</span>
+              <span className="text-sm font-bold">{props.title}</span>
               <span className={`text-xs tone-${props.state.tone}`}>{props.state.status}</span>
               <span className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                 {TEXT.dashboard.job.commentHint}
@@ -137,33 +147,35 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
                 tone={props.awaitingApproval > 0 ? 'tone-warn' : undefined}
               />
             </div>
-            <div className="flex shrink-0 items-end gap-2">
-              <div style={{ width: '150px' }}>
-                <label
-                  className="block text-[0.6875rem] font-medium uppercase tracking-wider"
-                  style={{ color: 'var(--ink-muted)' }}
-                  htmlFor="run-day"
+            {props.showDayControls && (
+              <div className="flex shrink-0 items-end gap-2">
+                <div style={{ width: '150px' }}>
+                  <label
+                    className="block text-[0.6875rem] font-medium uppercase tracking-wider"
+                    style={{ color: 'var(--ink-muted)' }}
+                    htmlFor="run-day"
+                  >
+                    {TEXT.run.dayLabel}
+                  </label>
+                  <input
+                    id="run-day"
+                    type="date"
+                    className="field mt-1"
+                    value={props.day}
+                    max={props.maxDay}
+                    onChange={(event) => props.onDayChange(event.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={props.busy || props.sessionInFlight}
+                  onClick={props.onRunDay}
                 >
-                  {TEXT.run.dayLabel}
-                </label>
-                <input
-                  id="run-day"
-                  type="date"
-                  className="field mt-1"
-                  value={props.day}
-                  max={props.maxDay}
-                  onChange={(event) => props.onDayChange(event.target.value)}
-                />
+                  {TEXT.run.dayRun}
+                </button>
               </div>
-              <button
-                type="button"
-                className="btn"
-                disabled={props.busy || props.sessionInFlight}
-                onClick={props.onRunDay}
-              >
-                {TEXT.run.dayRun}
-              </button>
-            </div>
+            )}
           </div>
 
         </div>
