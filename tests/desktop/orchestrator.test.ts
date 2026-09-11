@@ -159,7 +159,6 @@ describe('firstPostIdByAuthor', () => {
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
       prefix: null,
-
     }
     const post2: RawCandidate = {
       boardId: '5',
@@ -171,7 +170,6 @@ describe('firstPostIdByAuthor', () => {
       postedAt: MON_10_00 - 30_000,
       commentCount: 0,
       prefix: null,
-
     }
     const result = firstPostIdByAuthor([post1, post2])
     expect(result.get(sameAuthorId)).toBe('1001')
@@ -190,7 +188,6 @@ describe('firstPostIdByAuthor', () => {
       postedAt: sameTimestamp,
       commentCount: 0,
       prefix: null,
-
     }
     const post2: RawCandidate = {
       boardId: '5',
@@ -202,7 +199,6 @@ describe('firstPostIdByAuthor', () => {
       postedAt: sameTimestamp,
       commentCount: 0,
       prefix: null,
-
     }
     const result = firstPostIdByAuthor([post1, post2])
     // When times are identical, lower post ID wins (comparePostId('1001', '2001') < 0)
@@ -722,7 +718,6 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
       prefix: null,
-
     }
     const laterPost: RawCandidate = {
       boardId: '5',
@@ -734,7 +729,6 @@ describe('runSession — Task 1 deferred: re-judge unfinished rows', () => {
       postedAt: MON_10_00 - 30_000,
       commentCount: 0,
       prefix: null,
-
     }
 
     const transport = fakeTransport({ candidates: [earlierPost, laterPost] })
@@ -768,7 +762,6 @@ describe('runSession — first post detection', () => {
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
       prefix: null,
-
     }
     const post2: RawCandidate = {
       boardId: '5',
@@ -780,7 +773,6 @@ describe('runSession — first post detection', () => {
       postedAt: MON_10_00 - 30_000,
       commentCount: 0,
       prefix: null,
-
     }
 
     // Test with oldest-first order
@@ -805,7 +797,6 @@ describe('runSession — first post detection', () => {
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
       prefix: null,
-
     }
     await runSession(deps({ transport: fakeTransport({ candidates: [unknownAuthorPost] }), policy: 'AUTO' }))
 
@@ -828,7 +819,6 @@ describe('runSession — first post detection', () => {
       postedAt: MON_10_00 - 60_000,
       commentCount: 0,
       prefix: null,
-
     }
     const unknownAuthorPost: RawCandidate = {
       boardId: '5',
@@ -840,7 +830,6 @@ describe('runSession — first post detection', () => {
       postedAt: MON_10_00 - 45_000,
       commentCount: 0,
       prefix: null,
-
     }
     const transport = fakeTransport({ candidates: [author1Post, unknownAuthorPost] })
     const outcome = await runSession(deps({ transport, policy: 'AUTO' }))
