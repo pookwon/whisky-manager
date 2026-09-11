@@ -7,7 +7,6 @@ import type { ExtensionTransport } from './ws/server.js'
 export interface CommentAuthorLookupDeps {
   readonly transport: ExtensionTransport
   readonly cafeId: string
-  readonly boardId: string
   readonly automationId: string
   readonly newRequestId: () => string
   readonly random: Random
@@ -22,15 +21,22 @@ export interface CommentAuthorLookup {
    * A null count is the list itself being unreadable, which a request would
    * not fix. Everything else is asked once and remembered, so a preview and
    * the run it precedes do not each pay for the same post.
+   *
+   * The board is per post rather than per lookup: one cafe's posts can live on
+   * different boards, so it travels with the ask.
    */
-  resolve(postId: string, commentCount: number | null): Promise<CommentAuthor[] | null>
+  resolve(
+    postId: string,
+    commentCount: number | null,
+    boardId: string,
+  ): Promise<CommentAuthor[] | null>
 }
 
 export function createCommentAuthorLookup(deps: CommentAuthorLookupDeps): CommentAuthorLookup {
   const known = new Map<string, CommentAuthor[] | Promise<CommentAuthor[] | null>>()
 
   return {
-    async resolve(postId, commentCount) {
+    async resolve(postId, commentCount, boardId) {
       if (commentCount === null) return null
       if (commentCount === 0) return []
 
@@ -54,7 +60,7 @@ export function createCommentAuthorLookup(deps: CommentAuthorLookupDeps): Commen
               type: 'CHECK_COMMENTS',
               requestId: deps.newRequestId(),
               automationId: deps.automationId,
-              action: { cafeId: deps.cafeId, boardId: deps.boardId, postId },
+              action: { cafeId: deps.cafeId, boardId, postId },
             },
             TIMEOUTS.commentCheckMs,
           )

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { collectDay } from '../../src/desktop/collection.js'
+import {
+  createWelcomeDayCollector,
+  type WelcomeDayCollectorDeps,
+} from '../../src/desktop/collection.js'
 import { kstDayStartMs } from '../../src/shared/kst.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 
@@ -32,7 +35,7 @@ interface ReplyOptions {
 function transportReplying(
   reply: ExtensionMessage | 'throw',
   options: ReplyOptions = {},
-): { readonly asked: AppMessage[]; readonly transport: Parameters<typeof collectDay>[0]['transport'] } {
+): { readonly asked: AppMessage[]; readonly transport: WelcomeDayCollectorDeps['transport'] } {
   const asked: AppMessage[] = []
   return {
     asked,
@@ -54,17 +57,18 @@ function collected(candidates: RawCandidate[]): ExtensionMessage {
 }
 
 function run(
-  transport: Parameters<typeof collectDay>[0]['transport'],
-  extra: Partial<Parameters<typeof collectDay>[0]> = {},
+  transport: WelcomeDayCollectorDeps['transport'],
+  extra: {
+    dayStartMs?: number
+    onProgress?: (pagesRead: number, collected: number) => void
+  } = {},
 ) {
-  return collectDay({
+  return createWelcomeDayCollector({
     transport,
     automationId: AUTOMATION,
     source: SOURCE,
     newRequestId: () => 'req-1',
-    dayStartMs: NOON,
-    ...extra,
-  })
+  })(extra.dayStartMs ?? NOON, extra.onProgress)
 }
 
 describe('collecting a day', () => {

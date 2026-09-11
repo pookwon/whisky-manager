@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { previewDay, type StartupPreview } from '../../src/desktop/preview.js'
+import { createWelcomeDayCollector } from '../../src/desktop/collection.js'
 import type { AppMessage, ExtensionMessage, RawCandidate } from '../../src/shared/protocol.js'
 import { kstDayStartMs } from '../../src/shared/kst.js'
 import { WELCOME_GUARDS } from '../../src/shared/automations/welcome-comment/guards.js'
@@ -62,19 +63,30 @@ function mockLookup(results: Record<string, CommentAuthor[]>): CommentAuthorLook
 /** Renders cleanly, so the cases below stay about guards and policy. */
 const rendersFine = (): RenderOutcome => ({ ok: true, templateId: 't1', body: '환영합니다' })
 
-const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => ({
-  cafeId: CAFE,
-  boardId: '5',
-  automationId: 'auto-1',
-  nowMs: NOW,
-  newRequestId: () => 'r',
-  transport: transportReturning([]),
-  operatorAccounts: [],
-  policy: 'AUTO' as const,
-  guards: WELCOME_GUARDS,
-  renderBody: rendersFine,
-  ...over,
-})
+const deps = (over: Partial<Parameters<typeof previewDay>[0]>) => {
+  // The board is read through the collector, routed to whatever transport the
+  // case set up — the same COLLECT-through-transport path the preview used to
+  // walk itself, so every assertion about what was asked still holds.
+  const transport = over.transport ?? transportReturning([])
+  return {
+    cafeId: CAFE,
+    collectDay: createWelcomeDayCollector({
+      transport,
+      automationId: 'auto-1',
+      source: { cafeId: CAFE, boardId: '5' },
+      newRequestId: () => 'r',
+    }),
+    automationId: 'auto-1',
+    nowMs: NOW,
+    newRequestId: () => 'r',
+    transport,
+    operatorAccounts: [],
+    policy: 'AUTO' as const,
+    guards: WELCOME_GUARDS,
+    renderBody: rendersFine,
+    ...over,
+  }
+}
 
 describe('previewDay', () => {
   it('counts posts from different authors', async () => {

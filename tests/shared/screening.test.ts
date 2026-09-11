@@ -21,7 +21,7 @@ function makeRaw(overrides: Partial<RawCandidate> = {}): RawCandidate {
 
 const ctx: ScreeningContext = {
   automationId: 'welcome-comment',
-  source: { cafeId: '10000000', boardId: '42' },
+  cafeId: '10000000',
   policy: 'AUTO',
   guards: [],
   operatorAccounts: [],

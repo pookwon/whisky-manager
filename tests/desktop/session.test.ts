@@ -11,6 +11,7 @@ import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSet
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { SETTING_KEYS, createSessionRunner } from '../../src/desktop/session.js'
+import { createWelcomeDayCollector } from '../../src/desktop/collection.js'
 import { executions } from '../../src/desktop/db/schema.js'
 import { previewDay } from '../../src/desktop/preview.js'
 import { createCommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
@@ -133,6 +134,18 @@ function buildWithOptions(candidates: RawCandidate[], options: TransportOptions)
     sleep: () => Promise.resolve(),
     newId: () => `req-${++counter}`,
     renderBody,
+    guards: WELCOME_GUARDS,
+    collector: (ctx) =>
+      createWelcomeDayCollector({
+        transport,
+        automationId: WELCOME_AUTOMATION_ID,
+        source: { cafeId: ctx.cafeId, boardId: ctx.boardId ?? '' },
+        newRequestId: () => `req-${++counter}`,
+      }),
+    settledDayKey: SETTING_KEYS.lastSettledDay,
+    loginBoardId: () => null,
+    requiresBoard: true,
+    hasBody: () => repos.templates.listEnabled(WELCOME_AUTOMATION_ID).length > 0,
   })
   return { run, repos, settings, executed, executedPosts, boards, transport }
 }
@@ -203,7 +216,6 @@ describe('the count shown before a run, against the run itself', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE,
-      boardId: BOARD,
       automationId: WELCOME_AUTOMATION_ID,
       newRequestId: () => `preview-lookup-${++counter}`,
       random: new SequenceRandom([0]),
@@ -213,7 +225,12 @@ describe('the count shown before a run, against the run itself', () => {
     const preview = await previewDay({
       transport,
       cafeId: CAFE,
-      boardId: BOARD,
+      collectDay: createWelcomeDayCollector({
+        transport,
+        automationId: WELCOME_AUTOMATION_ID,
+        source: { cafeId: CAFE, boardId: BOARD },
+        newRequestId: () => `preview-collect-${++counter}`,
+      }),
       automationId: WELCOME_AUTOMATION_ID,
       nowMs: MON_10_00,
       newRequestId: () => `preview-${++counter}`,

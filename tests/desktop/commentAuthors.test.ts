@@ -78,7 +78,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -86,7 +85,7 @@ describe('createCommentAuthorLookup', () => {
     })
 
     resetSleep()
-    const result = await lookup.resolve('1001', 0)
+    const result = await lookup.resolve('1001', 0, BOARD_ID)
 
     expect(result).toEqual([])
     expect(transport.getRequestCount()).toBe(0)
@@ -97,7 +96,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -105,7 +103,7 @@ describe('createCommentAuthorLookup', () => {
     })
 
     resetSleep()
-    const result = await lookup.resolve('1002', null)
+    const result = await lookup.resolve('1002', null, BOARD_ID)
 
     expect(result).toBeNull()
     expect(transport.getRequestCount()).toBe(0)
@@ -128,7 +126,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -136,7 +133,7 @@ describe('createCommentAuthorLookup', () => {
     })
 
     resetSleep()
-    const result = await lookup.resolve('1003', 2)
+    const result = await lookup.resolve('1003', 2, BOARD_ID)
 
     expect(result).toEqual(authors)
     expect(transport.getRequestCount()).toBe(1)
@@ -158,7 +155,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -167,12 +163,12 @@ describe('createCommentAuthorLookup', () => {
 
     resetSleep()
     // First call
-    const result1 = await lookup.resolve('1004', 1)
+    const result1 = await lookup.resolve('1004', 1, BOARD_ID)
     expect(result1).toEqual(authors)
     expect(transport.getRequestCount()).toBe(1)
 
     // Second call should use cache
-    const result2 = await lookup.resolve('1004', 1)
+    const result2 = await lookup.resolve('1004', 1, BOARD_ID)
     expect(result2).toEqual(authors)
     expect(transport.getRequestCount()).toBe(1) // Still 1, not 2
   })
@@ -190,7 +186,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -199,12 +194,12 @@ describe('createCommentAuthorLookup', () => {
 
     resetSleep()
     // First call returns null
-    const result1 = await lookup.resolve('1005', 1)
+    const result1 = await lookup.resolve('1005', 1, BOARD_ID)
     expect(result1).toBeNull()
     expect(transport.getRequestCount()).toBe(1)
 
     // Second call should retry because the failure wasn't remembered
-    const result2 = await lookup.resolve('1005', 1)
+    const result2 = await lookup.resolve('1005', 1, BOARD_ID)
     expect(result2).toBeNull()
     expect(transport.getRequestCount()).toBe(2)
   })
@@ -214,7 +209,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -223,12 +217,12 @@ describe('createCommentAuthorLookup', () => {
 
     resetSleep()
     // First call throws
-    const result1 = await lookup.resolve('1006', 1)
+    const result1 = await lookup.resolve('1006', 1, BOARD_ID)
     expect(result1).toBeNull()
     expect(transport.getRequestCount()).toBe(1)
 
     // Second call should retry because the failure wasn't remembered
-    const result2 = await lookup.resolve('1006', 1)
+    const result2 = await lookup.resolve('1006', 1, BOARD_ID)
     expect(result2).toBeNull()
     expect(transport.getRequestCount()).toBe(2)
   })
@@ -249,7 +243,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_250]),
@@ -257,7 +250,7 @@ describe('createCommentAuthorLookup', () => {
     })
 
     resetSleep()
-    await lookup.resolve('1007', 1)
+    await lookup.resolve('1007', 1, BOARD_ID)
 
     expect(sleepCalls).toHaveLength(1)
     expect(sleepCalls[0]).toBeGreaterThanOrEqual(1_000)
@@ -280,7 +273,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_200]),
@@ -288,7 +280,7 @@ describe('createCommentAuthorLookup', () => {
     })
 
     resetSleep()
-    await lookup.resolve('1008', 1)
+    await lookup.resolve('1008', 1, BOARD_ID)
 
     expect(sleepCalls[0]).toBe(1_200)
   })
@@ -307,7 +299,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-abc',
       random: new SequenceRandom([1_000]),
@@ -315,7 +306,7 @@ describe('createCommentAuthorLookup', () => {
     })
 
     resetSleep()
-    await lookup.resolve('1009', 1)
+    await lookup.resolve('1009', 1, BOARD_ID)
 
     expect(transport.recordedRequests).toHaveLength(1)
     const request = transport.recordedRequests[0]
@@ -347,7 +338,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -356,8 +346,8 @@ describe('createCommentAuthorLookup', () => {
 
     resetSleep()
     // Start two resolves without awaiting the first
-    const promise1 = lookup.resolve('1010', 1)
-    const promise2 = lookup.resolve('1010', 1)
+    const promise1 = lookup.resolve('1010', 1, BOARD_ID)
+    const promise2 = lookup.resolve('1010', 1, BOARD_ID)
 
     // Both should resolve to the same authors
     const result1 = await promise1
@@ -382,7 +372,6 @@ describe('createCommentAuthorLookup', () => {
     const lookup = createCommentAuthorLookup({
       transport,
       cafeId: CAFE_ID,
-      boardId: BOARD_ID,
       automationId: AUTOMATION_ID,
       newRequestId: () => 'req-1',
       random: new SequenceRandom([1_000]),
@@ -391,8 +380,8 @@ describe('createCommentAuthorLookup', () => {
 
     resetSleep()
     // Start two concurrent resolves that both hit null authors
-    const promise1 = lookup.resolve('1011', 1)
-    const promise2 = lookup.resolve('1011', 1)
+    const promise1 = lookup.resolve('1011', 1, BOARD_ID)
+    const promise2 = lookup.resolve('1011', 1, BOARD_ID)
 
     const result1 = await promise1
     const result2 = await promise2
@@ -404,7 +393,7 @@ describe('createCommentAuthorLookup', () => {
 
     // A third ask should send a fresh request because the failure was not cached
     resetSleep()
-    const result3 = await lookup.resolve('1011', 1)
+    const result3 = await lookup.resolve('1011', 1, BOARD_ID)
     expect(result3).toBeNull()
     expect(transport.getRequestCount()).toBe(2)
   })

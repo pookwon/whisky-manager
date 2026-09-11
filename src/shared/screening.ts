@@ -1,14 +1,15 @@
 import { evaluateGuards, type Guard, type GuardEvaluation } from './guards.js'
 import { decide, type Disposition } from './policy.js'
 import { comparePostId } from './postId.js'
-import type { RawCandidate, SourceRef } from './protocol.js'
+import type { RawCandidate } from './protocol.js'
 import type { RenderOutcome } from './templates.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor } from './types.js'
 
 /** Everything a post is judged against, fixed for the whole day being worked. */
 export interface ScreeningContext {
   readonly automationId: string
-  readonly source: SourceRef
+  /** The cafe every candidate belongs to. Each post carries its own board id. */
+  readonly cafeId: string
   readonly policy: ApprovalPolicy
   readonly guards: readonly Guard[]
   readonly operatorAccounts: readonly string[]
@@ -82,7 +83,7 @@ function isEarlier(a: RawCandidate, b: RawCandidate): boolean {
 function toCandidate(raw: RawCandidate, ctx: ScreeningContext): Candidate {
   return {
     automationId: ctx.automationId,
-    cafeId: ctx.source.cafeId,
+    cafeId: ctx.cafeId,
     boardId: raw.boardId,
     postId: raw.postId,
     title: raw.title,

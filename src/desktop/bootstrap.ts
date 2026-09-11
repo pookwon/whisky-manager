@@ -18,7 +18,14 @@ import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { SessionRequest } from './session.js'
-import { createSessionRunner, SETTING_KEYS, parseOperatorAccounts, isConfigured } from './session.js'
+import {
+  createSessionRunner,
+  settledDayKeyFor,
+  SETTING_KEYS,
+  parseOperatorAccounts,
+  isConfigured,
+} from './session.js'
+import { createWelcomeDayCollector } from './collection.js'
 import { createSessionLoop } from './sessionLoop.js'
 import { createSessionWarmer, type WarmCheck } from './sessionWarmer.js'
 import type { LocalConfig } from './localConfig.js'
@@ -220,21 +227,20 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   let dayPreview: StartupPreview | null = null
   let dayPreviewId = 0
   /**
-   * One lookup per cafe-and-board, so the startup count and a later day preview
-   * share what they learned instead of each paying for the same posts. Repointing
-   * the tool builds a new one: answers gathered from another board are not
-   * answers about this one.
+   * One lookup per cafe, so the startup count and a later day preview share what
+   * they learned instead of each paying for the same posts. The board now travels
+   * with each ask, so it no longer keys the cache. Repointing the tool at another
+   * cafe builds a new one: answers gathered there are not answers about this one.
    */
   let lookupInUse: { readonly key: string; readonly lookup: CommentAuthorLookup } | null = null
   const commentLookupFor = (source: { cafeId: string; boardId: string }): CommentAuthorLookup => {
-    const key = `${source.cafeId}/${source.boardId}`
+    const key = source.cafeId
     if (lookupInUse?.key !== key) {
       lookupInUse = {
         key,
         lookup: createCommentAuthorLookup({
           transport,
           cafeId: source.cafeId,
-          boardId: source.boardId,
           automationId: WELCOME_AUTOMATION_ID,
           newRequestId: () => randomUUID(),
           random: systemRandom,
@@ -281,6 +287,18 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     newId: () => randomUUID(),
     renderBody: renderWelcomeBody,
+    guards: WELCOME_GUARDS,
+    collector: (ctx) =>
+      createWelcomeDayCollector({
+        transport,
+        automationId: WELCOME_AUTOMATION_ID,
+        source: { cafeId: ctx.cafeId, boardId: ctx.boardId ?? '' },
+        newRequestId: () => randomUUID(),
+      }),
+    settledDayKey: settledDayKeyFor(WELCOME_AUTOMATION_ID),
+    loginBoardId: () => null,
+    requiresBoard: true,
+    hasBody: () => repos.templates.listEnabled(WELCOME_AUTOMATION_ID).length > 0,
     onProgress: (progress) => {
       sessionProgress = progress
     },
@@ -470,7 +488,12 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         void previewDay({
           transport,
           cafeId: source.cafeId,
-          boardId: source.boardId,
+          collectDay: createWelcomeDayCollector({
+            transport,
+            automationId: WELCOME_AUTOMATION_ID,
+            source: { cafeId: source.cafeId, boardId: source.boardId },
+            newRequestId: () => randomUUID(),
+          }),
           automationId: WELCOME_AUTOMATION_ID,
           nowMs: systemClock.now(),
           newRequestId: () => randomUUID(),
@@ -549,7 +572,12 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       return previewDay({
         transport,
         cafeId: source.cafeId,
-        boardId: source.boardId,
+        collectDay: createWelcomeDayCollector({
+          transport,
+          automationId: WELCOME_AUTOMATION_ID,
+          source: { cafeId: source.cafeId, boardId: source.boardId },
+          newRequestId: () => randomUUID(),
+        }),
         automationId: WELCOME_AUTOMATION_ID,
         nowMs: systemClock.now(),
         newRequestId: () => randomUUID(),

@@ -3,7 +3,7 @@ import type { RawCandidate } from '../shared/protocol.js'
 import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../shared/screening.js'
 import type { RenderOutcome } from '../shared/templates.js'
 import type { ApprovalPolicy, Candidate, CommentAuthor } from '../shared/types.js'
-import { collectDay } from './collection.js'
+import type { DayCollector } from './collection.js'
 import type { ExtensionTransport } from './ws/server.js'
 import type { CommentAuthorLookup } from './commentAuthors.js'
 
@@ -23,7 +23,8 @@ export type StartupPreview =
 export interface PreviewDeps {
   readonly transport: ExtensionTransport
   readonly cafeId: string
-  readonly boardId: string
+  /** Reads one day's posts. Fixed to the board being previewed when it was built. */
+  readonly collectDay: DayCollector
   readonly automationId: string
   readonly nowMs: number
   readonly newRequestId: () => string
@@ -83,20 +84,14 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
     return { kind: 'UNAVAILABLE', reason: 'BRIDGE_OFFLINE' }
   }
 
-  const raws = await collectDay({
-    transport: deps.transport,
-    automationId: deps.automationId,
-    source: { cafeId: deps.cafeId, boardId: deps.boardId },
-    newRequestId: deps.newRequestId,
-    dayStartMs: deps.dayStartMs ?? deps.nowMs,
-  })
+  const raws = await deps.collectDay(deps.dayStartMs ?? deps.nowMs)
   if (raws === null) {
     return { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
   }
 
   const screening: ScreeningContext = {
     automationId: deps.automationId,
-    source: { cafeId: deps.cafeId, boardId: deps.boardId },
+    cafeId: deps.cafeId,
     policy: deps.policy,
     guards: deps.guards,
     operatorAccounts: deps.operatorAccounts,
@@ -140,7 +135,7 @@ export async function previewDay(deps: PreviewDeps): Promise<StartupPreview> {
   for (const raw of raws) {
     if (raw.commentCount === 0) continue
 
-    const authors = await lookup.resolve(raw.postId, raw.commentCount)
+    const authors = await lookup.resolve(raw.postId, raw.commentCount, raw.boardId)
     if (wouldAnswer(raw, authors)) {
       count += 1
     } else if (authors !== null && authors.length > 0) {

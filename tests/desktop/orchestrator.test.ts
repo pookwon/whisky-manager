@@ -9,6 +9,7 @@ import { createExecutionsRepo, type ExecutionsRepo } from '../../src/desktop/db/
 import { executions } from '../../src/desktop/db/schema.js'
 import type { CommentAuthor } from '../../src/shared/types.js'
 import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
+import { createWelcomeDayCollector, type DayCollector } from '../../src/desktop/collection.js'
 import { runSession, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { firstPostIdByAuthor } from '../../src/shared/screening.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
@@ -105,17 +106,30 @@ function deps(overrides: Partial<SessionDeps> = {}): SessionDeps {
       return [{ nickname: 'cafe-ops', memberKey: 'key-ops' }]
     },
   }
+  // The board is read through the collector the session is handed. The default
+  // routes it through whatever transport the test set up, so a test that hands
+  // in `fakeTransport({ candidates })` still sees those candidates without also
+  // wiring a collector — exactly the COLLECT-through-transport path the session
+  // used to walk itself.
+  const transport = overrides.transport ?? fakeTransport()
+  const collectDay: DayCollector = createWelcomeDayCollector({
+    transport,
+    automationId: 'welcome-comment',
+    source: { cafeId: '10000000', boardId: '5' },
+    newRequestId: () => `req-${++idCounter}`,
+  })
   return {
     automationId: 'welcome-comment',
     cafeId: '10000000',
-    boardId: '5',
+    loginSource: { cafeId: '10000000', boardId: '5' },
+    collectDay,
     policy: 'AUTO',
     limits: PROFILES.production,
     guards: [operatorAlreadyCommentedGuard, firstPostOnlyGuard],
     operatorAccounts: ['cafe-ops'],
     clock: new FakeClock(MON_10_00),
     random: new SequenceRandom([10_000]),
-    transport: fakeTransport(),
+    transport,
     dedupe: createSqliteDedupeStore(db, () => `exec-${++idCounter}`),
     repo,
     renderBody: (c) =>

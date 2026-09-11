@@ -1,7 +1,7 @@
 import { containsOperator, type Guard } from '../shared/guards.js'
 import { RATE_WINDOW_MS, checkGates, hasStaleBacklog } from '../shared/limits.js'
 import type { Clock, Random } from '../shared/ports.js'
-import { TIMEOUTS, type ExtensionMessage, type PostRef } from '../shared/protocol.js'
+import { TIMEOUTS, type ExtensionMessage, type PostRef, type SourceRef } from '../shared/protocol.js'
 import { isWithinActiveHours, nextActionDelayMs } from '../shared/schedule.js'
 import { firstPostIdByAuthor, screenCandidate, type ScreeningContext } from '../shared/screening.js'
 import { initialStatus, transition } from '../shared/statusMachine.js'
@@ -12,14 +12,17 @@ import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
-import { collectDay } from './collection.js'
+import type { DayCollector } from './collection.js'
 import { promoteRetries } from './retries.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface SessionDeps {
   readonly automationId: string
   readonly cafeId: string
-  readonly boardId: string
+  /** The board the login check reads. Posts carry their own board id. */
+  readonly loginSource: SourceRef
+  /** Reads one day's posts. Fixed to this session's board when it was built. */
+  readonly collectDay: DayCollector
   readonly policy: ApprovalPolicy
   readonly limits: Limits
   readonly guards: readonly Guard[]
@@ -213,7 +216,7 @@ async function checkLogin(deps: SessionDeps): Promise<'IN' | 'OUT' | 'UNKNOWN'> 
       {
         type: 'CHECK_LOGIN',
         requestId: deps.newRequestId(),
-        source: { cafeId: deps.cafeId, boardId: deps.boardId },
+        source: deps.loginSource,
       },
       TIMEOUTS.loginCheckMs,
     )
@@ -365,15 +368,9 @@ async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Pro
   // The whole day, every session. A post passed over earlier has to come back
   // into view, because what disqualified it can change on the cafe's side.
   deps.onProgress?.({ phase: 'COLLECTING' })
-  const raws = await collectDay({
-    transport: deps.transport,
-    automationId: deps.automationId,
-    source: { cafeId: deps.cafeId, boardId: deps.boardId },
-    newRequestId: deps.newRequestId,
-    dayStartMs,
-    onProgress: (pagesRead, collected) =>
-      deps.onProgress?.({ phase: 'COLLECTING', pagesRead, collected }),
-  })
+  const raws = await deps.collectDay(dayStartMs, (pagesRead, collected) =>
+    deps.onProgress?.({ phase: 'COLLECTING', pagesRead, collected }),
+  )
   if (raws === null) return 'COLLECT_FAILED'
 
   // Fixed for this day's walk, and the same context the count shown before this
@@ -382,7 +379,7 @@ async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Pro
   // each set and is answered in each.
   const screening: ScreeningContext = {
     automationId: deps.automationId,
-    source: { cafeId: deps.cafeId, boardId: deps.boardId },
+    cafeId: deps.cafeId,
     policy: deps.policy,
     guards: deps.guards,
     operatorAccounts: deps.operatorAccounts,
@@ -422,7 +419,7 @@ async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Pro
     const executionId = await deps.dedupe.claim({
       automationId: deps.automationId,
       cafeId: deps.cafeId,
-      boardId: deps.boardId,
+      boardId: raw.boardId,
       postId: raw.postId,
       title: raw.title,
       authorNickname: raw.authorNickname,
@@ -432,7 +429,11 @@ async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Pro
     })
     if (executionId === null) continue
 
-    const existingCommentAuthors = await deps.commentAuthors.resolve(raw.postId, raw.commentCount)
+    const existingCommentAuthors = await deps.commentAuthors.resolve(
+      raw.postId,
+      raw.commentCount,
+      raw.boardId,
+    )
     const { candidate, evaluation, disposition, rendered } = screenCandidate(raw, screening, {
       nowMs: now,
       existingCommentAuthors,
