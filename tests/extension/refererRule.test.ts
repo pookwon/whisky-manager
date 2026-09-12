@@ -1,35 +1,85 @@
 import { describe, expect, it } from 'vitest'
-import { articleCommentListUrl, articleCommentPostUrl } from '../../src/shared/automations/prefix-reminder/articleCafe.js'
+import {
+  articleCommentListUrl,
+  articleCommentPostUrl,
+} from '../../src/shared/automations/prefix-reminder/articleCafe.js'
 import { commentPostUrl } from '../../src/shared/automations/welcome-comment/cafe.js'
-import { REFERER_RULE_ID, refererRule } from '../../src/extension/refererRule.js'
+import { cafeArticleListUrl } from '../../src/shared/cafeArticleFixture.js'
+import { REFERER_RULE_IDS, refererRuleFor } from '../../src/extension/refererRule.js'
 
-const rule = refererRule('https://cafe.naver.com/ca-fe/cafes/1/articles/2')
+const REFERER = 'https://cafe.naver.com/ca-fe/cafes/1/articles/2'
 
-/** How Chrome reads `requestDomains`: the domain itself or any sub-domain. */
-function covered(url: string): boolean {
-  const host = new URL(url).host
-  return (rule.condition.requestDomains ?? []).some((domain) => host === domain || host.endsWith(`.${domain}`))
+const memoWrite = commentPostUrl
+const articleWrite = articleCommentPostUrl
+const articleRead = articleCommentListUrl({ cafeId: '1', boardId: '2' }, '3', 1)
+/** A collection walk: the same host as the article write, and no referer of its own. */
+const collection = cafeArticleListUrl(1, '0')
+
+/**
+ * How Chrome reads the condition: `requestDomains` is the host or any
+ * sub-domain of it, and `urlFilter` spelled `||host/path` is an anchored
+ * host-plus-path prefix.
+ */
+function matches(rule: chrome.declarativeNetRequest.Rule, url: string): boolean {
+  const parsed = new URL(url)
+  const domains = rule.condition.requestDomains ?? []
+  const onDomain = domains.some(
+    (domain) => parsed.host === domain || parsed.host.endsWith(`.${domain}`),
+  )
+  const filter = rule.condition.urlFilter ?? ''
+  if (!filter.startsWith('||')) throw new Error(`urlFilter must be host-anchored: ${filter}`)
+  return onDomain && `${parsed.host}${parsed.pathname}`.startsWith(filter.slice(2))
 }
 
-describe('refererRule', () => {
+describe('refererRuleFor', () => {
   it('sets the referer and the origin that goes with it', () => {
-    expect(rule.id).toBe(REFERER_RULE_ID)
-    expect(rule.action.requestHeaders).toEqual([
-      { header: 'referer', operation: 'set', value: 'https://cafe.naver.com/ca-fe/cafes/1/articles/2' },
+    const rule = refererRuleFor(memoWrite, REFERER)
+    expect(rule?.action.requestHeaders).toEqual([
+      { header: 'referer', operation: 'set', value: REFERER },
       { header: 'origin', operation: 'set', value: 'https://cafe.naver.com' },
     ])
   })
 
   it('covers every endpoint that needs a referer', () => {
     // A write that slips past this rule is answered with 200 and quietly does
-    // nothing, so an uncovered host is a silently lost comment.
-    expect(covered(commentPostUrl)).toBe(true)
-    expect(covered(articleCommentPostUrl)).toBe(true)
-    expect(covered(articleCommentListUrl({ cafeId: '1', boardId: '2' }, '3', 1))).toBe(true)
+    // nothing, so an uncovered endpoint is a silently lost comment.
+    for (const url of [memoWrite, articleWrite, articleRead]) {
+      expect(refererRuleFor(url, REFERER)).not.toBeNull()
+    }
+  })
+
+  it('gives each endpoint a rule id of its own', () => {
+    const ids = [memoWrite, articleWrite, articleRead].map((url) => refererRuleFor(url, REFERER)?.id)
+    // One shared id let a second request's teardown strip the first's rule, and
+    // that write then went out with no referer at all.
+    expect(new Set(ids).size).toBe(3)
+    for (const id of ids) expect(REFERER_RULE_IDS).toContain(id)
+  })
+
+  it('matches only the endpoint it was installed for', () => {
+    for (const installedFor of [memoWrite, articleWrite, articleRead]) {
+      const rule = refererRuleFor(installedFor, REFERER)
+      if (rule === null) throw new Error(`no rule for ${installedFor}`)
+      for (const url of [memoWrite, articleWrite, articleRead]) {
+        expect(matches(rule, url)).toBe(url === installedFor)
+      }
+    }
+  })
+
+  it('leaves a collection read alone while any write rule is installed', () => {
+    // The board list is on the same host as the article write and legitimately
+    // carries neither referer nor origin. A rule scoped to the whole host would
+    // rewrite both on it, in the middle of someone else's write.
+    for (const url of [memoWrite, articleWrite, articleRead]) {
+      const rule = refererRuleFor(url, REFERER)
+      if (rule === null) throw new Error(`no rule for ${url}`)
+      expect(matches(rule, collection)).toBe(false)
+    }
+    expect(refererRuleFor(collection, REFERER)).toBeNull()
   })
 
   it('reaches no host outside the cafe', () => {
-    expect(covered('https://naver.com/')).toBe(false)
-    expect(covered('https://example.com/')).toBe(false)
+    expect(refererRuleFor('https://naver.com/', REFERER)).toBeNull()
+    expect(refererRuleFor('https://example.com/', REFERER)).toBeNull()
   })
 })

@@ -7,7 +7,7 @@ import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeCli
 import { createBoardPageReader } from './boardPageReader.js'
 import { createDispatcher, type CollectionProgress } from './dispatch.js'
 import { createMemberPageReader } from './memberPageReader.js'
-import { REFERER_RULE_ID, refererRule } from './refererRule.js'
+import { refererRuleFor } from './refererRule.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
 const RECONNECT_ALARM = 'bridge-reconnect'
@@ -38,19 +38,34 @@ const extensionRandom: Random = {
 /**
  * The rule is installed for the one request that needs it and torn down
  * straight afterwards, so nothing else in the browser is affected.
+ *
+ * The rule is the endpoint's own, not a shared one: installing and removing by
+ * a single id let one request's teardown strip another's rule mid-flight, and a
+ * comment write that goes out without a referer is answered 200 and writes
+ * nothing. Scheduling now runs one session at a time, so the two automations no
+ * longer overlap — but a rule that is only correct while that holds is a rule
+ * waiting for the next caller.
  */
-async function withReferer<T>(referer: string | undefined, run: () => Promise<T>): Promise<T> {
+async function withReferer<T>(url: string, referer: string | undefined, run: () => Promise<T>): Promise<T> {
   if (referer === undefined) return run()
 
+  const rule = refererRuleFor(url, referer)
+  if (rule === null) {
+    // Saying so out loud, because the request still goes out: an address that
+    // needs a referer and has no rule is a comment lost with no error anywhere.
+    console.warn('[cafe] no referer rule covers', url)
+    return run()
+  }
+
   await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [REFERER_RULE_ID],
-    addRules: [refererRule(referer)],
+    removeRuleIds: [rule.id],
+    addRules: [rule],
   })
 
   try {
     return await run()
   } finally {
-    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [REFERER_RULE_ID] })
+    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [rule.id] })
   }
 }
 
@@ -64,7 +79,7 @@ async function request(init: HttpRequest): Promise<HttpResponse> {
     ...init.headers,
     ...(init.contentType === undefined ? {} : { 'Content-Type': init.contentType }),
   }
-  const response = await withReferer(init.referer, () =>
+  const response = await withReferer(init.url, init.referer, () =>
     fetch(init.url, {
       method: init.method ?? 'GET',
       credentials: 'include',
