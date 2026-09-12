@@ -111,6 +111,31 @@ describe('renderPrefixReminder', () => {
     })
   })
 
+  describe('every unreadable nickname takes the fallback', () => {
+    // A withdrawn or private author comes back as an empty name rather than as
+    // no name at all, and an empty one is exactly as unreadable as a missing
+    // one. Taken literally it substituted nothing, the render failed, and under
+    // MANUAL that parked a row with no text — the row that used to wedge the
+    // automation for good.
+    for (const [what, nickname] of [
+      ['no name at all', null],
+      ['an empty name', ''],
+      ['a name that is only spaces', '   '],
+    ] as const) {
+      it(`falls back for ${what}`, () => {
+        expect(
+          renderPrefixReminder('{닉네임}님, 말머리를 골라 주세요', '회원', candidate(nickname)),
+        ).toEqual({ ok: true, templateId: null, body: '회원님, 말머리를 골라 주세요' })
+      })
+
+      it(`parks ${what} when the operator cleared the fallback`, () => {
+        expect(
+          renderPrefixReminder('{닉네임}님, 말머리를 골라 주세요', NO_FALLBACK, candidate(nickname)),
+        ).toEqual({ ok: false, missing: ['닉네임'] })
+      })
+    }
+  })
+
   it('ignores the fallback when the post carries a readable nickname', () => {
     expect(renderPrefixReminder('{닉네임}님, 말머리를 골라 주세요', '회원', candidate('왕밤이'))).toEqual({
       ok: true,

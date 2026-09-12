@@ -19,13 +19,20 @@ const NICKNAME_VARIABLES = ['닉네임', 'nickname'] as const
  * Empty wording is a refusal, not an empty comment: a run with no text
  * configured posts nothing rather than an empty line.
  *
- * A post whose nickname could not be read falls back to `nicknameFallback`, and
+ * A post whose nickname could not be read — absent, empty, or nothing but
+ * spaces, which is what a withdrawn or private author leaves behind — falls
+ * back to `nicknameFallback`, and
  * a blank one is a refusal — for the same reason the greeting refuses one. The
  * screening turns it into a risk flag and the post waits for a person, where
  * posting it would leave "님, 말머리를 골라 주세요" under someone's post. Blank
  * therefore means "do not guess", which is what an operator who never opened
  * the field has.
  */
+/** A name there is something to address the author by. */
+function isReadable(nickname: string | null): nickname is string {
+  return nickname !== null && nickname.trim() !== ''
+}
+
 export function renderPrefixReminder(
   commentText: string,
   nicknameFallback: string,
@@ -36,7 +43,13 @@ export function renderPrefixReminder(
 
   // The fallback stands in only for a name that could not be read, never for
   // one that could: a post that names its author is never addressed as 회원님.
-  const nickname = candidate.authorNickname ?? nicknameFallback
+  //
+  // Unreadable is more than absent. A withdrawn or private author comes back as
+  // an empty name rather than as no name at all, and a name that is only spaces
+  // is no more readable than an empty one. `??` alone let both past the
+  // fallback: the empty one failed to render, which under MANUAL parked a row
+  // with nothing to send, and the spaces one went out as "   님".
+  const nickname = isReadable(candidate.authorNickname) ? candidate.authorNickname : nicknameFallback
   const result = renderTemplate(
     body,
     Object.fromEntries(NICKNAME_VARIABLES.map((name) => [name, nickname])),
