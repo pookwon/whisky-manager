@@ -1,0 +1,67 @@
+{
+  "result": {
+    "cafeId": 14538121,
+    "articleId": 932956,
+    "menuId": 9,
+    "user": {
+      "memberKey": "key-operator",
+      "baMemberKey": "ba-operator",
+      "nick": "카페 스탭",
+      "memberLevel": 888,
+      "blockMemberKeyList": [],
+      "memberLevelName": "카페스탭",
+      "appliedAlready": false,
+      "isCafeMember": true,
+      "isLogin": true,
+      "isOwner": false,
+      "isGroupId": false,
+      "isBelowAge14": false
+    },
+    "likeItUsers": [],
+    "article": {
+      "id": 932956,
+      "refArticleId": 932956,
+      "menu": {
+        "id": 9,
+        "name": "회원모임 후기",
+        "menuType": "B",
+        "boardType": "L"
+      },
+      "subject": "위토피아 17차 정기모임에 다녀왔습니다",
+      "headId": 1,
+      "head": "정모후기",
+      "writer": {
+        "memberKey": "key-writer",
+        "baMemberKey": "ba-writer",
+        "nick": "글쓴이",
+        "memberLevel": 1,
+        "memberLevelName": "비지터"
+      },
+      "writeDate": 1789177380380,
+      "readCount": 0,
+      "commentCount": 0,
+      "isNotice": false,
+      "isDeleteParent": false,
+      "isBlind": false,
+      "isOpen": true,
+      "isWriteComment": true
+    },
+    "comments": {
+      "items": [],
+      "alarm": {
+        "isShow": true,
+        "isChecked": false
+      },
+      "disableWriteReason": ""
+    },
+    "displayCommentCount": 0,
+    "hasPrev": false,
+    "hasNext": false,
+    "authority": {
+      "isRightClick": false,
+      "isDoLike": true,
+      "isWriteComment": true
+    },
+    "isReadOnlyMode": false
+  }
+}
