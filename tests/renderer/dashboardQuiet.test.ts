@@ -4,6 +4,7 @@ import type {
   CollectionStatusView,
 } from '../../src/desktop/ipc.js'
 import type { CollectionJob, CollectionRunSummary } from '../../src/desktop/collection-db/statusQuery.js'
+import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import { TEXT } from '../../src/shared/text.js'
 import {
   collectionJobState,
@@ -131,6 +132,7 @@ function view(
       job,
       running: run,
       recentRuns: run === null ? [] : [run],
+      idGaps: EMPTY_ID_GAP_REPORT,
     },
   }
 }

@@ -13,6 +13,7 @@ import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
 import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
+import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
 import type { MemberCollectionStatus } from '../../src/desktop/collection-db/memberStatusQuery.js'
@@ -198,6 +199,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   job: collection.job ?? null,
                   running: null,
                   recentRuns: [],
+                  idGaps: EMPTY_ID_GAP_REPORT,
                 }),
             },
             memberRepository: {

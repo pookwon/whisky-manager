@@ -89,6 +89,20 @@ export const TEXT = {
     span: '수집 구간',
     spanRange: (oldest: string, newest: string) => `${oldest} — ${newest}`,
     spanEmpty: '아직 저장된 글이 없습니다',
+    /**
+     * Whether a page was ever lost, read off the stored article ids. Said
+     * against the cafe's own statistics, which count deleted posts too: the
+     * two numbers never match, and this is where the difference is explained.
+     */
+    idGaps: {
+      heading: '빠진 글 점검',
+      clean: (deleted: number) => `유실된 페이지 없음 — 빠진 글 번호 ${deleted.toLocaleString()}개는 모두 삭제 흔적(1~2개 연속)입니다.`,
+      suspects: (count: number, ids: number) =>
+        `연속 ${count.toLocaleString()}곳에서 글 번호 ${ids.toLocaleString()}개가 비어 있습니다. 넓은 것부터 보입니다.`,
+      hint: '글 번호는 순서대로 붙습니다. 1~2개 연속 공백은 삭제된 글이고, 한 페이지가 유실되면 50개 가까이 연속으로 빕니다.',
+      gapRow: (gap: number) => `${gap.toLocaleString()}개`,
+      between: (from: string, to: string) => `${from} — ${to}`,
+    },
     recent: '최근 실행',
     /** A range said in days, because that is what the operator asked for. */
     targetRange: (days: number) => `최근 ${days}일`,
