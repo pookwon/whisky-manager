@@ -387,6 +387,10 @@ export const TEXT = {
     preview: '나갈 댓글',
     noText: '(문구 없음)',
     post: '글',
+    /** Why a press did nothing, in the words of the thing the operator can fix. */
+    refused: {
+      NO_TEXT: '나갈 댓글이 없어 승인하지 못했습니다. 문구를 고친 뒤 다음 세션을 기다리세요.',
+    },
   },
   risk: RISK_LABEL,
   templates: {

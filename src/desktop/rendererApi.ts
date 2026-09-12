@@ -416,8 +416,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     },
 
     approve(id) {
-      approveExecution(repos.executions, id, deps.limits)
-      return Promise.resolve()
+      return Promise.resolve(approveExecution(repos.executions, id, deps.limits))
     },
 
     reject(id) {

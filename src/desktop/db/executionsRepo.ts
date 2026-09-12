@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, isNotNull, lt } from 'drizzle-orm'
+import { and, count, eq, gte, inArray, isNotNull, isNull, lt } from 'drizzle-orm'
 import {
   UNRESOLVED_STATUSES,
   type ExecutionStatus,
@@ -30,6 +30,8 @@ export interface ExecutionRow {
   readonly strategy: ExecutionStrategy | null
   readonly reason: string | null
   readonly riskFlags: RiskFlag[]
+  /** What would go out. Null means the screening could not render one. */
+  readonly renderedText: string | null
   readonly attempts: number
   readonly executedAt: number | null
   readonly resolvedAt: number | null
@@ -86,6 +88,12 @@ export interface ExecutionsRepo {
   listUnresolved(automationId: string): UnresolvedRow[]
   listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
   listQueued(automationId: string): QueuedRow[]
+  /**
+   * Ids of the queued rows `listQueued` has to leave behind: nothing to send.
+   * Normal operation never produces one, so this answers only the rows an
+   * earlier build wedged — see `retireTextlessQueued`.
+   */
+  listQueuedWithoutText(automationId: string): string[]
   countByStatus(automationId: string, status: ExecutionStatus): number
   listAwaitingDetail(automationId: string): AwaitingDetailRow[]
   getById(id: string): ExecutionRow | undefined
@@ -238,6 +246,21 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
         )
     },
 
+    listQueuedWithoutText(automationId) {
+      return db
+        .select({ id: executions.id })
+        .from(executions)
+        .where(
+          and(
+            eq(executions.automationId, automationId),
+            eq(executions.status, 'QUEUED'),
+            isNull(executions.renderedText),
+          ),
+        )
+        .all()
+        .map((r) => r.id)
+    },
+
     countByStatus(automationId, status) {
       return (
         db
@@ -279,6 +302,7 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
         strategy: r.strategy,
         reason: r.reason,
         riskFlags: parseFlags(r.riskFlags),
+        renderedText: r.renderedText,
         attempts: r.attempts,
         executedAt: r.executedAt,
         resolvedAt: r.resolvedAt,

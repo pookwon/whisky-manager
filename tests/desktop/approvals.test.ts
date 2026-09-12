@@ -65,6 +65,31 @@ describe('approve', () => {
   it('refuses an unknown execution', () => {
     expect(() => approve(repo, 'nope', limits)).toThrow(/unknown execution/i)
   })
+
+  it('answers a row with no text with a refusal instead of queueing it', async () => {
+    const id = await seedAwaiting('1006', NOW - HOUR)
+    repo.applyPatch(id, { status: 'AWAITING_APPROVAL', renderedText: null })
+
+    expect(approve(repo, id, limits)).toEqual({ kind: 'refused', reason: 'NO_TEXT' })
+    // Still awaiting, which is what lets the sweep retire it. Queued, it would
+    // be skipped by the backlog walk, never revived by a claim, and would halt
+    // the automation with STALE_BACKLOG once it aged past two days.
+    expect(repo.getById(id)?.status).toBe('AWAITING_APPROVAL')
+  })
+
+  it('leaves the refused row for the sweep to retire', async () => {
+    const id = await seedAwaiting('1007', NOW - 50 * HOUR)
+    repo.applyPatch(id, { status: 'AWAITING_APPROVAL', renderedText: null })
+    approve(repo, id, limits)
+
+    expect(sweepApprovals(repo, AUTOMATION, limits, NOW)).toEqual({ expired: 1 })
+    expect(repo.getById(id)?.status).toBe('EXPIRED')
+  })
+
+  it('says so plainly when the row does have text', async () => {
+    const id = await seedAwaiting('1008', NOW - HOUR)
+    expect(approve(repo, id, limits)).toEqual({ kind: 'approved' })
+  })
 })
 
 describe('reject', () => {

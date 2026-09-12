@@ -1,7 +1,14 @@
+import { useState } from 'react'
+import type { ApproveResult } from '../../desktop/ipc.js'
 import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import { relativeTime } from '../format.js'
 import { useApp } from '../store.js'
+
+/** Why a press did nothing, in the words of the thing the operator can fix. */
+function refusalText(result: ApproveResult): string | null {
+  return result.kind === 'refused' ? TEXT.approvals.refused[result.reason] : null
+}
 
 interface ApprovalsProps {
   /**
@@ -17,11 +24,21 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
   const now = Date.now()
+  /** What the last press answered, until the next one. */
+  const [refusal, setRefusal] = useState<string | null>(null)
+
+  const press = (id: string): void => {
+    setRefusal(null)
+    void act(async () => {
+      setRefusal(refusalText(await api.approve(id)))
+    })
+  }
 
   return (
     <div className="flex flex-col gap-5">
       <header>
         <h1 className="text-lg font-bold tracking-tight">{TEXT.approvals.heading}</h1>
+        {refusal !== null && <div className="mt-2 text-sm tone-warn">{refusal}</div>}
       </header>
 
       {awaiting.length === 0 ? (
@@ -76,8 +93,12 @@ export function Approvals(_props: ApprovalsProps): React.JSX.Element {
                     <button
                       type="button"
                       className="btn btn-primary"
-                      disabled={busy}
-                      onClick={() => void act(() => api.approve(item.id))}
+                      // A row the screening could not render has nothing to
+                      // send, and approving it would queue a comment that never
+                      // goes out. The main process refuses it either way; this
+                      // is so the operator is not offered the press at all.
+                      disabled={busy || item.renderedText === null}
+                      onClick={() => press(item.id)}
                     >
                       {TEXT.approvals.approve}
                     </button>

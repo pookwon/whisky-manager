@@ -483,6 +483,51 @@ describe('runSession — dedupe', () => {
   })
 })
 
+describe('runSession — a queued row with nothing to send', () => {
+  /**
+   * The row that used to wedge the automation: QUEUED with no text. The backlog
+   * walk skips it, a claim reads QUEUED as in progress and never revives it, and
+   * no sweep retires it — so it sat there until it aged past two days and every
+   * session refused with STALE_BACKLOG.
+   */
+  async function seedTextlessQueued(postId: string, postedAt: number): Promise<string> {
+    const store = createSqliteDedupeStore(db, () => `exec-seed-${++idCounter}`)
+    const id = await store.claim({
+      automationId: 'welcome-comment',
+      cafeId: '10000000',
+      boardId: '5',
+      postId,
+      title: null,
+      authorNickname: 'nick',
+      authorId: `m${postId}`,
+      postedAt,
+      detectedAt: postedAt,
+    })
+    if (id === null) throw new Error('seed claim failed')
+    repo.applyPatch(id, { status: 'QUEUED' })
+    return id
+  }
+
+  it('retires it at session start so the post is judged again', async () => {
+    const id = await seedTextlessQueued('8801', MON_10_00 - 60_000)
+
+    const outcome = await runSession(
+      deps({ transport: fakeTransport({ candidates: [candidate('8801')] }) }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+    // Retired to SKIPPED, then revived by the claim and worked through as any
+    // other post: the same row id, now with a comment behind it.
+    expect(repo.getById(id)?.status).toBe('SUCCESS')
+  })
+
+  it('no longer halts every session once the post is two days old', async () => {
+    await seedTextlessQueued('8802', MON_10_00 - 2 * DAY - HOUR)
+
+    expect(await runSession(deps())).toMatchObject({ opened: true })
+  })
+})
+
 describe('runSession — pre-execution re-check', () => {
   it('skips when an operator commented between collection and execution', async () => {
     // Collection saw no comments, but a staff member got there first.

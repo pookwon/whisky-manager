@@ -2,6 +2,7 @@ import type { CollectionJob, CollectionStatus } from './collection-db/statusQuer
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
+import type { ApproveResult } from './approvals.js'
 import type { CollectionFeedKind } from './collection-db/repository.js'
 import type {
   CollectionRangeProblem,
@@ -14,6 +15,10 @@ import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
 import type { ExtensionRecoveryResult, ExtensionSetupResult } from './extensionSetup.js'
 import type { StartupPreview } from './preview.js'
 import type { WarmCheck } from './sessionWarmer.js'
+
+// Re-exported so the renderer reads every answer this surface gives from the
+// one module, as it does for the collection results below.
+export type { ApproveResult } from './approvals.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -307,7 +312,12 @@ export interface RendererApi {
    */
   setCollectionForced(forced: boolean): Promise<SetCollectionForcedResult>
   listAwaiting(automationId: string): Promise<AwaitingItem[]>
-  approve(id: string): Promise<void>
+  /**
+   * A row the screening could not render is refused rather than queued, and the
+   * screen says why: a press that silently does nothing is the one answer the
+   * operator must never get.
+   */
+  approve(id: string): Promise<ApproveResult>
   reject(id: string): Promise<void>
   listTemplates(automationId: string): Promise<Template[]>
   addTemplate(automationId: string, body: string): Promise<void>

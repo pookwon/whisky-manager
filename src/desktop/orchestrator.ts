@@ -12,6 +12,7 @@ import type { CommentAuthorLookup } from './commentAuthors.js'
 import type { DedupeStore } from './db/dedupeStore.js'
 import type { ExecutionsRepo } from './db/executionsRepo.js'
 import { sweepApprovals } from './approvals.js'
+import { retireTextlessQueued } from './textlessQueued.js'
 import type { DayCollector } from './collection.js'
 import { promoteRetries } from './retries.js'
 import type { ExtensionTransport } from './ws/server.js'
@@ -540,6 +541,11 @@ export async function runSession(deps: SessionDeps): Promise<SessionOutcome> {
   // never get to run — a permanent deadlock.
   sweepApprovals(deps.repo, deps.automationId, deps.limits, openedAt)
   promoteRetries(deps.repo, deps.automationId, deps.limits, openedAt)
+  // Ahead of the brake for the same reason, and against the same deadlock: a
+  // queued row with nothing to send is worked by nobody and retired by nothing,
+  // so it would trip the brake every session and the brake would keep this from
+  // ever clearing it.
+  retireTextlessQueued(deps.repo, deps.automationId, openedAt)
 
   // The brake reads a days-old backlog as a sign something is broken and stops.
   // A forced run is an operator saying they have looked and want it to go
