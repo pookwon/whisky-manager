@@ -412,10 +412,14 @@ export const TEXT = {
     board: '감시 게시판',
     boardId: '게시판 ID',
     boardIdHint: '이 기능이 감시할 게시판입니다. 바꾸면 새 게시판의 새 글부터 다시 시작합니다',
-    /** The prefix reminder's own section: one fixed comment and the boards it leaves alone. */
+    /** The prefix reminder's own section: the one comment it posts and the boards it leaves alone. */
     prefix: {
       commentText: '안내 댓글 문구',
-      commentTextHint: '말머리 없는 글에 그대로 달립니다. 변수는 없습니다.',
+      commentTextHint:
+        '말머리 없는 글에 그대로 달립니다. 글쓴이를 부르려면 {닉네임} 또는 {nickname}을 쓸 수 있습니다.',
+      nicknameFallback: '닉네임 대신 쓸 말',
+      nicknameFallbackHint:
+        '닉네임을 읽지 못한 글에 대신 넣을 말입니다. 비워 두면 그 글에는 댓글을 달지 않고 남겨 둡니다.',
       excludedBoards: '제외 게시판 id',
       excludedBoardsHint: '한 줄에 하나. 게시판 주소 menus/ 뒤의 숫자입니다.',
       invalidBoardId: (value: string) => `게시판 id는 숫자여야 합니다: ${value}`,

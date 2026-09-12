@@ -453,8 +453,17 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         onTally: prefixRecorder.recordTally,
       }),
-    renderBody: () => renderPrefixReminder(prefixOptions().commentText),
-    hasBody: () => renderPrefixReminder(prefixOptions().commentText).ok,
+    renderBody: (candidate) => {
+      const options = prefixOptions()
+      return renderPrefixReminder(options.commentText, options.nicknameFallback, candidate)
+    },
+    // Asked once per session, with no post in hand, so it answers only whether
+    // the operator has registered any wording at all — the same question the
+    // greeting's template count answers. Rendering it here would refuse the
+    // whole session with NO_TEMPLATE the moment the wording names a nickname,
+    // because there is no candidate yet to read one from. Whether a particular
+    // post can be filled in belongs to renderBody, which has the post.
+    hasBody: () => prefixOptions().commentText.trim() !== '',
     // Login is cafe-wide, so it is read where the first automation stores it
     // rather than from a board this one does not have.
     loginBoardId: () => repos.automationSettings.get(WELCOME_AUTOMATION_ID)?.boardId ?? null,

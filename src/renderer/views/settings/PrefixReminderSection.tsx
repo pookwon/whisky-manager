@@ -22,6 +22,7 @@ export function PrefixReminderSection({ automationId, settings }: SectionProps):
   const storedLines = stored.excludedBoardIds.join('\n')
 
   const [commentText, setCommentText] = useState(stored.commentText)
+  const [nicknameFallback, setNicknameFallback] = useState(stored.nicknameFallback)
   const [excludedLines, setExcludedLines] = useState(storedLines)
   /** The line that stopped the last save, until the next press. */
   const [invalid, setInvalid] = useState<string | null>(null)
@@ -31,6 +32,9 @@ export function PrefixReminderSection({ automationId, settings }: SectionProps):
   useEffect(() => {
     setCommentText(stored.commentText)
   }, [stored.commentText])
+  useEffect(() => {
+    setNicknameFallback(stored.nicknameFallback)
+  }, [stored.nicknameFallback])
   useEffect(() => {
     setExcludedLines(storedLines)
   }, [storedLines])
@@ -42,7 +46,13 @@ export function PrefixReminderSection({ automationId, settings }: SectionProps):
       return
     }
     setInvalid(null)
-    void act(() => api.setAutomationOptions(automationId, { commentText, excludedBoardIds: parsed.ids }))
+    void act(() =>
+      api.setAutomationOptions(automationId, {
+        commentText,
+        nicknameFallback,
+        excludedBoardIds: parsed.ids,
+      }),
+    )
   }
 
   return (
@@ -56,6 +66,15 @@ export function PrefixReminderSection({ automationId, settings }: SectionProps):
           onChange={(e) => setCommentText(e.target.value)}
         />
         <span className="mt-0.5">{TEXT.settings.prefix.commentTextHint}</span>
+      </label>
+      <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+        {TEXT.settings.prefix.nicknameFallback}
+        <input
+          className="field"
+          value={nicknameFallback}
+          onChange={(e) => setNicknameFallback(e.target.value)}
+        />
+        <span className="mt-0.5">{TEXT.settings.prefix.nicknameFallbackHint}</span>
       </label>
       <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
         {TEXT.settings.prefix.excludedBoards}

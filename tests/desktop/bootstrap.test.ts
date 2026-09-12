@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { WELCOME_AUTOMATION_ID, createAppContext, type AppContext } from '../../src/desktop/bootstrap.js'
-import { AUTOMATIONS } from '../../src/shared/automations/catalog.js'
+import { AUTOMATIONS, PREFIX_REMINDER_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { PROTOCOL_VERSION } from '../../src/shared/protocol.js'
 
 const MIGRATIONS = fileURLToPath(new URL('../../drizzle', import.meta.url))
@@ -153,6 +153,30 @@ describe('createAppContext', () => {
 
     await ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
     expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'NO_TEMPLATE' })
+  })
+
+  it('opens the prefix reminder on a wording that is nothing but a variable', async () => {
+    // The per-session gate asks whether any wording is registered, and it has
+    // no post in hand to fill one with. Answering it by rendering would refuse
+    // the whole session as if nothing were registered — the operator's wording
+    // is right there, it just names a nickname no gate could know yet.
+    ctx.repos.automationSettings.upsert({
+      automationId: PREFIX_REMINDER_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+      boardId: null,
+      optionsJson: JSON.stringify({ commentText: '{닉네임}' }),
+    })
+
+    // Named rather than matched exactly: the session goes on to fail its login
+    // check here, and the hour of day decides whether it reaches that at all.
+    // What this test is about is the one refusal that must not happen.
+    await ctx.automation.runOnce(PREFIX_REMINDER_AUTOMATION_ID)
+    expect(ctx.lastOutcome(PREFIX_REMINDER_AUTOMATION_ID)).not.toEqual({
+      opened: false,
+      reason: 'NO_TEMPLATE',
+    })
   })
 
   it('refuses while the kill switch is engaged', async () => {
