@@ -1,10 +1,13 @@
 import { charsetFromContentType, isProbeTarget } from '../shared/probe.js'
-import type { AppMessage, ExtensionMessage } from '../shared/protocol.js'
+import type { AppMessage } from '../shared/protocol.js'
 import type { Random } from '../shared/ports.js'
+import { createArticleClient } from './articleClient.js'
 import { createBridgeClient, type Reply } from './bridgeClient.js'
 import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeClient.js'
 import { createBoardPageReader } from './boardPageReader.js'
+import { createDispatcher, type CollectionProgress } from './dispatch.js'
 import { createMemberPageReader } from './memberPageReader.js'
+import { REFERER_RULE_ID, refererRule } from './refererRule.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
 const RECONNECT_ALARM = 'bridge-reconnect'
@@ -33,43 +36,15 @@ const extensionRandom: Random = {
 }
 
 /**
- * `Referer` cannot be set through `fetch` — it is a forbidden header — and the
- * cafe's write endpoints ignore a request that does not carry one. A session
- * rule rewrites the header for the one request that needs it, and is torn down
- * straight afterwards so nothing else in the browser is affected.
+ * The rule is installed for the one request that needs it and torn down
+ * straight afterwards, so nothing else in the browser is affected.
  */
-const REFERER_RULE_ID = 1
-
 async function withReferer<T>(referer: string | undefined, run: () => Promise<T>): Promise<T> {
   if (referer === undefined) return run()
 
   await chrome.declarativeNetRequest.updateSessionRules({
     removeRuleIds: [REFERER_RULE_ID],
-    addRules: [
-      {
-        id: REFERER_RULE_ID,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
-          requestHeaders: [
-            {
-              header: 'referer',
-              operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
-              value: referer,
-            },
-            {
-              header: 'origin',
-              operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
-              value: new URL(referer).origin,
-            },
-          ],
-        },
-        condition: {
-          urlFilter: '|https://cafe.naver.com/',
-          resourceTypes: ['xmlhttprequest' as chrome.declarativeNetRequest.ResourceType],
-        },
-      },
-    ],
+    addRules: [refererRule(referer)],
   })
 
   try {
@@ -85,12 +60,16 @@ async function withReferer<T>(referer: string | undefined, run: () => Promise<T>
  * memo board is served as MS949 and `res.text()` would mangle every hangul.
  */
 async function request(init: HttpRequest): Promise<HttpResponse> {
+  const headers = {
+    ...init.headers,
+    ...(init.contentType === undefined ? {} : { 'Content-Type': init.contentType }),
+  }
   const response = await withReferer(init.referer, () =>
     fetch(init.url, {
       method: init.method ?? 'GET',
       credentials: 'include',
       ...(init.body === undefined ? {} : { body: init.body }),
-      ...(init.contentType === undefined ? {} : { headers: { 'Content-Type': init.contentType } }),
+      ...(Object.keys(headers).length === 0 ? {} : { headers }),
     }),
   )
   const contentType = response.headers.get('content-type')
@@ -127,7 +106,7 @@ async function runLcsDo(): Promise<void> {
   }
 }
 
-let onCollectionProgress: ((pagesRead: number, collected: number) => void) | null = null
+let onCollectionProgress: CollectionProgress | null = null
 
 const cafe = createCafeClient({
   http: request,
@@ -136,6 +115,13 @@ const cafe = createCafeClient({
   onCollectionProgress: (pagesRead, collected) => onCollectionProgress?.(pagesRead, collected),
   sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
 })
+
+/**
+ * Ordinary articles are a different surface from the memo board: another host,
+ * another body encoding, and a login the comment response itself names. It
+ * shares the transport and the telemetry hook, and nothing else.
+ */
+const articleCafe = createArticleClient({ http: request, beforeCommentPost: async () => runLcsDo() })
 
 const boardPageReader = createBoardPageReader({ http: request })
 const memberPageReader = createMemberPageReader({ http: request })
@@ -165,105 +151,20 @@ function failed(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/**
- * The extension decides nothing. Each of these runs one instruction from the
- * app and reports what happened, so a torn-down service worker loses no state.
- */
-async function dispatch(message: AppMessage, reply: Reply): Promise<void> {
-  switch (message.type) {
-    case 'HELLO_ACK':
-      if (!message.accepted) {
-        console.warn('[bridge] handshake rejected:', message.reason)
-        client.disconnect()
-      }
-      return
-
-    case 'CHECK_LOGIN': {
-      const state = await cafe.checkLogin(message.source)
-      reply({
-        type: 'LOGIN_STATE',
-        requestId: message.requestId,
-        loggedIn: state.loggedIn,
-        account: state.account,
-      })
-      return
-    }
-
-    case 'COLLECT': {
-      onCollectionProgress = (pagesRead, collected) => {
-        const progressMessage: ExtensionMessage = {
-          type: 'COLLECT_PROGRESS',
-          requestId: message.requestId,
-          pagesRead,
-          collected,
-        }
-        reply(progressMessage)
-      }
-      try {
-        const candidates = await cafe.collect(message.source, message.sincePostedAt)
-        reply({ type: 'COLLECTED', requestId: message.requestId, candidates })
-      } finally {
-        onCollectionProgress = null
-      }
-      return
-    }
-
-    case 'COLLECT_BOARD_PAGE': {
-      const result = await boardPageReader.read(message)
-      if (!result.ok) {
-        // Codes are deliberately stable and body-free: a list response can
-        // contain account-linked data and must never be echoed to the bridge.
-        reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
-        return
-      }
-      reply({ type: 'BOARD_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
-      return
-    }
-
-    case 'COLLECT_MEMBER_PAGE': {
-      const result = await memberPageReader.read(message)
-      if (!result.ok) {
-        // Codes are deliberately stable and body-free: a member list response
-        // contains member keys and nicknames and must never reach the bridge.
-        reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
-        return
-      }
-      reply({ type: 'MEMBER_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
-      return
-    }
-
-    case 'CHECK_COMMENTS': {
-      const authors = await cafe.checkComments(
-        { cafeId: message.action.cafeId, boardId: message.action.boardId },
-        message.action.postId,
-      )
-      reply({ type: 'COMMENTS', requestId: message.requestId, authors })
-      return
-    }
-
-    case 'EXECUTE': {
-      const { cafeId, boardId, postId, body } = message.action
-      const result = await cafe.execute({ cafeId, boardId }, postId, body)
-      reply({
-        type: 'EXECUTED',
-        requestId: message.requestId,
-        ok: result.ok,
-        strategy: 'FETCH',
-        commentAuthors: result.commentAuthors,
-        error: result.error,
-        diagnostic: result.diagnostic,
-      })
-      return
-    }
-
-    case 'PROBE':
-      await probe(message.requestId, message.url, reply)
-      return
-
-    case 'ABORT':
-      return
-  }
-}
+const dispatch = createDispatcher({
+  cafe,
+  articleCafe,
+  boardPageReader,
+  memberPageReader,
+  probe,
+  onHandshakeRejected: (reason) => {
+    console.warn('[bridge] handshake rejected:', reason)
+    client.disconnect()
+  },
+  setCollectionProgress: (listener) => {
+    onCollectionProgress = listener
+  },
+})
 
 function handle(message: AppMessage, reply: Reply): void {
   // A thrown request must still answer, or the app waits out its whole timeout

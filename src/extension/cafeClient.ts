@@ -8,29 +8,19 @@ import {
   type LoginState,
 } from '../shared/automations/welcome-comment/cafe.js'
 import { parseMemoList } from '../shared/automations/welcome-comment/parse.js'
+import type { Http } from '../shared/http.js'
 import { comparePostId } from '../shared/postId.js'
 import { nextPageFetchDelayMs } from '../shared/schedule.js'
 import type { Random } from '../shared/ports.js'
 import type { RawCandidate, SourceRef } from '../shared/protocol.js'
 import type { CommentAuthor } from '../shared/types.js'
 
-export interface HttpRequest {
-  readonly url: string
-  readonly method?: 'GET' | 'POST'
-  readonly body?: string
-  readonly contentType?: string
-  /** Page this request should appear to come from. See `execute`. */
-  readonly referer?: string
-}
-
-export interface HttpResponse {
-  readonly status: number
-  readonly contentType: string | null
-  /** Already decoded with the charset the response declared. */
-  readonly text: string
-}
-
-export type Http = (request: HttpRequest) => Promise<HttpResponse>
+/**
+ * Re-exported so the extension's own modules keep importing the transport types
+ * from the client they use. The definitions moved to `shared` when a second
+ * automation needed to build requests there — see `shared/http.ts`.
+ */
+export type { Http, HttpRequest, HttpResponse } from '../shared/http.js'
 
 export interface CafeClientDeps {
   readonly http: Http
@@ -88,7 +78,11 @@ const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded'
 /** Enough of a rejection page to recognise it, short enough to store. */
 const DIAGNOSTIC_LENGTH = 300
 
-function diagnose(text: string): string {
+/**
+ * Shared with the article client: both write to endpoints that answer 200 with
+ * a rejection page, so both keep the same short, tag-free slice of it.
+ */
+export function diagnose(text: string): string {
   return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, DIAGNOSTIC_LENGTH)
 }
 
