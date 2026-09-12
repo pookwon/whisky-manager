@@ -31,6 +31,15 @@ async function pairExtension(): Promise<WebSocket> {
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Polls rather than hooks: nothing in the app announces that a session began. */
+async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('condition never held')
+    await wait(10)
+  }
+}
+
 let dir: string
 let ctx: AppContext
 
@@ -178,6 +187,79 @@ describe('createAppContext', () => {
       reason: 'NO_TEMPLATE',
     })
   })
+
+  it('lets one automation reach naver at a time and queues the other', async () => {
+    // Both automations aim at the window opening and at the midnight settle, so
+    // they are due together twice a day. Two open sessions would interleave
+    // their lookups and their writes, and the spacing between comments would
+    // stop bounding what the cafe sees.
+    ctx.repos.automationSettings.upsert({
+      automationId: WELCOME_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+      boardId: 'board-under-test',
+      optionsJson: '{}',
+    })
+    ctx.repos.templates.add({
+      id: 't1',
+      automationId: WELCOME_AUTOMATION_ID,
+      body: '환영합니다',
+      createdAt: 1,
+    })
+    ctx.repos.automationSettings.upsert({
+      automationId: PREFIX_REMINDER_AUTOMATION_ID,
+      policy: 'AUTO',
+      limits: {},
+      enabled: true,
+      boardId: null,
+      optionsJson: JSON.stringify({ commentText: '말머리를 골라 주세요' }),
+    })
+
+    const ws = await pairExtension()
+    // The login check is the first thing either session sends, so its arrival is
+    // the moment that session began touching naver.
+    const loginRequestIds: string[] = []
+    ws.on('message', (raw) => {
+      const message: unknown = JSON.parse(String(raw))
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { type?: unknown }).type === 'CHECK_LOGIN'
+      ) {
+        loginRequestIds.push(String((message as { requestId?: unknown }).requestId))
+      }
+    })
+    const answerLogin = (requestId: string): void => {
+      ws.send(JSON.stringify({ type: 'LOGIN_STATE', requestId, loggedIn: false, account: null }))
+    }
+
+    try {
+      // FORCED so the hour of day this test runs at cannot decide the answer.
+      const welcome = ctx.automation.runOnce(WELCOME_AUTOMATION_ID, { mode: 'FORCED' })
+      const prefix = ctx.automation.runOnce(PREFIX_REMINDER_AUTOMATION_ID, { mode: 'FORCED' })
+
+      await until(() => loginRequestIds.length >= 1)
+      // Long enough for a second session that was not queued to have started.
+      await wait(300)
+      expect(loginRequestIds).toHaveLength(1)
+
+      answerLogin(loginRequestIds[0] as string)
+      await welcome
+
+      await until(() => loginRequestIds.length >= 2)
+      answerLogin(loginRequestIds[1] as string)
+      await prefix
+    } finally {
+      ws.close()
+    }
+
+    expect(ctx.lastOutcome(WELCOME_AUTOMATION_ID)).toEqual({ opened: false, reason: 'NOT_LOGGED_IN' })
+    expect(ctx.lastOutcome(PREFIX_REMINDER_AUTOMATION_ID)).toEqual({
+      opened: false,
+      reason: 'NOT_LOGGED_IN',
+    })
+  }, 20_000)
 
   it('refuses while the kill switch is engaged', async () => {
     ctx.repos.automationSettings.upsert({

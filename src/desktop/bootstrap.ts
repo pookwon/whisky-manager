@@ -348,6 +348,33 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   const makeRecorder = (automationId: string): SessionRecorder =>
     createSessionRecorder({ automationId, path: options.sessionLogPath, now: () => systemClock.now() })
 
+  /**
+   * One session at a time, across every automation.
+   *
+   * The two automations share one browser session, so their pacing only bounds
+   * the cafe's view of us if one runs at a time: the 20~60s gap between comments
+   * is per session, and two open at once put two streams through the same login,
+   * with two comments able to land in the same second. Each loop's own
+   * single-flight cannot see the other, and the read gate serialises only the
+   * board reads, not the comment lookups or the writes.
+   *
+   * A queue rather than a refusal. Both schedules aim at the same two instants —
+   * the window opening and the midnight settle — so being due together is normal
+   * rather than a fault, and the second session's work is still owed.
+   *
+   * A waiting session reports no progress, because it has not started: the
+   * collection walks read that progress to decide whether to yield, and a
+   * session queued behind another is not yet touching naver.
+   */
+  let naverSession: Promise<unknown> = Promise.resolve()
+  const oneAtATime = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = naverSession.then(run, run)
+    // The chain carries on past a session that threw; the caller still gets the
+    // rejection, but the sessions queued behind it must not be wedged by it.
+    naverSession = next.catch(() => undefined)
+    return next
+  }
+
   const runtimes = new Map<string, AutomationRuntime>()
   const buildRuntime = (spec: RuntimeSpec): AutomationRuntime => {
     const runtime: AutomationRuntime = createAutomationRuntime({
@@ -379,12 +406,18 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
             runtime.reportProgress(progress)
           },
         })
+        // Every entry point — the schedule, the settle, and the operator's own
+        // run — reaches naver through this one wrapper, so none of them can
+        // open a second session alongside another automation's.
+        //
         // The mode and the day list belong to the session, so they are reset the
-        // moment one opens rather than when the last one's line was written.
-        return (request?: SessionRequest) => {
-          spec.recorder.begin(request?.mode ?? 'MANUAL')
-          return run(request)
-        }
+        // moment one opens rather than when the last one's line was written —
+        // which is when its turn comes, not when it joined the queue.
+        return (request?: SessionRequest) =>
+          oneAtATime(() => {
+            spec.recorder.begin(request?.mode ?? 'MANUAL')
+            return run(request)
+          })
       })(),
       // Every session leaves a line, opened or refused: an opened one is what a
       // refusal cannot leave — the read counts and what was done about them — and
