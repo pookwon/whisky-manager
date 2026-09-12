@@ -116,4 +116,13 @@ describe('urls and requests', () => {
 
     expect(request.body).toContain('content=%EB%A7%90%EB%A8%B8%EB%A6%AC')
   })
+
+  it('percent-encodes a space, byte for byte as the capture sent it', () => {
+    // The capture is the authority on what goes on the wire. A form body may
+    // spell a space as `+`, and the endpoint would very likely take it, but
+    // "very likely" is not what the contract records.
+    const request = articleCommentWriteRequest(source, '998877', 'a b')
+
+    expect(request.body).toBe('content=a%20b&stickerId=&cafeId=14538121&articleId=998877&requestFrom=A')
+  })
 })

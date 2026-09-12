@@ -138,6 +138,12 @@ cafeId={cafeId}&menuId={menuId}&articleId={articleId}&commentId={commentId}&requ
 
 - **쓰기 실패 응답.** 권한 없는 글, 댓글 잠긴 글에서 어떤 모양인지. 재조회로 판정하므로 막지는 않는다.
 - **대댓글이 달린 댓글을 지운 경우** `isDeleted: true` 껍데기가 남는지.
+- **로그아웃 상태의 읽기 응답.** 캡처는 모두 로그인 세션에서 받았다. 로그인하지 않은 브라우저가
+  이 주소를 읽으면 무엇이 오는지 모른다. 클라이언트가 내는 코드는 둘로 갈린다 —
+  `result.comments.items`가 배열이 아니면(로그인 페이지·오류 페이지로 보이는 경우)
+  `COMMENT_CHECK_FAILED`, 모양은 멀쩡한데 `result.user.memberKey`만 없으면 `NOT_LOGGED_IN`.
+  실제로는 앞쪽일 가능성이 높아 `NOT_LOGGED_IN`은 캡처로 확인된 적 없는 갈래다. 두 갈래를 모두
+  두는 이유는 어느 쪽이 오든 쓰기를 하지 않고 멈추기 위해서다.
 
 ## 6. 확장 권한
 

@@ -2,6 +2,7 @@ import {
   articleCommentListRequest,
   articleCommentWriteRequest,
   parseArticleCommentPage,
+  type ArticleCommentPage,
 } from '../shared/automations/prefix-reminder/articleCafe.js'
 import type { Http } from '../shared/http.js'
 import type { SourceRef } from '../shared/protocol.js'
@@ -21,6 +22,11 @@ export interface ArticleClientDeps {
 export interface ArticleClient {
   checkComments(source: SourceRef, postId: string): Promise<CommentAuthor[] | null>
   execute(source: SourceRef, postId: string, content: string): Promise<ExecuteResult>
+}
+
+/** Whether the session's own member is among the people who commented. */
+function wroteOneOf(page: ArticleCommentPage): boolean {
+  return page.authors.some((author) => author.memberKey === page.viewerMemberKey)
 }
 
 /**
@@ -55,6 +61,14 @@ export function createArticleClient(deps: ArticleClientDeps): ArticleClient {
         return { ok: false, commentAuthors: null, error: 'NOT_LOGGED_IN', diagnostic: null }
       }
 
+      // Our own comment already on the post is a refusal, not a success. The
+      // proof a write landed is our key appearing among the writers, and a key
+      // that was there beforehand proves nothing — writing anyway would leave
+      // a second reminder on a post already reminded and report it as fine.
+      if (wroteOneOf(before)) {
+        return { ok: false, commentAuthors: before.authors, error: 'ALREADY_COMMENTED', diagnostic: null }
+      }
+
       await deps.beforeCommentPost?.(source, postId)
       const posted = await deps.http(articleCommentWriteRequest(source, postId, content))
       if (posted.status !== 200) {
@@ -78,7 +92,9 @@ export function createArticleClient(deps: ArticleClientDeps): ArticleClient {
           diagnostic: diagnose(posted.text),
         }
       }
-      const landed = after.authors.some((author) => author.memberKey === before.viewerMemberKey)
+      // Judged against the key we proved before writing, so a response that
+      // names a different viewer cannot talk us into calling the write landed.
+      const landed = wroteOneOf({ viewerMemberKey: before.viewerMemberKey, authors: after.authors })
       return {
         ok: landed,
         commentAuthors: after.authors,

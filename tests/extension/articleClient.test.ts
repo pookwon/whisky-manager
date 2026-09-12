@@ -10,12 +10,27 @@ const fixture = (name: string): string =>
 const source = { cafeId: '14538121', boardId: '36' }
 const postId = '998877'
 
-/** The capture as seen by a given session. `null` is a signed-out visitor. */
-function seenBy(viewerMemberKey: string | null): string {
-  const payload = JSON.parse(fixture('some')) as { result: { user: Record<string, unknown> } }
+interface Capture {
+  result: { user: Record<string, unknown>; comments: { items: { writer: { memberKey: string } }[] } }
+}
+
+/**
+ * The capture as seen by a given session. `null` is a signed-out visitor, and
+ * `ours: false` drops the comment the operator left — which is what the post
+ * looks like before the reminder is written.
+ */
+function seenBy(viewerMemberKey: string | null, options: { ours?: boolean } = {}): string {
+  const payload = JSON.parse(fixture('some')) as Capture
+  const items = payload.result.comments.items.filter(
+    (item) => options.ours !== false || item.writer.memberKey !== viewerMemberKey,
+  )
   return JSON.stringify({
     ...payload,
-    result: { ...payload.result, user: { ...payload.result.user, memberKey: viewerMemberKey ?? undefined } },
+    result: {
+      ...payload.result,
+      user: { ...payload.result.user, memberKey: viewerMemberKey ?? undefined },
+      comments: { ...payload.result.comments, items },
+    },
   })
 }
 
@@ -27,6 +42,9 @@ const AUTHORS = [
   { nickname: '회원C', memberKey: 'key-c' },
   { nickname: '카페 스탭', memberKey: 'key-operator' },
 ]
+
+/** The same post before the operator's own comment is on it. */
+const OTHERS = AUTHORS.slice(0, 3)
 
 /** The write endpoint answers with the new comment's id and nothing else. */
 const POSTED = ok('{"commentId":103843785,"refCommentId":103843785}')
@@ -68,9 +86,30 @@ describe('checkComments', () => {
   })
 })
 
+/**
+ * Reads answer in the order given; the last one repeats if execute reads more
+ * often than the test listed. Order is what these cases are about: the page
+ * before the write decides whether to write at all, the page after decides
+ * whether it landed.
+ */
+function conversation(reads: HttpResponse[], post: HttpResponse = POSTED) {
+  const seen: HttpRequest[] = []
+  let read = 0
+  const client = createArticleClient({
+    http: (request) => {
+      seen.push(request)
+      if (isWrite(request)) return Promise.resolve(post)
+      const reply = reads[Math.min(read, reads.length - 1)]
+      read += 1
+      return Promise.resolve(reply ?? ok(''))
+    },
+  })
+  return { client, seen }
+}
+
 describe('execute', () => {
   it('does not post at all when the session is signed out', async () => {
-    const { client, seen } = harness([{ match: isRead, reply: ok(seenBy(null)) }])
+    const { client, seen } = conversation([ok(seenBy(null))])
 
     const result = await client.execute(source, postId, '말머리를 골라 주세요')
 
@@ -78,10 +117,24 @@ describe('execute', () => {
     expect(seen.some(isWrite)).toBe(false)
   })
 
+  it('leaves a post we have already commented on alone', async () => {
+    // Our own key among the writers beforehand means the reminder is already
+    // there. Writing anyway would put a second one on the same post, and the
+    // re-read afterwards would find our key and call it a success.
+    const { client, seen } = conversation([ok(seenBy('key-operator'))])
+
+    const result = await client.execute(source, postId, '말머리를 골라 주세요')
+
+    expect(result).toMatchObject({ ok: false, error: 'ALREADY_COMMENTED' })
+    expect(result.commentAuthors).toEqual(AUTHORS)
+    expect(seen).toHaveLength(1)
+    expect(seen.some(isWrite)).toBe(false)
+  })
+
   it('counts a write as landed only when the comment reads back under our key', async () => {
-    const { client, seen } = harness([
-      { match: isWrite, reply: POSTED },
-      { match: isRead, reply: ok(seenBy('key-operator')) },
+    const { client, seen } = conversation([
+      ok(seenBy('key-operator', { ours: false })),
+      ok(seenBy('key-operator')),
     ])
 
     const result = await client.execute(source, postId, '말머리를 골라 주세요')
@@ -96,21 +149,21 @@ describe('execute', () => {
 
   it('reports a write that did not show up, whatever the post answered', async () => {
     // The endpoint hands back a comment id; only the re-read proves anything.
-    const { client } = harness([
-      { match: isWrite, reply: POSTED },
-      { match: isRead, reply: ok(seenBy('key-nobody')) },
-    ])
+    const { client, seen } = conversation([ok(seenBy('key-operator', { ours: false }))])
 
     const result = await client.execute(source, postId, '말머리를 골라 주세요')
 
     expect(result).toMatchObject({ ok: false, error: 'COMMENT_NOT_VISIBLE' })
+    expect(result.commentAuthors).toEqual(OTHERS)
+    expect(seen.some(isWrite)).toBe(true)
   })
 
   it('reports a rejected post rather than claiming success', async () => {
-    const { client } = harness([
-      { match: isWrite, reply: { status: 403, contentType: null, text: '<html>권한이 없습니다</html>' } },
-      { match: isRead, reply: ok(seenBy('key-operator')) },
-    ])
+    const { client } = conversation([ok(seenBy('key-operator', { ours: false }))], {
+      status: 403,
+      contentType: null,
+      text: '<html>권한이 없습니다</html>',
+    })
 
     const result = await client.execute(source, postId, '말머리를 골라 주세요')
 
@@ -120,22 +173,28 @@ describe('execute', () => {
   })
 
   it('reports a thread it could not read back rather than guessing', async () => {
-    let reads = 0
-    const client = createArticleClient({
-      http: (request) => {
-        if (isWrite(request)) return Promise.resolve(POSTED)
-        reads += 1
-        return Promise.resolve(reads === 1 ? ok(seenBy('key-operator')) : { status: 500, contentType: null, text: '' })
-      },
-    })
+    const { client } = conversation([
+      ok(seenBy('key-operator', { ours: false })),
+      { status: 500, contentType: null, text: '' },
+    ])
 
     const result = await client.execute(source, postId, '말머리를 골라 주세요')
 
     expect(result).toMatchObject({ ok: false, error: 'COMMENT_CHECK_FAILED' })
   })
 
+  it('reports a thread it could not read at all before writing', async () => {
+    const { client, seen } = conversation([ok('<html>오류</html>')])
+
+    const result = await client.execute(source, postId, '말머리를 골라 주세요')
+
+    expect(result).toMatchObject({ ok: false, error: 'COMMENT_CHECK_FAILED' })
+    expect(seen.some(isWrite)).toBe(false)
+  })
+
   it('runs the page hook immediately before posting the comment', async () => {
     const events: string[] = []
+    let read = 0
     const client = createArticleClient({
       beforeCommentPost: async () => {
         events.push('lcs_do')
@@ -146,7 +205,8 @@ describe('execute', () => {
           return Promise.resolve(POSTED)
         }
         events.push('read')
-        return Promise.resolve(ok(seenBy('key-operator')))
+        read += 1
+        return Promise.resolve(ok(read === 1 ? seenBy('key-operator', { ours: false }) : seenBy('key-operator')))
       },
     })
 

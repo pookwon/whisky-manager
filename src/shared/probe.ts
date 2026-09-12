@@ -6,7 +6,12 @@
  *
  * It is deliberately narrow. The extension holds a live login, so an unbounded
  * probe would be a general-purpose session-borrowing tool; these two hosts are
- * exactly the ones the manifest already grants.
+ * a subset of what the manifest grants.
+ *
+ * `article.cafe.naver.com` is granted in the manifest but deliberately absent
+ * here. A probe is a plain fetch: it carries neither the referer/origin rewrite
+ * nor `x-cafe-product`, both of which that host requires, so probing it would
+ * answer an error page and read as breakage that is not there.
  */
 const PROBE_HOSTS = new Set(['cafe.naver.com', 'apis.naver.com'])
 

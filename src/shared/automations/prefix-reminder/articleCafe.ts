@@ -3,12 +3,12 @@ import type { SourceRef } from '../../protocol.js'
 import type { CommentAuthor } from '../../types.js'
 
 /**
- * Addresses and payloads for ordinary cafe articles, which the 말머리 안내
+ * Addresses and payloads for ordinary cafe articles, which the prefix reminder
  * automation comments on.
  *
- * This is not the memo board the 가입인사 automation uses: different hosts,
- * different body encoding, and no success flag in the answer. The capture that
- * settles every constant here is
+ * This is not the memo board the welcome comment automation uses: different
+ * hosts, different body encoding, and no success flag in the answer. The
+ * capture that settles every constant here is
  * `docs/superpowers/specs/2026-09-12-cafe-article-comment-contract.md`.
  *
  * Pure functions over strings, like `welcome-comment/cafe.ts`: nothing here
@@ -68,19 +68,26 @@ const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded'
 /**
  * Five fields, in the order the capture sent them. `menuId` is deliberately
  * absent: the write does not take it, only the delete does.
+ *
+ * Encoded field by field rather than with `URLSearchParams`, which spells a
+ * space as `+`. Both are legal form encoding and the endpoint would almost
+ * certainly take either, but the capture is what we know to work and this is
+ * an undocumented endpoint — so the bytes match it exactly.
  */
 export function articleCommentWriteRequest(source: SourceRef, postId: string, content: string): HttpRequest {
-  const body = new URLSearchParams({
-    content,
-    stickerId: '',
-    cafeId: source.cafeId,
-    articleId: postId,
-    requestFrom: 'A',
-  })
+  const body = [
+    ['content', content],
+    ['stickerId', ''],
+    ['cafeId', source.cafeId],
+    ['articleId', postId],
+    ['requestFrom', 'A'],
+  ]
+    .map(([field, value]) => `${field}=${encodeURIComponent(value ?? '')}`)
+    .join('&')
   return {
     url: articleCommentPostUrl,
     method: 'POST',
-    body: body.toString(),
+    body,
     contentType: FORM_CONTENT_TYPE,
     referer: articlePageUrl(source, postId),
     headers: CAFE_PRODUCT_HEADER,
