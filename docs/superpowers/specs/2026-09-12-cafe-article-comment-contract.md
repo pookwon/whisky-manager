@@ -10,7 +10,7 @@
 ## 1. 읽기
 
 ```
-GET https://article.cafe.naver.com/gw/v4/cafes/{cafeId}/articles/{articleId}/comments/pages/{page}?requestFrom=A&orderBy=asc
+GET https://article.cafe.naver.com/gw/v4/cafes/{cafeId}/articles/{articleId}/comments/pages/{page}?requestFrom=A&orderBy=desc
 ```
 
 | 항목 | 값 |
@@ -81,7 +81,13 @@ GET https://article.cafe.naver.com/gw/v4/cafes/{cafeId}/articles/{articleId}/com
 
 ### 페이지
 
-`hasNext`가 다음 페이지 유무를 말한다. 우리에게는 **1페이지면 충분하다.** 확인할 것은 "운영자가 이미 댓글을 달았는가" 하나이고, 운영자 댓글이 2페이지 뒤로 밀릴 만큼 댓글이 많은 글은 안내 대상이 아니다. 1페이지만 읽는 선택은 이 문서에 적어 둔 의도이지 파서의 한계가 아니다.
+`hasNext`가 다음 페이지 유무를 말한다. 우리에게는 **최신 1페이지면 충분하다.** 이 자동화가 묻는 것은 둘 다 "방금 누가 댓글을 달았는가"다 — 쓰기 직전에는 운영자나 다른 사람이 먼저 달았는지, 쓰기 직후에는 우리 댓글이 올라갔는지. `orderBy=desc`로 읽으면 둘 다 1페이지 맨 위에 있다.
+
+`orderBy=asc`로 읽던 때에는 댓글이 한 페이지를 넘은 글에서 우리 댓글이 1페이지 밖으로 밀렸다. 쓰기 직후 확인이 그것을 못 보고 `COMMENT_NOT_VISIBLE`로 재시도에 들어갔고, 재시도의 사전 확인도 같은 이유로 못 보고 한 글에 댓글을 여러 번 달았다. 그래서 지금은 최신 순으로 읽고, `COMMENT_NOT_VISIBLE`은 재시도하지 않는다(`src/desktop/orchestrator.ts`).
+
+대가는 목록 반대쪽에 있다. 댓글이 많은 글에 운영자가 **오래전에** 단 댓글은 최신 1페이지에 없으므로, 이미 답이 달린 글에 안내가 나갈 수 있다. 우리가 단 안내는 성공한 순간 종결된 행으로 남고 다음 세션이 다시 판단하지 않으므로, 이 대가가 우리 쪽 중복 댓글이 되지는 않는다. 페이지를 더 읽어 메우지 않기로 한 선택이다.
+
+> `desc`는 이 문서에서 유일하게 캡처가 아니라 **운영자 확인(2026-09-12)**에 근거한 값이다. 나머지 값은 모두 저장된 캡처가 뒷받침한다.
 
 ## 2. 쓰기
 

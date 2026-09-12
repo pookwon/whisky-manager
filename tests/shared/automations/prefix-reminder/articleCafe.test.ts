@@ -80,7 +80,7 @@ describe('parseArticleCommentPage', () => {
 describe('urls and requests', () => {
   it('builds the list url the contract names', () => {
     expect(articleCommentListUrl(source, '998877', 1)).toBe(
-      'https://article.cafe.naver.com/gw/v4/cafes/14538121/articles/998877/comments/pages/1?requestFrom=A&orderBy=asc',
+      'https://article.cafe.naver.com/gw/v4/cafes/14538121/articles/998877/comments/pages/1?requestFrom=A&orderBy=desc',
     )
   })
 

@@ -135,6 +135,13 @@ type DayResult = 'DONE' | 'COLLECT_FAILED' | 'STOP'
 const MS_PER_DAY = 86_400_000
 
 /**
+ * What a client reports when the write was accepted but our comment was not
+ * there when we read the post back. The one failure a retry can turn into a
+ * duplicate comment, so it is terminal rather than retried.
+ */
+const UNVERIFIABLE_WRITE = 'COMMENT_NOT_VISIBLE'
+
+/**
  * Which days this session works, oldest first.
  *
  * An operator who named a day gets that day and nothing else — widening it
@@ -346,13 +353,22 @@ async function runJob(deps: SessionDeps, job: ExecutionJob, sessionCount: number
     return 'EXECUTED'
   }
 
-  const nextStatus = transition('QUEUED', { type: 'EXECUTION_FAILED', attempts }, deps.limits)
+  const reason = result?.error ?? 'NO_REPLY'
+  // A comment we posted and could not then see is the one failure we must not
+  // try again: the write may well have landed, and retrying is the only path by
+  // which this branch can leave two comments on a stranger's post. Not retrying
+  // costs at most one missed reminder, which is strictly the cheaper mistake.
+  // Every other error is a write we have reason to believe did not land.
+  const nextStatus =
+    reason === UNVERIFIABLE_WRITE
+      ? 'FAILED'
+      : transition('QUEUED', { type: 'EXECUTION_FAILED', attempts }, deps.limits)
   deps.repo.applyPatch(job.executionId, {
     status: nextStatus,
     templateId: job.templateId,
     renderedText: job.body,
     attempts,
-    reason: result?.error ?? 'NO_REPLY',
+    reason,
     executedAt: startedAt,
     resolvedAt: nextStatus === 'FAILED' ? finishedAt : null,
   })

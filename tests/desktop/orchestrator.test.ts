@@ -11,6 +11,7 @@ import type { CommentAuthor } from '../../src/shared/types.js'
 import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
 import { createWelcomeDayCollector, type DayCollector } from '../../src/desktop/collection.js'
 import { approve, reject } from '../../src/desktop/approvals.js'
+import { promoteRetries } from '../../src/desktop/retries.js'
 import { runSession, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { firstPostIdByAuthor } from '../../src/shared/screening.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
@@ -31,6 +32,8 @@ interface FakeTransportOptions {
   loggedIn?: boolean
   candidates?: RawCandidate[]
   executeOk?: boolean
+  /** What a failed write reports. Which error it is decides whether we try again. */
+  executeError?: string
   /** Authors returned by the pre-execution re-check. Omitted means none. */
   commentsAtExecution?: CommentAuthor[] | null
 }
@@ -69,7 +72,7 @@ function fakeTransport(options: FakeTransportOptions = {}) {
           ok,
           strategy: ok ? 'FETCH' : null,
           commentAuthors: [],
-          error: ok ? null : 'boom',
+          error: ok ? null : (options.executeError ?? 'boom'),
           diagnostic: null,
         })
       }
@@ -525,6 +528,44 @@ describe('runSession — a queued row with nothing to send', () => {
     await seedTextlessQueued('8802', MON_10_00 - 2 * DAY - HOUR)
 
     expect(await runSession(deps())).toMatchObject({ opened: true })
+  })
+})
+
+describe('runSession — a write we posted and could not prove', () => {
+  it('does not try again when the comment could not be seen afterwards', async () => {
+    // Retrying is the only path by which this branch can comment twice on one
+    // post, and the cost of not retrying is at most one missed reminder.
+    const transport = fakeTransport({
+      candidates: [candidate('8901')],
+      executeOk: false,
+      executeError: 'COMMENT_NOT_VISIBLE',
+    })
+
+    expect(await runSession(deps({ transport }))).toMatchObject({ opened: true, failed: 1 })
+
+    const row = db.select().from(executions).all()[0]
+    expect(row?.status).toBe('FAILED')
+    expect(row?.attempts).toBe(1)
+    expect(row?.reason).toBe('COMMENT_NOT_VISIBLE')
+    // Terminal, so nothing brings it back round for a second write.
+    expect(promoteRetries(repo, 'welcome-comment', PROFILES.production, MON_10_00)).toEqual({
+      promoted: 0,
+      expired: 0,
+    })
+  })
+
+  it('still tries again when the write failed any other way', async () => {
+    const transport = fakeTransport({
+      candidates: [candidate('8902')],
+      executeOk: false,
+      executeError: 'POST_FAILED_500',
+    })
+
+    await runSession(deps({ transport }))
+
+    const row = db.select().from(executions).all()[0]
+    expect(row?.status).toBe('RETRY_WAIT')
+    expect(row?.attempts).toBe(1)
   })
 })
 

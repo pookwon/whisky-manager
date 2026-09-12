@@ -32,19 +32,30 @@ function articlePageUrl(source: SourceRef, postId: string): string {
   return `${CAFE_ORIGIN}/ca-fe/cafes/${source.cafeId}/articles/${postId}`
 }
 
+/**
+ * Newest first. Every question we ask this endpoint is about the newest
+ * comments: whether we just wrote one, and whether anybody commented before we
+ * write. Oldest first pushed our own comment off page 1 on any post that
+ * already had a page of comments, so the read after the write could not see it,
+ * the write was reported as unverifiable, and the retry — reading the same
+ * blind page 1 — wrote a second comment on a stranger's post.
+ */
 export function articleCommentListUrl(source: SourceRef, postId: string, page: number): string {
   return (
     `${ARTICLE_ORIGIN}/gw/v4/cafes/${source.cafeId}/articles/${postId}/comments/pages/${page}` +
-    `?requestFrom=A&orderBy=asc`
+    `?requestFrom=A&orderBy=desc`
   )
 }
 
 /**
- * The first page is the whole question we ask. We only want to know whether the
- * operator has already commented, and a post with enough comments to push that
- * onto a second page is not one this automation should be reminding anybody
- * about. Reading one page is the decision the contract records, not a limit of
- * the parser.
+ * The first page is the whole question we ask, and with newest first it is the
+ * page our own comment lands on. Reading one page is the decision the contract
+ * records, not a limit of the parser.
+ *
+ * The cost is at the other end of the list: a staff comment left long ago on a
+ * heavily commented post is no longer on page 1, so we may remind a post staff
+ * already answered. Our own earlier reminders are not at risk — a successful
+ * one leaves a terminal row that no later session re-judges.
  */
 const FIRST_PAGE = 1
 
