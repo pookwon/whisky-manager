@@ -452,7 +452,23 @@ async function workDay(deps: SessionDeps, dayStartMs: number, tally: Tally): Pro
     }
 
     if (status === 'AWAITING_APPROVAL') {
-      deps.repo.applyPatch(executionId, { status, riskFlags: evaluation.flags })
+      // The text goes in with the request, not after the answer. What the
+      // operator approves is what they were shown, and a template edited while
+      // the row sat in the queue cannot quietly change the comment that goes
+      // out. Without it the approved row reaches QUEUED with nothing to send.
+      //
+      // An unrenderable candidate stores null rather than nothing at all. A
+      // revived row carries what its previous life wrote, so leaving the column
+      // alone would offer wording this screening refused — the text of a
+      // comment an operator already rejected, on a row flagged
+      // VARIABLE_EXTRACTION_FAILED. Approving it then sends nothing, which is
+      // what the flag is warning about and beats "님 환영합니다".
+      deps.repo.applyPatch(executionId, {
+        status,
+        riskFlags: evaluation.flags,
+        templateId: rendered.ok ? rendered.templateId : null,
+        renderedText: rendered.ok ? rendered.body : null,
+      })
       tally.awaitingApproval += 1
       continue
     }

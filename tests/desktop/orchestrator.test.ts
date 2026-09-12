@@ -10,6 +10,7 @@ import { executions } from '../../src/desktop/db/schema.js'
 import type { CommentAuthor } from '../../src/shared/types.js'
 import type { CommentAuthorLookup } from '../../src/desktop/commentAuthors.js'
 import { createWelcomeDayCollector, type DayCollector } from '../../src/desktop/collection.js'
+import { approve, reject } from '../../src/desktop/approvals.js'
 import { runSession, type SessionDeps, type SessionProgress } from '../../src/desktop/orchestrator.js'
 import { firstPostIdByAuthor } from '../../src/shared/screening.js'
 import { operatorAlreadyCommentedGuard } from '../../src/shared/guards.js'
@@ -334,6 +335,92 @@ describe('runSession — SEMI and MANUAL policies', () => {
       executed: 0,
       awaitingApproval: 1,
     })
+  })
+})
+
+describe('runSession — an approved row carries the text the operator saw', () => {
+  /** Keeps every message the session sent, so a test can ask what went out. */
+  function recordingTransport(options: FakeTransportOptions, sent: AppMessage[]) {
+    const base = fakeTransport(options)
+    return {
+      isConnected: () => true,
+      request(message: AppMessage): Promise<ExtensionMessage> {
+        sent.push(message)
+        return base.request(message)
+      },
+    }
+  }
+
+  it('stores the rendered comment when it parks a candidate for approval', async () => {
+    const transport = fakeTransport({ candidates: [candidate('9500')] })
+
+    await runSession(deps({ transport, policy: 'MANUAL' }))
+
+    const awaiting = repo.listAwaitingDetail('welcome-comment')
+    expect(awaiting).toHaveLength(1)
+    expect(awaiting[0]?.renderedText).toBe('nick님 환영합니다')
+    expect(db.select().from(executions).all()[0]?.templateId).toBe('tpl-1')
+  })
+
+  it('posts that text on the next session once an operator approves', async () => {
+    await runSession(
+      deps({ transport: fakeTransport({ candidates: [candidate('9501')] }), policy: 'MANUAL' }),
+    )
+    const parked = repo.listUnresolved('welcome-comment')[0]
+    expect(parked?.status).toBe('AWAITING_APPROVAL')
+
+    approve(repo, parked!.id, PROFILES.production)
+
+    const sent: AppMessage[] = []
+    const outcome = await runSession(
+      deps({
+        transport: recordingTransport({ candidates: [candidate('9501')] }, sent),
+        policy: 'MANUAL',
+      }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 1 })
+    const executed = sent.filter((m) => m.type === 'EXECUTE')
+    expect(executed).toHaveLength(1)
+    expect(executed[0]).toMatchObject({ action: { body: 'nick님 환영합니다' } })
+    expect(repo.getById(parked!.id)?.status).toBe('SUCCESS')
+  })
+
+  it('parks an unrenderable candidate without text, and approving it posts nothing', async () => {
+    // Better a row that goes nowhere than a comment that reads "님 환영합니다".
+    const nameless = { ...candidate('9502'), authorNickname: null }
+    await runSession(deps({ transport: fakeTransport({ candidates: [nameless] }), policy: 'MANUAL' }))
+    const parked = repo.listUnresolved('welcome-comment')[0]
+    expect(parked?.status).toBe('AWAITING_APPROVAL')
+    expect(repo.listAwaitingDetail('welcome-comment')[0]?.renderedText).toBeNull()
+
+    approve(repo, parked!.id, PROFILES.production)
+
+    const sent: AppMessage[] = []
+    const outcome = await runSession(
+      deps({ transport: recordingTransport({ candidates: [] }, sent), policy: 'MANUAL' }),
+    )
+
+    expect(outcome).toMatchObject({ opened: true, executed: 0 })
+    expect(sent.filter((m) => m.type === 'EXECUTE')).toHaveLength(0)
+  })
+
+  it('does not offer a revived row the text a previous screening produced', async () => {
+    // Park with text, then reject. Rejecting leaves the row SKIPPED with its
+    // text, and the next session revives it — so an approval queue that kept
+    // that text would offer the operator wording this screening refused.
+    await runSession(
+      deps({ transport: fakeTransport({ candidates: [candidate('9503')] }), policy: 'MANUAL' }),
+    )
+    const parked = repo.listUnresolved('welcome-comment')[0]
+    reject(repo, parked!.id, MON_10_00)
+
+    const nameless = { ...candidate('9503'), authorNickname: null }
+    await runSession(deps({ transport: fakeTransport({ candidates: [nameless] }), policy: 'MANUAL' }))
+
+    const awaiting = repo.listAwaitingDetail('welcome-comment')
+    expect(awaiting[0]?.riskFlags).toContain('VARIABLE_EXTRACTION_FAILED')
+    expect(awaiting[0]?.renderedText).toBeNull()
   })
 })
 
