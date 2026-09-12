@@ -1,0 +1,335 @@
+{
+  "result": {
+    "cafeId": 14538121,
+    "articleId": 931556,
+    "menuId": 36,
+    "cafe": {
+      "id": 14538121,
+      "name": "위스키 코냑 클럽",
+      "pcCafeName": "위스키 코냑 클럽",
+      "url": "whiskycognac",
+      "image": {
+        "url": "https://cafeptthumb-phinf.pstatic.net/example/cafe.jpg",
+        "service": "CAFE",
+        "type": "f100_100"
+      },
+      "introduction": "네이버 최고 최대 싱글몰트 위스키 코냑 전문 카페, \n위스키 코냑 관련 지식 정보 경험 공유 및 교류 공간",
+      "memberCount": 209407,
+      "hasPopularArticle": true,
+      "usingMemberLevel": true,
+      "memberLevelIconId": 1,
+      "openType": "C",
+      "isDormant": false
+    },
+    "user": {
+      "memberKey": "key-operator",
+      "baMemberKey": "ba-operator",
+      "nick": "카페 스탭",
+      "image": {
+        "url": "https://cafeptthumb-phinf.pstatic.net/example/operator.jpg",
+        "service": "CAFE",
+        "type": "c77_77",
+        "isAnimated": false
+      },
+      "memberLevel": 888,
+      "blockMemberKeyList": [],
+      "memberLevelName": "카페스탭",
+      "memberLevelIconUrl": "https://cafe.pstatic.net/levelicon/1/1_888.gif",
+      "appliedAlready": false,
+      "permission": {
+        "isBoardStaff": true,
+        "isOnlyOptionalBoardStaff": false,
+        "isActivityStopExecutable": true,
+        "isNoticeRegistrable": true,
+        "isViceManager": false,
+        "isCafeManager": false,
+        "isEntireBoardStaff": true,
+        "isMemberStaff": true
+      },
+      "isCafeMember": true,
+      "isLogin": true,
+      "isOwner": false,
+      "isGroupId": false,
+      "isBelowAge14": false
+    },
+    "likeItUsers": [
+      {
+        "memberKey": "key-liker",
+        "nick": "회원D",
+        "image": {
+          "url": "https://ssl.pstatic.net/static/cafe/cafe_pc/default/cafe_profile_77.png",
+          "service": "CAFE",
+          "type": "c77_77",
+          "isAnimated": false
+        },
+        "currentPopularMember": false,
+        "allowMemberAlarm": false,
+        "likeItTime": 1789130640000,
+        "isSecedeMember": false
+      }
+    ],
+    "article": {
+      "id": 931556,
+      "refArticleId": 931556,
+      "menu": {
+        "id": 36,
+        "name": "등업회원 게시판",
+        "menuType": "B",
+        "boardType": "L",
+        "badMenu": false,
+        "badMenuByRestrict": false,
+        "boardHidden": false
+      },
+      "subject": "골프백 선물 받았습니다 ㅎㅎ",
+      "headId": 172,
+      "head": "기타취미",
+      "writer": {
+        "memberKey": "key-writer",
+        "baMemberKey": "ba-writer",
+        "nick": "글쓴이",
+        "image": {
+          "url": "https://cafeptthumb-phinf.pstatic.net/example/writer.jpg",
+          "service": "CAFE",
+          "type": "c77_77",
+          "isAnimated": false
+        },
+        "memberLevel": 999,
+        "memberLevelName": "카페매니저",
+        "memberLevelIconUrl": "https://cafe.pstatic.net/levelicon/1/1_999.gif",
+        "currentPopularMember": true,
+        "allowMemberAlarm": true,
+        "isCafeMember": true
+      },
+      "subscribeWriter": {
+        "subscribe": false,
+        "push": false
+      },
+      "writeDate": 1788964573283,
+      "readCount": 372,
+      "commentCount": 19,
+      "repostCount": 0,
+      "existScrapAddContent": false,
+      "gdid": "90000004_00DDD589000E36E400000000",
+      "replyListOrder": "",
+      "self": false,
+      "isNotice": false,
+      "isNewComment": true,
+      "isDeleteParent": false,
+      "isMarket": false,
+      "isGroupPurchase": false,
+      "isPersonalTrade": false,
+      "isReadable": false,
+      "isBlind": false,
+      "isOpen": true,
+      "isSearchOpen": true,
+      "isEnableScrap": true,
+      "scrapCount": 0,
+      "isEnableExternal": true,
+      "isEnableSocialPlugin": true,
+      "isWriteComment": true,
+      "isAutoSourcing": true
+    },
+    "comments": {
+      "items": [
+        {
+          "id": 103813771,
+          "refId": 103813771,
+          "writer": {
+            "memberKey": "key-a",
+            "baMemberKey": "ba-a",
+            "nick": "회원A",
+            "image": {
+              "url": "https://cafeptthumb-phinf.pstatic.net/example/a.jpg",
+              "service": "CAFE",
+              "type": "c77_77",
+              "isAnimated": false
+            },
+            "activityBadges": []
+          },
+          "content": "축하드립니다~!",
+          "updateDate": 1788964703000,
+          "memberLevel": 140,
+          "memberLevelIconId": 1,
+          "memberLevelName": "4GLASS",
+          "cleanBotDetected": false,
+          "bestComment": false,
+          "self": false,
+          "isRef": false,
+          "isDeleted": false,
+          "isArticleWriter": false,
+          "isNew": false,
+          "isRemovable": true,
+          "standardReportPopup": {
+            "normalUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103813771&ctitle=%EC%B6%95%ED%95%98%EB%93%9C%EB%A6%BD%EB%8B%88%EB%8B%A4%7E%21&cnickname=%ED%9A%8C%EC%9B%90A&dark=disable&env=pc",
+            "darkUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103813771&ctitle=%EC%B6%95%ED%95%98%EB%93%9C%EB%A6%BD%EB%8B%88%EB%8B%A4%7E%21&cnickname=%ED%9A%8C%EC%9B%90A&dark=enable&env=pc",
+            "showRemoveAlert": false
+          }
+        },
+        {
+          "id": 103813793,
+          "refId": 103813793,
+          "writer": {
+            "memberKey": "key-b",
+            "baMemberKey": "ba-b",
+            "nick": "회원B",
+            "activityBadges": []
+          },
+          "content": "축하드립니다~",
+          "updateDate": 1788964809000,
+          "memberLevel": 110,
+          "memberLevelIconId": 1,
+          "memberLevelName": "1GLASS",
+          "cleanBotDetected": false,
+          "bestComment": false,
+          "self": false,
+          "isRef": false,
+          "isDeleted": false,
+          "isArticleWriter": false,
+          "isNew": false,
+          "isRemovable": true,
+          "standardReportPopup": {
+            "normalUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103813793&ctitle=%EC%B6%95%ED%95%98%EB%93%9C%EB%A6%BD%EB%8B%88%EB%8B%A4%7E&cnickname=%ED%9A%8C%EC%9B%90B&dark=disable&env=pc",
+            "darkUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103813793&ctitle=%EC%B6%95%ED%95%98%EB%93%9C%EB%A6%BD%EB%8B%88%EB%8B%A4%7E&cnickname=%ED%9A%8C%EC%9B%90B&dark=enable&env=pc",
+            "showRemoveAlert": false
+          }
+        },
+        {
+          "id": 103813950,
+          "refId": 103813950,
+          "writer": {
+            "memberKey": "key-c",
+            "baMemberKey": "ba-c",
+            "nick": "회원C",
+            "image": {
+              "url": "https://cafeptthumb-phinf.pstatic.net/example/c.jpg",
+              "service": "CAFE",
+              "type": "c77_77",
+              "isAnimated": false
+            },
+            "activityBadges": []
+          },
+          "content": "오 좋은 인연이셨네요\r\n축하드립니다ㅎ",
+          "sticker": {
+            "id": "ogq_example-7-185-160",
+            "packCode": "ogq_example",
+            "url": "https://storep-phinf.pstatic.net/ogq_example/original_7.gif",
+            "type": "pa100_100",
+            "animation": true,
+            "width": 129,
+            "height": 112
+          },
+          "updateDate": 1788966085000,
+          "memberLevel": 140,
+          "memberLevelIconId": 1,
+          "memberLevelName": "4GLASS",
+          "cleanBotDetected": false,
+          "bestComment": false,
+          "self": false,
+          "isRef": false,
+          "isDeleted": false,
+          "isArticleWriter": false,
+          "isNew": false,
+          "isRemovable": true,
+          "standardReportPopup": {
+            "normalUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103813950&ctitle=%EC%98%A4+%EC%A2%8B%EC%9D%80+%EC%9D%B8%EC%97%B0%EC%9D%B4%EC%85%A8%EB%84%A4%EC%9A%94%0D%3Cbr+%2F%3E%EC%B6%95%ED%95%98%EB%93%9C%EB%A6%BD%EB%8B%88%EB%8B%A4%E3%85%8E&cnickname=%ED%9A%8C%EC%9B%90C&dark=disable&env=pc",
+            "darkUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103813950&ctitle=%EC%98%A4+%EC%A2%8B%EC%9D%80+%EC%9D%B8%EC%97%B0%EC%9D%B4%EC%85%A8%EB%84%A4%EC%9A%94%0D%3Cbr+%2F%3E%EC%B6%95%ED%95%98%EB%93%9C%EB%A6%BD%EB%8B%88%EB%8B%A4%E3%85%8E&cnickname=%ED%9A%8C%EC%9B%90C&dark=enable&env=pc",
+            "showRemoveAlert": false
+          }
+        },
+        {
+          "id": 103814770,
+          "refId": 103814770,
+          "writer": {
+            "memberKey": "key-d",
+            "baMemberKey": "ba-d",
+            "nick": "회원D",
+            "activityBadges": []
+          },
+          "content": "",
+          "sticker": {
+            "id": "ogq_example-4-185-160",
+            "packCode": "ogq_example",
+            "url": "https://storep-phinf.pstatic.net/ogq_example/original_4.gif",
+            "type": "pa100_100",
+            "animation": true,
+            "width": 129,
+            "height": 112
+          },
+          "updateDate": 1788989559000,
+          "memberLevel": 110,
+          "memberLevelIconId": 1,
+          "memberLevelName": "1GLASS",
+          "cleanBotDetected": false,
+          "bestComment": false,
+          "self": false,
+          "isRef": false,
+          "isDeleted": false,
+          "isArticleWriter": false,
+          "isNew": false,
+          "isRemovable": true,
+          "standardReportPopup": {
+            "normalUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103814770&ctitle=%28%EC%8A%A4%ED%8B%B0%EC%BB%A4%29&cnickname=%ED%9A%8C%EC%9B%90D&dark=disable&env=pc",
+            "darkUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103814770&ctitle=%28%EC%8A%A4%ED%8B%B0%EC%BB%A4%29&cnickname=%ED%9A%8C%EC%9B%90D&dark=enable&env=pc",
+            "showRemoveAlert": false
+          }
+        },
+        {
+          "id": 103843785,
+          "refId": 103843785,
+          "writer": {
+            "memberKey": "key-operator",
+            "baMemberKey": "ba-operator",
+            "nick": "카페 스탭",
+            "image": {
+              "url": "https://cafeptthumb-phinf.pstatic.net/example/operator.jpg",
+              "service": "CAFE",
+              "type": "c77_77",
+              "isAnimated": false
+            },
+            "activityBadges": []
+          },
+          "content": "말머리를 골라 주세요",
+          "updateDate": 1789133444000,
+          "memberLevel": 888,
+          "memberLevelIconId": 1,
+          "memberLevelName": "카페스탭",
+          "cleanBotDetected": false,
+          "bestComment": false,
+          "self": true,
+          "isRef": false,
+          "isDeleted": false,
+          "isArticleWriter": false,
+          "isNew": true,
+          "isRemovable": true,
+          "standardReportPopup": {
+            "normalUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103843785&ctitle=%EB%A7%90%EB%A8%B8%EB%A6%AC&cnickname=%EC%B9%B4%ED%8E%98+%EC%8A%A4%ED%83%9C%ED%94%84&dark=disable&env=pc",
+            "darkUrl": "https://srp2.naver.com/report?exit=close&svc=CAF&vsvc=CAF&rcountry=KR&rlang=ko&memtype=Y&ctype=AA12&cid=14538121;931556;103843785&ctitle=%EB%A7%90%EB%A8%B8%EB%A6%AC&cnickname=%EC%B9%B4%ED%8E%98+%EC%8A%A4%ED%83%9C%ED%94%84&dark=enable&env=pc",
+            "showRemoveAlert": false
+          }
+        }
+      ],
+      "alarm": {
+        "isShow": true,
+        "isChecked": false
+      },
+      "disableWriteReason": ""
+    },
+    "displayCommentCount": 19,
+    "hasPrev": false,
+    "hasNext": false,
+    "authority": {
+      "isRightClick": true,
+      "isDoLike": true,
+      "isWriteComment": true
+    },
+    "readOnlyModeInfo": {
+      "readOnlyModeStatus": false,
+      "timeToPreNotice": false,
+      "timeToNotice": false,
+      "emergency": false,
+      "readOnlyNoticeDuration": "",
+      "linkToNoticeURL": "https://notice.naver.com/notices/cafe/33826"
+    },
+    "isReadOnlyMode": false
+  }
+}

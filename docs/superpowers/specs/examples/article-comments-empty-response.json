@@ -1,0 +1,142 @@
+{
+  "result": {
+    "cafeId": 14538121,
+    "articleId": 932956,
+    "menuId": 9,
+    "cafe": {
+      "id": 14538121,
+      "name": "위스키 코냑 클럽",
+      "pcCafeName": "위스키 코냑 클럽",
+      "url": "whiskycognac",
+      "image": {
+        "url": "https://cafeptthumb-phinf.pstatic.net/example/cafe.jpg",
+        "service": "CAFE",
+        "type": "f100_100"
+      },
+      "introduction": "네이버 최고 최대 싱글몰트 위스키 코냑 전문 카페, \n위스키 코냑 관련 지식 정보 경험 공유 및 교류 공간",
+      "memberCount": 209427,
+      "hasPopularArticle": true,
+      "usingMemberLevel": true,
+      "memberLevelIconId": 1,
+      "openType": "C",
+      "isDormant": false
+    },
+    "user": {
+      "memberKey": "key-operator",
+      "baMemberKey": "ba-operator",
+      "nick": "카페 스탭",
+      "image": {
+        "url": "https://cafeptthumb-phinf.pstatic.net/example/operator.jpg",
+        "service": "CAFE",
+        "type": "c77_77",
+        "isAnimated": false
+      },
+      "memberLevel": 888,
+      "blockMemberKeyList": [],
+      "memberLevelName": "카페스탭",
+      "memberLevelIconUrl": "https://cafe.pstatic.net/levelicon/1/1_888.gif",
+      "appliedAlready": false,
+      "permission": {
+        "isBoardStaff": true,
+        "isOnlyOptionalBoardStaff": false,
+        "isActivityStopExecutable": true,
+        "isNoticeRegistrable": true,
+        "isViceManager": false,
+        "isCafeManager": false,
+        "isEntireBoardStaff": true,
+        "isMemberStaff": true
+      },
+      "isCafeMember": true,
+      "isLogin": true,
+      "isOwner": false,
+      "isGroupId": false,
+      "isBelowAge14": false
+    },
+    "likeItUsers": [],
+    "article": {
+      "id": 932956,
+      "refArticleId": 932956,
+      "menu": {
+        "id": 9,
+        "name": "회원모임 후기",
+        "menuType": "B",
+        "boardType": "L",
+        "badMenu": false,
+        "badMenuByRestrict": false,
+        "boardHidden": false
+      },
+      "subject": "위토피아 17차 정기모임에 다녀왔습니다",
+      "headId": 1,
+      "head": "정모후기",
+      "writer": {
+        "memberKey": "key-writer",
+        "baMemberKey": "ba-writer",
+        "nick": "글쓴이",
+        "image": {
+          "url": "https://ssl.pstatic.net/static/cafe/cafe_pc/default/cafe_profile_77.png",
+          "service": "CAFE",
+          "type": "c77_77"
+        },
+        "memberLevel": 1,
+        "memberLevelName": "비지터",
+        "memberLevelIconUrl": "https://cafe.pstatic.net/levelicon/1/1_1.gif",
+        "currentPopularMember": false,
+        "allowMemberAlarm": true,
+        "isCafeMember": true
+      },
+      "subscribeWriter": {
+        "subscribe": false,
+        "push": false
+      },
+      "writeDate": 1789177380380,
+      "readCount": 0,
+      "commentCount": 0,
+      "repostCount": 0,
+      "existScrapAddContent": false,
+      "gdid": "90000004_00DDD589000E3C5C00000000",
+      "replyListOrder": "",
+      "self": false,
+      "isNotice": false,
+      "isNewComment": false,
+      "isDeleteParent": false,
+      "isMarket": false,
+      "isGroupPurchase": false,
+      "isPersonalTrade": false,
+      "isReadable": false,
+      "isBlind": false,
+      "isOpen": true,
+      "isSearchOpen": true,
+      "isEnableScrap": true,
+      "scrapCount": 0,
+      "isEnableExternal": true,
+      "isEnableSocialPlugin": true,
+      "isWriteComment": true,
+      "isAutoSourcing": true
+    },
+    "comments": {
+      "items": [],
+      "alarm": {
+        "isShow": true,
+        "isChecked": false
+      },
+      "disableWriteReason": ""
+    },
+    "displayCommentCount": 0,
+    "hasPrev": false,
+    "hasNext": false,
+    "authority": {
+      "isRightClick": false,
+      "isDoLike": true,
+      "isWriteComment": true
+    },
+    "readOnlyModeInfo": {
+      "readOnlyModeStatus": false,
+      "timeToPreNotice": false,
+      "timeToNotice": false,
+      "emergency": false,
+      "readOnlyNoticeDuration": "",
+      "linkToNoticeURL": "https://notice.naver.com/notices/cafe/33826"
+    },
+    "isReadOnlyMode": false
+  }
+}

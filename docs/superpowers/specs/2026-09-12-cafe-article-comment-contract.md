@@ -2,7 +2,7 @@
 
 - 조사일: 2026-09-12 (KST)
 - 대상: 카페 `14538121`, 일반 게시판 글 `931556` (게시판 `36`)
-- 방법: 운영자 Chrome DevTools에서 실제 요청을 캡처. 읽기 응답은 `tests/fixtures/article-comments-*.json`에 개인정보를 가짜 값으로 바꿔 저장했다.
+- 방법: 운영자 Chrome DevTools에서 실제 요청을 캡처. 사람을 가리키는 값만 가짜로 바꿔 두 곳에 저장했다 — 파서가 읽는 필드만 남긴 테스트 입력은 `tests/fixtures/article-comments-*.json`, 필드를 하나도 빼지 않은 원형은 [`examples/`](examples/README.md).
 - 상태: 읽기·쓰기·삭제 확정.
 
 가입인사 자동화가 쓰는 메모 게시판(`MemoCommentView.nhn`, `MemoCommentPost.nhn`)과는 **호스트도 인코딩도 다르다.** 말머리 안내 자동화는 이 문서의 계약을 쓴다.
