@@ -9,6 +9,7 @@ import type {
   StartCollectionResult,
 } from '../../desktop/ipc.js'
 import { BoardQueue } from './collection/BoardQueue.js'
+import { IdGapPanel } from './collection/IdGapPanel.js'
 import { api } from '../api.js'
 import { progressLine, stopReasonLine } from './memberCollectionCard.js'
 import {
@@ -294,7 +295,7 @@ export function CollectionStatus(): React.JSX.Element {
     )
   }
 
-  const { job, totals, running, recentRuns } = collection.status
+  const { job, totals, running, recentRuns, idGaps } = collection.status
   const nowMs = Date.now()
   const coverage = running === null ? null : collectionCoveragePercent(running)
   const lastFinished = recentRuns.find((run) => run.status !== 'running') ?? null
@@ -546,6 +547,8 @@ export function CollectionStatus(): React.JSX.Element {
               )}
         </div>
       </section>
+
+      {totals.posts > 0 && <IdGapPanel report={idGaps} />}
 
       <section className="flex flex-col gap-2">
         <h2

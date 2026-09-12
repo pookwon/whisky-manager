@@ -3,6 +3,8 @@ import type { CollectionDatabase } from './client.js'
 import type { CollectionFeedKind, StoredFeedState } from './repository.js'
 import { toStoredFeedState } from './repository.js'
 import { describeJob } from '../collectionScope.js'
+import { createIdGapQuery } from './idGapQuery.js'
+import { EMPTY_ID_GAP_REPORT, type IdGapReport } from './idGapReport.js'
 import { boards, collectionRuns, feedState, posts } from './schema.js'
 
 /**
@@ -83,6 +85,8 @@ export interface CollectionStatus {
   /** The run in flight, which is also the first of `recentRuns`. */
   readonly running: CollectionRunSummary | null
   readonly recentRuns: readonly CollectionRunSummary[]
+  /** Holes in the stored article ids: deletions, and anything wider. */
+  readonly idGaps: IdGapReport
 }
 
 export interface CollectionStatusQuery {
@@ -128,6 +132,7 @@ function boardState(row: StoredFeedState, running: boolean, lastFailed: boolean)
 }
 
 export function createCollectionStatusQuery(db: CollectionDatabase): CollectionStatusQuery {
+  const idGaps = createIdGapQuery(db)
   return {
     async read() {
       const [postTotals, boardTotals, feedStateRows, runs] = await Promise.all([
@@ -284,18 +289,21 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
       }
 
       const totalsRow = postTotals[0]
+      const totals: CollectionTotals = {
+        posts: count(totalsRow?.posts),
+        boards: count(boardTotals[0]?.boards),
+        oldestPostedAtMs: epochFromSeconds(totalsRow?.oldest),
+        newestPostedAtMs: epochFromSeconds(totalsRow?.newest),
+        lastSnapshotAtMs: epochFromSeconds(totalsRow?.lastSnapshot),
+      }
       return {
-        totals: {
-          posts: count(totalsRow?.posts),
-          boards: count(boardTotals[0]?.boards),
-          oldestPostedAtMs: epochFromSeconds(totalsRow?.oldest),
-          newestPostedAtMs: epochFromSeconds(totalsRow?.newest),
-          lastSnapshotAtMs: epochFromSeconds(totalsRow?.lastSnapshot),
-        },
+        totals,
         job: collectionJob,
         // Only one run per feed can be running, which the schema enforces.
         running: recentRuns.find((run) => run.status === 'running') ?? null,
         recentRuns,
+        // A page landing changes both numbers; a screen refresh changes neither.
+        idGaps: totals.posts === 0 ? EMPTY_ID_GAP_REPORT : await idGaps.read(`${totals.posts}:${totals.lastSnapshotAtMs ?? 'none'}`),
       }
     },
   }

@@ -526,4 +526,36 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     // The second board ran 25 partial runs but wrote no page, so it has no anchor → waiting.
     expect(result.job?.boards[1]).toMatchObject({ boardId: second.feed.menuId, state: 'waiting' })
   })
+  it('reads article-id holes off the stored posts, telling deletions from wider gaps', async () => {
+    const status = createCollectionStatusQuery(connection.db)
+    const before = await status.read()
+    // Ids well above anything the fixtures store, so the holes made here are
+    // the only ones in this range: one id missing (a deletion), then six.
+    const boardId = `gap-board-${randomUUID()}`
+    await pool.query('insert into boards (board_id, name, first_seen_at, last_seen_at) values ($1, $2, now(), now())', [boardId, 'gap board'])
+    const at = new Date('2026-09-01T00:00:00.000Z')
+    for (const [offset, id] of [[0, 2_000_000_100], [1, 2_000_000_101], [2, 2_000_000_103], [3, 2_000_000_110]] as const) {
+      await pool.query(
+        'insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ($1, $2, $3, $3, $3)',
+        [String(id), boardId, new Date(at.getTime() + offset * 60_000)],
+      )
+    }
+
+    const read = await status.read()
+    // The bridge from the fixtures' ids up to 2e9 is itself one wide hole.
+    expect(read.idGaps.deletedLikeIds).toBe(before.idGaps.deletedLikeIds + 1)
+    expect(read.idGaps.suspectCount).toBe(before.idGaps.suspectCount + 2)
+    expect(read.idGaps.suspects.find((suspect) => suspect.id === '2000000103')).toEqual({
+      id: '2000000103',
+      nextId: '2000000110',
+      gap: 6,
+      atMs: at.getTime() + 2 * 60_000,
+      nextAtMs: at.getTime() + 3 * 60_000,
+    })
+    // Every missing id is in exactly one bucket.
+    const span = await pool.query<{ missing: string }>(
+      'select (max(post_id::bigint) - min(post_id::bigint) + 1 - count(*))::text as missing from posts',
+    )
+    expect(read.idGaps.deletedLikeIds + read.idGaps.suspectIds).toBe(Number(span.rows[0]?.missing))
+  })
 })
