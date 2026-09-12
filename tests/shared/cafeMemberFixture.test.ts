@@ -81,6 +81,31 @@ describe('sanitizeCafeMemberFixture', () => {
     expect(member['staff']).toBe(false)
   })
 
+  it('keeps ageGroup and sex verbatim and still erases realName', () => {
+    const input = {
+      isSuccess: true,
+      result: {
+        members: [
+          {
+            memberKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            nickname: '홍길동',
+            joinDate: '20260801',
+            memberLevelName: '정회원',
+            manager: false,
+            staff: false,
+            ageGroup: '30대',
+            sex: 'F',
+            realName: '홍길동',
+          },
+        ],
+      },
+    }
+    const member = firstMember(input)
+    expect(member['ageGroup']).toBe('30대')
+    expect(member['sex']).toBe('F')
+    expect(member['realName']).not.toBe('홍길동')
+  })
+
   it('pseudonymizes memberKey and nickname preserving length', () => {
     const member = firstMember(piiInput)
     const key = member['memberKey'] as string

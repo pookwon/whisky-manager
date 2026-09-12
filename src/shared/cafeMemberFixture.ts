@@ -88,7 +88,7 @@ type JsonPrimitive = null | boolean | number | string
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
 /** Fields the parser reads directly; all others are shape-only. */
-const MEMBER_ALLOWLIST = new Set(['memberKey', 'nickname', 'joinDate', 'memberLevelName', 'manager', 'staff'])
+const MEMBER_ALLOWLIST = new Set(['memberKey', 'nickname', 'joinDate', 'memberLevelName', 'manager', 'staff', 'ageGroup', 'sex'])
 
 /**
  * Envelope-level keys whose boolean or number primitives survive in the

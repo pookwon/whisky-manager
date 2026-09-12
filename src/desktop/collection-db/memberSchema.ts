@@ -21,6 +21,8 @@ export const members = pgTable(
     nickname: text('nickname'),
     joinDate: date('join_date').notNull(),
     levelName: text('level_name').notNull(),
+    ageGroup: text('age_group'),
+    sex: text('sex'),
     isManager: boolean('is_manager').notNull(),
     isStaff: boolean('is_staff').notNull(),
     /** When this row was last read, by the desktop's own clock. */

@@ -570,7 +570,8 @@ export const TEXT = {
     forcedOn: '활동 시간을 무시하고 있습니다. 다 옮기면 저절로 풀립니다.',
     memberCount: (count: number) => `저장 회원 ${count.toLocaleString()}명`,
     pagesStored: (pages: number) => `${pages}쪽 저장`,
-    progress: (percent: number) => `약 ${percent}%`,
+    progress: (pages: number, totalPages: number, percent: number) =>
+      `${pages.toLocaleString()} / ${totalPages.toLocaleString()}쪽 · 약 ${percent}%`,
     completedAt: (time: string) => `완료 ${time}`,
     incomplete: '아직 완료되지 않았습니다',
     toppedUpAt: (time: string) => `마지막 신규 보태기 ${time}`,

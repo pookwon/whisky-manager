@@ -439,9 +439,12 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     // Verify that first_seen_at is preserved while snapshot_at advanced.
     const firstKey = memberPage.items[0]!.memberKey
-    const row = await connection.db.select({ firstSeenAt: members.firstSeenAt, snapshotAt: members.snapshotAt }).from(members).where(eq(members.memberKey, firstKey))
+    const row = await connection.db.select({ firstSeenAt: members.firstSeenAt, snapshotAt: members.snapshotAt, ageGroup: members.ageGroup, sex: members.sex }).from(members).where(eq(members.memberKey, firstKey))
     expect(row[0]!.firstSeenAt).toEqual(new Date(1_000))
     expect(row[0]!.snapshotAt).toEqual(new Date(4_000))
+    // ageGroup and sex are null in the sample fixture (fields absent)
+    expect(row[0]!.ageGroup).toBeNull()
+    expect(row[0]!.sex).toBeNull()
   })
 
   it('makes a board job with one row per board, most stored posts first, and replaces it whole', async () => {

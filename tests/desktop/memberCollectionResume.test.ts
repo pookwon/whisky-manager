@@ -3,7 +3,7 @@ import { locateMemberResumePosition, MEMBER_RESUME_SCAN_PAGE_LIMIT, type MemberS
 import type { CollectedMember, CollectedMemberPage } from '../../src/shared/cafeMemberList.js'
 
 function member(key: string, joinDate: string): CollectedMember {
-  return { memberKey: key, nickname: null, joinDate, levelName: '', isManager: false, isStaff: false }
+  return { memberKey: key, nickname: null, joinDate, levelName: '', ageGroup: null, sex: null, isManager: false, isStaff: false }
 }
 function page(items: CollectedMember[]): CollectedMemberPage {
   return { items, pageIdentity: `id:${items.map((m) => m.memberKey).join(',')}`, totalMemberCount: null }
