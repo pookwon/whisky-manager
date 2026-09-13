@@ -218,6 +218,28 @@ describe('countExecutedSince', () => {
   })
 })
 
+describe('listExecutedAtBetween', () => {
+  it('lists when each request went out inside the range, whatever day its post came from', async () => {
+    const today = await claim('1001', TODAY + 3_600_000)
+    const earlier = await claim('2001', EARLIER_DAY + 3_600_000)
+    repo.applyPatch(today, { status: 'SUCCESS', executedAt: TODAY + 40_000_000, resolvedAt: TODAY + 40_000_000 })
+    repo.applyPatch(earlier, { status: 'RETRY_WAIT', executedAt: TODAY + 50_000_000 })
+
+    expect([...repo.listExecutedAtBetween(AUTOMATION, TODAY, TOMORROW)].sort()).toEqual([
+      TODAY + 40_000_000,
+      TODAY + 50_000_000,
+    ])
+  })
+
+  it('leaves out what was sent on another day and what was never sent', async () => {
+    const yesterday = await claim('1002', TODAY + 3_600_000)
+    repo.applyPatch(yesterday, { status: 'SUCCESS', executedAt: TODAY - 1, resolvedAt: TODAY })
+    await claim('3001', TODAY + 3_600_000)
+
+    expect(repo.listExecutedAtBetween(AUTOMATION, TODAY, TOMORROW)).toEqual([])
+  })
+})
+
 describe('listAwaitingDetail', () => {
   it('returns what an operator needs to judge the request', async () => {
     const id = await claim('1001', 1_000)

@@ -1,7 +1,6 @@
 import { KST_OFFSET_MS } from '../shared/kst.js'
 import type { SessionOutcome, SessionProgress, SessionRefusal } from '../desktop/orchestrator.js'
 import type { AutomationStatus, BridgeStatus } from '../desktop/ipc.js'
-import type { WarmCheck } from '../desktop/sessionWarmer.js'
 import { TEXT } from '../shared/text.js'
 import { findAutomation } from '../shared/automations/catalog.js'
 
@@ -84,6 +83,7 @@ export function estimatedMinutes(count: number, averageActionGapMs: number): num
  * as the first of three being worked on, not as one already done.
  */
 export function progressSummary(progress: SessionProgress): string {
+  if (progress.phase === 'STARTING') return TEXT.progress.starting
   if (progress.phase === 'COLLECTING') {
     const { pagesRead, collected } = progress
     return pagesRead === undefined || collected === undefined
@@ -171,17 +171,6 @@ export function elapsedLabel(fromMs: number, nowMs: number): string {
 }
 
 /**
- * The hour of the day on the cafe's clock, 0–23.
- *
- * Same shifted-then-read-UTC trick as `formatKstTime`, and here for the same
- * reason: the screen decides whether an operating window is open by comparing
- * this against hours that were written in KST.
- */
-export function kstHourOf(epochMs: number): number {
-  return new Date(epochMs + KST_OFFSET_MS).getUTCHours()
-}
-
-/**
  * An operating window as the operator reads it — `08~24시`.
  *
  * The end hour is exclusive everywhere it is stored, and it is named directly
@@ -191,19 +180,6 @@ export function kstHourOf(epochMs: number): number {
 export function activeWindowLabel(startHour: number, endHour: number): string {
   const pad = (hour: number): string => String(hour).padStart(2, '0')
   return `${pad(startHour)}~${pad(endHour)}시`
-}
-
-/**
- * What the dashboard says about the reads that keep the browser's login in use.
- *
- * Silence would be indistinguishable from the feature not existing, so this
- * always says something while the loop runs — including before the first read
- * lands, which is a real state and about an hour long.
- */
-export function warmSummary(lastWarm: WarmCheck | null): string {
-  if (lastWarm === null) return TEXT.time.sessionUnchecked
-  const time = formatKstTime(lastWarm.at)
-  return lastWarm.loggedIn ? TEXT.time.sessionKeptAlive(time) : TEXT.time.sessionLapsed(time)
 }
 
 /**

@@ -85,6 +85,8 @@ export interface ExecutionsRepo {
   ): number
   countExecutedForDay(automationId: string, dayStartMs: number, dayEndMs: number): number
   countExecutedSince(automationId: string, sinceMs: number): number
+  /** When each request in the range went out — the clock times, not the rows. */
+  listExecutedAtBetween(automationId: string, startMs: number, endMs: number): readonly number[]
   listUnresolved(automationId: string): UnresolvedRow[]
   listByStatus(automationId: string, status: ExecutionStatus): UnresolvedRow[]
   listQueued(automationId: string): QueuedRow[]
@@ -179,6 +181,27 @@ export function createExecutionsRepo(db: AppDatabase): ExecutionsRepo {
           )
           .get()?.value ?? 0
       )
+    },
+
+    listExecutedAtBetween(automationId, startMs, endMs) {
+      // By send time, like countExecutedSince: the question is when the day's
+      // traffic went out, and a request that answered an older post is part
+      // of that just the same.
+      return db
+        .select({ executedAt: executions.executedAt })
+        .from(executions)
+        .where(
+          and(
+            eq(executions.automationId, automationId),
+            isNotNull(executions.executedAt),
+            gte(executions.executedAt, startMs),
+            lt(executions.executedAt, endMs),
+          ),
+        )
+        .all()
+        // The WHERE already keeps nulls out; drizzle does not narrow the
+        // column type through it, so this repeats the guard for the compiler.
+        .flatMap((row) => (row.executedAt === null ? [] : [row.executedAt]))
     },
 
     countExecutedForDay(automationId, dayStartMs, dayEndMs) {

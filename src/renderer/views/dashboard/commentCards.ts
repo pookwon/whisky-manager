@@ -29,6 +29,8 @@ export interface CommentCard {
   readonly failedToday: number
   readonly awaitingApproval: number
   readonly sessionInFlight: boolean
+  /** Twenty-four counts, one per KST hour of today. */
+  readonly executedByHour: readonly number[]
 }
 
 export function commentCards(dashboard: DashboardSnapshot): CommentCard[] {
@@ -58,6 +60,7 @@ export function commentCards(dashboard: DashboardSnapshot): CommentCard[] {
       failedToday: automation.failedToday,
       awaitingApproval: automation.awaitingApproval,
       sessionInFlight: progress !== null,
+      executedByHour: automation.executedByHourToday,
     }
   })
 }

@@ -1,13 +1,16 @@
+import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
 import type { StartupPreview } from '../../../desktop/preview.js'
+import { kstHourOf } from '../../../shared/kst.js'
 import { relativeTime } from '../../format.js'
 import { CommentIcon } from './DayRhythm.js'
+import { Details } from './Details.js'
+import { HourBars } from './HourBars.js'
 import type { JobState } from './quiet.js'
 
 /**
- * One automation's comment job, whole: what it is, why it is quiet, what it did
- * today, and the presses that change it. The dashboard draws one per
- * automation.
+ * One automation's comment job, whole: what it is, why it is quiet, and the
+ * presses that change it. What it did today waits below the fold.
  *
  * Everything about that automation lives inside this panel and nothing else
  * does, which is the point — the screen used to mix a session's result, a
@@ -29,6 +32,7 @@ interface CommentJobProps {
   readonly succeededToday: number
   readonly failedToday: number
   readonly awaitingApproval: number
+  readonly executedByHour: readonly number[]
   readonly lastOutcomeText: string
   readonly lastOutcomeAt: number | null
   readonly startupPreview: StartupPreview | null
@@ -73,17 +77,24 @@ function previewLine(preview: StartupPreview | null): string | null {
 }
 
 export function CommentJob(props: CommentJobProps): React.JSX.Element {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const preview =
     !props.showDayControls || props.sessionInFlight ? null : previewLine(props.startupPreview)
   const lastSession =
     props.lastOutcomeAt === null
       ? props.lastOutcomeText
       : `${TEXT.time.lastSession(relativeTime(props.lastOutcomeAt, props.nowMs))} · ${props.lastOutcomeText}`
+  const summary = `${TEXT.dashboard.details.today} · ${TEXT.dashboard.details.todaySummary(
+    props.executedToday,
+    props.succeededToday,
+    props.failedToday,
+    props.awaitingApproval,
+  )}`
 
   return (
     <section className="panel overflow-hidden" style={{ flex: 'none' }}>
       <div className="flex">
-        <div className={`w-1 shrink-0 bar-${props.state.tone}`} />
+        <div className={`w-1 shrink-0 bar-${props.state.tone}${props.state.tone === 'accent' ? ' rail-live' : ''}`} />
         <div className="flex min-w-0 flex-1 flex-col gap-2 px-5 py-3">
 
           <div className="flex items-center justify-between gap-5">
@@ -91,9 +102,6 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
               <CommentIcon />
               <span className="text-sm font-bold">{props.title}</span>
               <span className={`text-xs tone-${props.state.tone}`}>{props.state.status}</span>
-              <span className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                {TEXT.dashboard.job.commentHint}
-              </span>
             </div>
             <div className="flex shrink-0 gap-2">
               <button
@@ -102,7 +110,7 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
                 disabled={props.busy || props.sessionInFlight}
                 onClick={props.onRunOnce}
               >
-                {TEXT.status.runOnce}
+                {props.sessionInFlight ? TEXT.status.runOncePending : TEXT.status.runOnce}
               </button>
               <button
                 type="button"
@@ -124,16 +132,16 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
           <div className="text-xs leading-[1.125rem] tabular-nums" style={{ color: 'var(--ink-muted)' }}>
             {lastSession}
           </div>
-          {preview !== null && (
-            <div className="text-xs leading-[1.125rem] tabular-nums" style={{ color: 'var(--ink-muted)' }}>
-              {preview}
-            </div>
-          )}
 
           <div className="h-px" style={{ background: 'var(--line)' }} />
 
-          <div className="flex items-end gap-5">
-            <div className="grid min-w-0 flex-1 grid-cols-4 gap-2">
+          <Details
+            summary={summary}
+            open={detailsOpen}
+            onToggle={() => setDetailsOpen((open) => !open)}
+            aside={<HourBars counts={props.executedByHour} currentHour={kstHourOf(props.nowMs)} />}
+          >
+            <div className="grid grid-cols-4 gap-2">
               <StatCell label={TEXT.stats.executedToday} value={props.executedToday} tone={undefined} />
               <StatCell label={TEXT.stats.succeededToday} value={props.succeededToday} tone="tone-ok" />
               <StatCell
@@ -147,8 +155,13 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
                 tone={props.awaitingApproval > 0 ? 'tone-warn' : undefined}
               />
             </div>
+            {preview !== null && (
+              <div className="text-xs leading-[1.125rem] tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+                {preview}
+              </div>
+            )}
             {props.showDayControls && (
-              <div className="flex shrink-0 items-end gap-2">
+              <div className="flex items-end gap-2">
                 <div style={{ width: '150px' }}>
                   <label
                     className="block text-[0.6875rem] font-medium uppercase tracking-wider"
@@ -176,7 +189,7 @@ export function CommentJob(props: CommentJobProps): React.JSX.Element {
                 </button>
               </div>
             )}
-          </div>
+          </Details>
 
         </div>
       </div>

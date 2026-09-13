@@ -46,6 +46,11 @@ export function createAutomationRuntime(deps: AutomationRuntimeDeps): Automation
     clock: deps.clock,
     random: deps.random,
     runSession: async (request) => {
+      // Set before the first await, so the snapshot read right after the press
+      // already says the session exists. The session itself has nothing to
+      // report until it has logged in and read a page, which is seconds an
+      // operator otherwise spends pressing again.
+      progress = { phase: 'STARTING' }
       // Progress means something only while a session is in flight; a session
       // that died must not leave the dashboard claiming it is still working.
       try {

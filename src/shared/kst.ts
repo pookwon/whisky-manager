@@ -23,6 +23,27 @@ export function kstDayStartMs(epochMs: number): number {
   return kstDayOf(epochMs) * MS_PER_DAY - KST_OFFSET_MS
 }
 
+const HOURS_PER_DAY = 24
+
+/** The hour of the KST clock an instant fell in, 0–23. */
+export function kstHourOf(epochMs: number): number {
+  return new Date(epochMs + KST_OFFSET_MS).getUTCHours()
+}
+
+/**
+ * How many of the instants fell in each KST hour, as twenty-four counts.
+ *
+ * The day the instants belong to is the caller's business — this only reads
+ * the hour — so a list spanning two days folds them onto one clock face.
+ */
+export function countByKstHour(epochMs: readonly number[]): readonly number[] {
+  // Built up locally and handed out read-only: nothing else holds this array
+  // while it is being filled, so filling it in place has no one to surprise.
+  const counts = Array.from({ length: HOURS_PER_DAY }, () => 0)
+  for (const instant of epochMs) counts[kstHourOf(instant)] = (counts[kstHourOf(instant)] ?? 0) + 1
+  return counts
+}
+
 export interface KstDay {
   readonly startMs: number
   /** Exclusive: the instant the next KST day begins. */

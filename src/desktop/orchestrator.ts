@@ -114,6 +114,9 @@ interface PostWalk {
  * lists it is.
  */
 export type SessionProgress =
+  // Asked for and not yet reading: what the dashboard shows between the press
+  // and the first page, so the press is seen to have landed.
+  | { readonly phase: 'STARTING' }
   | { readonly phase: 'COLLECTING'; readonly dayStartMs: number; readonly pagesRead?: number; readonly collected?: number }
   | ({ readonly phase: 'BACKLOG' } & PostWalk)
   | ({ readonly phase: 'WORKING' } & PostWalk)

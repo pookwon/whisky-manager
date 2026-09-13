@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { kstDayRange, kstDayStartMs, kstMonthRange, recentCompletedKstDays } from '../../src/shared/kst.js'
+import {
+  countByKstHour,
+  kstHourOf,
+  kstDayRange,
+  kstDayStartMs,
+  kstMonthRange,
+  recentCompletedKstDays,
+} from '../../src/shared/kst.js'
 
 describe('kstDayStartMs', () => {
   it('is midnight in KST, not in UTC', () => {
@@ -64,5 +71,39 @@ describe('kstDayRange', () => {
     const day = kstDayRange(instant)
     expect(instant).toBeGreaterThanOrEqual(day.startMs)
     expect(instant).toBeLessThan(day.endMs)
+  })
+})
+
+describe('countByKstHour', () => {
+  it('buckets each instant by the KST hour it fell in', () => {
+    // 2026-08-24 09:05 and 09:50 KST, and 23:59 KST the same day.
+    const nineFive = Date.UTC(2026, 7, 24, 0, 5)
+    const nineFifty = Date.UTC(2026, 7, 24, 0, 50)
+    const lateNight = Date.UTC(2026, 7, 24, 14, 59)
+
+    const counts = countByKstHour([nineFive, lateNight, nineFifty])
+
+    expect(counts).toHaveLength(24)
+    expect(counts[9]).toBe(2)
+    expect(counts[23]).toBe(1)
+    expect(counts.reduce((total, n) => total + n, 0)).toBe(3)
+  })
+
+  it('reads the hour on the KST clock, not the machine clock', () => {
+    // 23:30 UTC is 08:30 KST the next day.
+    expect(countByKstHour([Date.UTC(2026, 7, 23, 23, 30)])[8]).toBe(1)
+  })
+
+  it('answers an empty day with twenty-four zeros', () => {
+    expect(countByKstHour([])).toEqual(Array.from({ length: 24 }, () => 0))
+  })
+})
+
+describe('kstHourOf', () => {
+  it('reads the hour on the cafe clock, whatever the machine is set to', () => {
+    // 00:30 KST is 15:30 the previous day in UTC; reading UTC hours here would
+    // put a nought-thirty block in the middle of the previous afternoon.
+    expect(kstHourOf(Date.parse('2026-08-24T00:30:00+09:00'))).toBe(0)
+    expect(kstHourOf(Date.parse('2026-08-24T23:59:00+09:00'))).toBe(23)
   })
 })
