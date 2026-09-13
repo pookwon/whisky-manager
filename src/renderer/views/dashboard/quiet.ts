@@ -1,6 +1,7 @@
 import type { BridgeStatus, CollectionScheduleView, CollectionStatusView } from '../../../desktop/ipc.js'
 import { TEXT } from '../../../shared/text.js'
-import { activeWindowLabel, elapsedLabel, formatKstTime, kstHourOf } from '../../format.js'
+import { kstHourOf } from '../../../shared/kst.js'
+import { activeWindowLabel, elapsedLabel, formatKstTime } from '../../format.js'
 import type { Tone } from '../../format.js'
 
 /**

@@ -258,6 +258,12 @@ export interface AutomationStatus {
   readonly nextSessionAt: number | null
   /** What this automation's session in flight is doing, or null when none is running. */
   readonly sessionProgress: SessionProgress | null
+  /**
+   * How many requests went out in each KST hour of today, twenty-four
+   * entries. By send time rather than by the post's day, so a session that
+   * filled in yesterday still shows as the hour it ran.
+   */
+  readonly executedByHourToday: readonly number[]
 }
 
 /**

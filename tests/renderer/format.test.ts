@@ -4,7 +4,6 @@ import { WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import {
   activeWindowLabel,
   elapsedLabel,
-  kstHourOf,
   outcomeSummary,
   progressSummary,
   relativeTime,
@@ -14,7 +13,6 @@ import {
   getBridgeStatusText,
   getBridgeStatusTone,
   shouldOfferExtensionRecovery,
-  warmSummary,
 } from '../../src/renderer/format.js'
 
 const NOW = Date.UTC(2026, 7, 24, 10, 0, 0)
@@ -198,6 +196,10 @@ describe('getBridgeStatusText', () => {
 })
 
 describe('progressSummary', () => {
+  it('says a session is starting before it has read anything', () => {
+    expect(progressSummary({ phase: 'STARTING' })).toBe(TEXT.progress.starting)
+  })
+
   it('names the phase when collecting, and the counts once it has read a page', () => {
     expect(progressSummary({ phase: 'COLLECTING', dayStartMs: 0 })).toBe(TEXT.progress.collecting)
     expect(progressSummary({ phase: 'COLLECTING', dayStartMs: 0, pagesRead: 2, collected: 87 })).toBe(
@@ -230,24 +232,6 @@ describe('progressSummary', () => {
     const backlog = progressSummary({ phase: 'BACKLOG', done: 0, total: 4, nickname: null })
     const working = progressSummary({ phase: 'WORKING', done: 0, total: 4, nickname: null })
     expect(backlog).not.toBe(working)
-  })
-})
-
-describe('warmSummary', () => {
-  const KST_13_42 = Date.UTC(2026, 7, 25, 4, 42)
-
-  it('says so plainly before the first check lands', () => {
-    // About an hour long after a start, and silence there is what sends an
-    // operator looking for a feature that is already running.
-    expect(warmSummary(null)).toBe('네이버 세션 · 확인 전')
-  })
-
-  it('reads the check on the cafe clock, not the machine one', () => {
-    expect(warmSummary({ at: KST_13_42, loggedIn: true })).toBe('네이버 세션 · 13:42 확인')
-  })
-
-  it('says the login lapsed rather than just when it last looked', () => {
-    expect(warmSummary({ at: KST_13_42, loggedIn: false })).toBe('네이버 세션 · 13:42 로그아웃 상태')
   })
 })
 
@@ -303,15 +287,6 @@ describe('elapsedLabel', () => {
     // Clocks disagree by seconds; a block reported as starting a moment from
     // now must not come back as "-1분째".
     expect(elapsedLabel(Date.parse('2026-08-24T15:40:00+09:00'), AT_15_34)).toBe('1분째')
-  })
-})
-
-describe('kstHourOf', () => {
-  it('reads the hour on the cafe clock, whatever the machine is set to', () => {
-    // 00:30 KST is 15:30 the previous day in UTC; reading UTC hours here would
-    // put a nought-thirty block in the middle of the previous afternoon.
-    expect(kstHourOf(Date.parse('2026-08-24T00:30:00+09:00'))).toBe(0)
-    expect(kstHourOf(Date.parse('2026-08-24T23:59:00+09:00'))).toBe(23)
   })
 })
 

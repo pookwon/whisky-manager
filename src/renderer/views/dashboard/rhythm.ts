@@ -1,5 +1,5 @@
 import { kstDayStartMs } from '../../../shared/kst.js'
-import { kstHourOf } from '../../format.js'
+import { kstHourOf } from '../../../shared/kst.js'
 
 /**
  * The geometry behind the dashboard's day band, kept apart from the component

@@ -42,6 +42,35 @@ describe('createAutomationRuntime', () => {
     expect(rt.sessionProgress()).toBeNull()
   })
 
+  it('reports a session as starting the moment it is asked for, before the session says anything', async () => {
+    let release: () => void = () => {}
+    const rt = createAutomationRuntime({
+      automationId: 'x', limits: PROFILES.debug, clock: new FakeClock(MON_10_00), random: new SequenceRandom([0]),
+      runSession: () => new Promise((resolve) => { release = () => resolve({ opened: true, executed: 0, skipped: 0, awaitingApproval: 0, failed: 0 }) }),
+      onOutcome: () => {}, onHalt: () => {}, onError: () => {}, setTimer: () => 1, clearTimer: () => {},
+    })
+    const run = rt.runOnce()
+    expect(rt.sessionProgress()).toEqual({ phase: 'STARTING' })
+    release()
+    await run
+    expect(rt.sessionProgress()).toBeNull()
+  })
+
+  it('does not overwrite real progress when a second press joins the session in flight', async () => {
+    let release: () => void = () => {}
+    const rt = createAutomationRuntime({
+      automationId: 'x', limits: PROFILES.debug, clock: new FakeClock(MON_10_00), random: new SequenceRandom([0]),
+      runSession: () => new Promise((resolve) => { release = () => resolve({ opened: true, executed: 0, skipped: 0, awaitingApproval: 0, failed: 0 }) }),
+      onOutcome: () => {}, onHalt: () => {}, onError: () => {}, setTimer: () => 1, clearTimer: () => {},
+    })
+    const first = rt.runOnce()
+    rt.reportProgress({ phase: 'COLLECTING', dayStartMs: 0 })
+    const second = rt.runOnce()
+    expect(rt.sessionProgress()).toEqual({ phase: 'COLLECTING', dayStartMs: 0 })
+    release()
+    await Promise.all([first, second])
+  })
+
   it('reports the next scheduled run only while running', () => {
     const { rt } = runtime()
     expect(rt.nextRunAt()).toBeNull()

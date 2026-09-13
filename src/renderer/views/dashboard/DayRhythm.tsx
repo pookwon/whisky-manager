@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
 import { formatKstTime } from '../../format.js'
+import { Details } from './Details.js'
 import {
   hourMarks,
   rhythmBand,
@@ -66,6 +68,8 @@ function WindowTrack({ band }: { band: RhythmBand | null }): React.JSX.Element {
 }
 
 export function DayRhythm(props: DayRhythmProps): React.JSX.Element {
+  // Folded by default: the band answers a later question than the cards above it.
+  const [open, setOpen] = useState(false)
   const windows = props.collectionWindow === null
     ? [props.commentWindow]
     : [props.commentWindow, props.collectionWindow]
@@ -106,121 +110,115 @@ export function DayRhythm(props: DayRhythmProps): React.JSX.Element {
 
   return (
     <section className="panel" style={{ flex: 'none', padding: '0.75rem 1.25rem' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.75rem' }}>
-        <span
-          className="text-[0.6875rem] font-medium uppercase tracking-wider"
-          style={{ color: 'var(--ink-muted)' }}
-        >
-          {TEXT.dashboard.rhythm.heading}
-        </span>
-        <span className="text-[0.8125rem] font-semibold tabular-nums tone-accent">
-          {TEXT.dashboard.rhythm.now(formatKstTime(props.nowMs))}
-        </span>
-      </div>
-
-      <div style={{ marginTop: '0.875rem', display: 'flex', gap: '0.75rem' }}>
-        <div style={{ width: LABEL_WIDTH, flex: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ height: LANE_HEIGHT }}>
-            <CommentIcon />
-            {TEXT.dashboard.rhythm.commentLane}
+      <Details
+        summary={`${TEXT.dashboard.rhythm.heading} · ${TEXT.dashboard.rhythm.now(formatKstTime(props.nowMs))}`}
+        open={open}
+        onToggle={() => setOpen((current) => !current)}
+      >
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div style={{ width: LABEL_WIDTH, flex: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ height: LANE_HEIGHT }}>
+              <CommentIcon />
+              {TEXT.dashboard.rhythm.commentLane}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ height: LANE_HEIGHT }}>
+              <CollectIcon />
+              {TEXT.dashboard.rhythm.collectionLane}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ height: LANE_HEIGHT }}>
-            <CollectIcon />
-            {TEXT.dashboard.rhythm.collectionLane}
-          </div>
-        </div>
 
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            position: 'relative',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
-          }}
-        >
-          {/* Drawn over both lanes and past their edges, so it reads as one
-              moment cutting through the day rather than two separate marks. */}
           <div
             style={{
-              position: 'absolute',
-              top: '-5px',
-              bottom: '-5px',
-              left: `${rhythmPercent(props.nowMs, span)}%`,
-              width: '2px',
-              background: 'var(--accent)',
-              zIndex: 2,
+              flex: 1,
+              minWidth: 0,
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem',
             }}
-          />
-
-          {/* 댓글: the snapshot carries the operating window and the last and
-              next session — not when each session of the day ran. */}
-          <Lane>
-            <WindowTrack band={windowBand(props.commentWindow, span)} />
-            {props.lastSessionAt !== null && (
-              <Tick leftPercent={rhythmPercent(props.lastSessionAt, span)} color="var(--ink-muted)" />
-            )}
-            {props.nextSessionAt !== null && (
-              <Tick leftPercent={rhythmPercent(props.nextSessionAt, span)} color="var(--ok)" />
-            )}
-          </Lane>
-
-          {/* 수집: every block that ran today, taken from the runs themselves. */}
-          <Lane>
-            <WindowTrack band={props.collectionWindow === null ? null : windowBand(props.collectionWindow, span)} />
-            {ran.map(({ run, band }) => (
-              <div
-                key={run.startedAtMs}
-                className="bar-ok"
-                style={{ ...bandStyle(band), borderRadius: '3px' }}
-              />
-            ))}
-            {running?.planned != null && <div style={{ ...bandStyle(running.planned), ...plannedStyle }} />}
-            {running?.spent != null && (
-              <div className="bar-accent" style={{ ...bandStyle(running.spent), borderRadius: '3px 0 0 3px' }} />
-            )}
-            {nextBlock !== null && <div style={{ ...bandStyle(nextBlock), ...plannedStyle }} />}
-          </Lane>
-        </div>
-      </div>
-
-      <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem' }}>
-        <div style={{ width: LABEL_WIDTH, flex: 'none' }} />
-        <div
-          className="text-[0.6875rem] tabular-nums"
-          style={{ flex: 1, minWidth: 0, position: 'relative', height: '16px', color: 'var(--ink-muted)' }}
-        >
-          {hourMarks(span).map((mark) => (
-            <span
-              key={mark.hour}
+          >
+            {/* Drawn over both lanes and past their edges, so it reads as one
+                moment cutting through the day rather than two separate marks. */}
+            <div
               style={{
                 position: 'absolute',
-                left: `${mark.leftPercent}%`,
-                transform:
-                  mark.leftPercent === 0
-                    ? 'none'
-                    : mark.leftPercent === 100
-                      ? 'translateX(-100%)'
-                      : 'translateX(-50%)',
+                top: '-5px',
+                bottom: '-5px',
+                left: `${rhythmPercent(props.nowMs, span)}%`,
+                width: '2px',
+                background: 'var(--accent)',
+                zIndex: 2,
               }}
-            >
-              {String(mark.hour).padStart(2, '0')}:00
-            </span>
-          ))}
-        </div>
-      </div>
+            />
 
-      <div
-        className="text-[0.6875rem]"
-        style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.875rem', color: 'var(--ink-muted)' }}
-      >
-        <Legend swatch={{ background: 'var(--surface-sunken)' }} label={TEXT.dashboard.rhythm.legendWindow} />
-        <Legend swatchClass="bar-ok" label={TEXT.dashboard.rhythm.legendRan} />
-        <Legend swatch={plannedStyle} label={legendBlock} />
-        <Legend swatchClass="bar-accent" narrow label={TEXT.dashboard.rhythm.legendNow} />
-        <span>{TEXT.dashboard.rhythm.legendRest}</span>
-      </div>
+            {/* 댓글: the snapshot carries the operating window and the last and
+                next session — not when each session of the day ran. */}
+            <Lane>
+              <WindowTrack band={windowBand(props.commentWindow, span)} />
+              {props.lastSessionAt !== null && (
+                <Tick leftPercent={rhythmPercent(props.lastSessionAt, span)} color="var(--ink-muted)" />
+              )}
+              {props.nextSessionAt !== null && (
+                <Tick leftPercent={rhythmPercent(props.nextSessionAt, span)} color="var(--ok)" />
+              )}
+            </Lane>
+
+            {/* 수집: every block that ran today, taken from the runs themselves. */}
+            <Lane>
+              <WindowTrack band={props.collectionWindow === null ? null : windowBand(props.collectionWindow, span)} />
+              {ran.map(({ run, band }) => (
+                <div
+                  key={run.startedAtMs}
+                  className="bar-ok"
+                  style={{ ...bandStyle(band), borderRadius: '3px' }}
+                />
+              ))}
+              {running?.planned != null && <div style={{ ...bandStyle(running.planned), ...plannedStyle }} />}
+              {running?.spent != null && (
+                <div className="bar-accent" style={{ ...bandStyle(running.spent), borderRadius: '3px 0 0 3px' }} />
+              )}
+              {nextBlock !== null && <div style={{ ...bandStyle(nextBlock), ...plannedStyle }} />}
+            </Lane>
+          </div>
+        </div>
+
+        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem' }}>
+          <div style={{ width: LABEL_WIDTH, flex: 'none' }} />
+          <div
+            className="text-[0.6875rem] tabular-nums"
+            style={{ flex: 1, minWidth: 0, position: 'relative', height: '16px', color: 'var(--ink-muted)' }}
+          >
+            {hourMarks(span).map((mark) => (
+              <span
+                key={mark.hour}
+                style={{
+                  position: 'absolute',
+                  left: `${mark.leftPercent}%`,
+                  transform:
+                    mark.leftPercent === 0
+                      ? 'none'
+                      : mark.leftPercent === 100
+                        ? 'translateX(-100%)'
+                        : 'translateX(-50%)',
+                }}
+              >
+                {String(mark.hour).padStart(2, '0')}:00
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className="text-[0.6875rem]"
+          style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.875rem', color: 'var(--ink-muted)' }}
+        >
+          <Legend swatch={{ background: 'var(--surface-sunken)' }} label={TEXT.dashboard.rhythm.legendWindow} />
+          <Legend swatchClass="bar-ok" label={TEXT.dashboard.rhythm.legendRan} />
+          <Legend swatch={plannedStyle} label={legendBlock} />
+          <Legend swatchClass="bar-accent" narrow label={TEXT.dashboard.rhythm.legendNow} />
+          <span>{TEXT.dashboard.rhythm.legendRest}</span>
+        </div>
+      </Details>
     </section>
   )
 }

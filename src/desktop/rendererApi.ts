@@ -2,7 +2,7 @@ import { AUTOMATIONS, WELCOME_AUTOMATION_ID } from '../shared/automations/catalo
 import { parseConfigBundle, parseJsonRecord, serializeConfigBundle } from '../shared/configBundle.js'
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
-import { kstDayRange } from '../shared/kst.js'
+import { countByKstHour, kstDayRange } from '../shared/kst.js'
 import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
@@ -360,6 +360,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         lastOutcomeAt: deps.lastOutcomeAt(automation.id),
         nextSessionAt: deps.nextSessionAt(automation.id),
         sessionProgress: deps.sessionProgress(automation.id),
+        executedByHourToday: countByKstHour(repos.executions.listExecutedAtBetween(automation.id, dayStart, dayEnd)),
       }))
 
       // The banner and the DayRhythm speak for the welcome automation; the top

@@ -265,3 +265,73 @@ body {
 .modal::backdrop {
   background: oklch(0% 0 0 / 0.45);
 }
+
+/*
+ * A rail that breathes is the one thing on the dashboard that moves, and it
+ * moves only on the job that is working right now. It is the answer to "did my
+ * press land" for the seconds before the session has anything to say.
+ */
+.rail-live {
+  animation: rail-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes rail-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* What a card keeps below its fold, arriving rather than appearing. */
+.reveal {
+  animation: reveal 220ms ease-out;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.disclosure:hover {
+  color: var(--accent);
+}
+
+.disclosure-chevron {
+  transition: transform 180ms ease;
+}
+
+.disclosure[aria-expanded='true'] .disclosure-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-live,
+  .reveal {
+    animation: none;
+  }
+  .disclosure-chevron {
+    transition: none;
+  }
+}

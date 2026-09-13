@@ -8,7 +8,6 @@ import {
   activeWindowLabel,
   estimatedMinutes,
   disabledAutomationNames,
-  warmSummary,
   getBridgeStatusText,
   getBridgeStatusTone,
 } from '../format.js'
@@ -49,9 +48,9 @@ function collectionRefusalText(result: StartCollectionResult): string | null {
  * Two kinds of thing run here and they are not alike: comments go out in
  * sessions through the day, one card per automation, while the collection
  * walks a fixed past period across many runs and many days. The screen is laid
- * out to say which is which before it says anything else — the day band on top
- * shows both at once, and below it each job owns one panel and nothing outside
- * it.
+ * out to say which is which before it says anything else — each job owns one
+ * panel and nothing outside it, and the day band that shows both at once
+ * waits folded below them.
  */
 export function Dashboard(): React.JSX.Element {
   const dashboard = useApp((s) => s.dashboard)
@@ -163,17 +162,13 @@ export function Dashboard(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* The extension and the naver login are what both jobs stand on and
-          neither of them owns, so they ride the heading rather than taking a
-          panel that would have to belong to one of the two. */}
+      {/* The extension is what both jobs stand on and neither of them owns,
+          so it rides the heading rather than taking a panel that would have
+          to belong to one of the two. */}
       <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-lg font-bold tracking-tight">{TEXT.dashboard.heading}</h1>
-        <div className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-          <span className={`font-medium tone-${getBridgeStatusTone(dashboard.bridgeStatus)}`}>
-            {getBridgeStatusText(dashboard.bridgeStatus)}
-          </span>
-          {' · '}
-          <span className="tabular-nums">{warmSummary(dashboard.lastWarm)}</span>
+        <div className={`text-xs font-medium tone-${getBridgeStatusTone(dashboard.bridgeStatus)}`}>
+          {getBridgeStatusText(dashboard.bridgeStatus)}
         </div>
       </div>
 
@@ -193,18 +188,6 @@ export function Dashboard(): React.JSX.Element {
         </section>
       )}
 
-      <DayRhythm
-        nowMs={nowMs}
-        commentWindow={{ startHour: dashboard.activeHourStart, endHour: dashboard.activeHourEnd }}
-        lastSessionAt={dashboard.lastOutcomeAt}
-        nextSessionAt={dashboard.nextSessionAt}
-        collectionWindow={collectionWindow}
-        finishedRuns={ready?.recentRuns.filter((run) => run.status !== 'running') ?? []}
-        runningStartedAtMs={ready?.running?.startedAtMs ?? null}
-        nextRunAtMs={schedule?.nextRunAtMs ?? null}
-        workBlockMs={schedule === null ? null : schedule.schedule.workBlockMinutes * 60_000}
-      />
-
       {commentCards(dashboard).map((card) => (
         <CommentJob
           key={card.automationId}
@@ -215,6 +198,7 @@ export function Dashboard(): React.JSX.Element {
           succeededToday={card.succeededToday}
           failedToday={card.failedToday}
           awaitingApproval={card.awaitingApproval}
+          executedByHour={card.executedByHour}
           lastOutcomeText={card.lastOutcomeText}
           lastOutcomeAt={card.lastOutcomeAt}
           startupPreview={dashboard.startupPreview}
@@ -263,6 +247,18 @@ export function Dashboard(): React.JSX.Element {
           onOpenStatus={() => setRoute({ kind: 'collection', panel: 'status' })}
         />
       )}
+
+      <DayRhythm
+        nowMs={nowMs}
+        commentWindow={{ startHour: dashboard.activeHourStart, endHour: dashboard.activeHourEnd }}
+        lastSessionAt={dashboard.lastOutcomeAt}
+        nextSessionAt={dashboard.nextSessionAt}
+        collectionWindow={collectionWindow}
+        finishedRuns={ready?.recentRuns.filter((run) => run.status !== 'running') ?? []}
+        runningStartedAtMs={ready?.running?.startedAtMs ?? null}
+        nextRunAtMs={schedule?.nextRunAtMs ?? null}
+        workBlockMs={schedule === null ? null : schedule.schedule.workBlockMinutes * 60_000}
+      />
 
       {pending !== null && (
         <section className="panel overflow-hidden">

@@ -123,6 +123,7 @@ export const TEXT = {
     disabledHow:
       '트레이 메뉴의 "수집 저장소 설정 열기"로 파일을 열어 수집 DB 주소를 적고 앱을 다시 시작하면, 수집한 글이 이 화면에 쌓입니다. 가입인사 자동화는 이것 없이도 그대로 동작합니다.',
     collectNow: '이어서 수집',
+    collectNowPending: '수집 중…',
     stop: '중지',
     /** Ignoring the operating hours for the job in hand, and saying so. */
     /**
@@ -231,19 +232,34 @@ export const TEXT = {
      * The two jobs, named as jobs. They are different kinds of thing — one runs
      * in sessions through the day, the other walks a fixed past period across
      * many runs — and the screen says so before it says anything else. A
-     * comment card is titled by its automation's name, so its hint says only
-     * the kind of job and fits every automation that comments.
+     * comment card is titled by its automation's name.
      */
     job: {
-      commentHint: '자동 댓글 · 세션 단위',
       collection: '게시판 수집',
-      collectionHint: '과거 기간 DB화 · 작업 단위',
+      /** The state word beside the name is what a first look reads. */
       /** State words, kept apart from the buttons that change state. */
       running: '진행 중',
       waiting: '대기 중',
       stopped: '정지',
       off: '꺼짐',
       unavailable: '쓸 수 없음',
+    },
+    /**
+     * What each card keeps below its fold. The summary line is the whole of
+     * what a first look needs; the numbers behind it wait for a press.
+     */
+    details: {
+      today: '오늘 자세히',
+      period: '기간 자세히',
+      /** Read out for the hour bars, which a screen reader cannot see. */
+      hourBars: (sent: number) => `오늘 시간대별 실행 · ${sent}건`,
+      todaySummary: (executed: number, succeeded: number, failed: number, awaiting: number) =>
+        [
+          `오늘 실행 ${executed}`,
+          `성공 ${succeeded}`,
+          ...(failed > 0 ? [`실패 ${failed}`] : []),
+          ...(awaiting > 0 ? [`승인 대기 ${awaiting}`] : []),
+        ].join(' · '),
     },
     /**
      * Why it is quiet, said as present state rather than as the last refusal.
@@ -273,7 +289,6 @@ export const TEXT = {
     },
     /** The period as days, because a page number points elsewhere in an hour. */
     period: {
-      heading: '대상 기간 · 하루 한 칸',
       walked: (at: string, from: string, to: string) =>
         `${at}까지 내려왔습니다 · 남은 구간 ${from} — ${to}`,
       walkedNone: '아직 한 쪽도 옮기지 않았습니다',
@@ -303,6 +318,8 @@ export const TEXT = {
      */
     turnOn: '켜기',
     turnOff: '끄기',
+    /** The press that landed, in the button's own place, until the snapshot says the session is under way. */
+    runOncePending: '실행 중…',
     start: '시작',
     stop: '중지',
     kill: '전면 정지',
@@ -340,6 +357,7 @@ export const TEXT = {
   },
   progress: {
     heading: '진행 중',
+    starting: '세션을 시작하는 중',
     collecting: '가입인사 글을 모으는 중',
     collectingCounted: (pagesRead: number, collected: number) =>
       `가입인사 글을 모으는 중 — ${pagesRead}쪽 ${collected}건`,
@@ -389,9 +407,6 @@ export const TEXT = {
     hoursMinutesInto: (hours: number, minutes: number) => `${hours}시간 ${minutes}분째`,
     lastSession: (elapsed: string) => `마지막 세션 · ${elapsed}`,
     nextSession: (time: string) => `다음 세션 · ${time}`,
-    sessionKeptAlive: (time: string) => `네이버 세션 · ${time} 확인`,
-    sessionLapsed: (time: string) => `네이버 세션 · ${time} 로그아웃 상태`,
-    sessionUnchecked: '네이버 세션 · 확인 전',
   },
   approvals: {
     heading: '승인 큐',

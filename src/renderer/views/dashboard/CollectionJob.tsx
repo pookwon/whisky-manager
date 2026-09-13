@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
 import type { CollectionStatusView } from '../../../desktop/ipc.js'
 import {
@@ -7,6 +8,7 @@ import {
   relativeTime,
 } from '../../format.js'
 import { CollectIcon } from './DayRhythm.js'
+import { Details } from './Details.js'
 import { periodDays, remainingFromMs, remainingToMs, type PeriodDay } from './periodDays.js'
 import type { JobState } from './quiet.js'
 
@@ -14,10 +16,11 @@ import type { JobState } from './quiet.js'
  * The collection job, whole.
  *
  * A run ending is not the job ending, so the panel is built around the job:
- * the period it was given, how far into it the walk has come, and when the next
- * block picks it up. What the last run stored is one muted line, because it is
- * the least useful number on the panel — it says what one block did, not
- * whether the month is nearly done.
+ * how far into its period the walk has come, as one bar that stays above the
+ * fold, and when the next block picks it up. The period drawn day by day, the
+ * cursor and the boards wait below the fold; what the last run stored is the
+ * least useful number on the panel — it says what one block did, not whether
+ * the month is nearly done — so it rides the fold's summary line.
  */
 
 interface CollectionJobProps {
@@ -54,7 +57,7 @@ const CELL_BACKGROUND: Record<PeriodDay['state'], string> = {
  */
 function PeriodDays({ days }: { days: readonly PeriodDay[] }): React.JSX.Element {
   return (
-    <div className="mt-2 flex gap-0.5">
+    <div className="flex gap-0.5">
       {days.map((day) => (
         <div
           key={day.startMs}
@@ -74,7 +77,30 @@ function PeriodDays({ days }: { days: readonly PeriodDay[] }): React.JSX.Element
   )
 }
 
+/** How much of the period is stored, as the one figure that stays in view. */
+function CoverageBar({ percent, rangeLabel }: { percent: number; rangeLabel: string }): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
+      <div
+        className="flex-1 overflow-hidden"
+        style={{ height: '6px', borderRadius: '999px', background: 'var(--surface-sunken)' }}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <div className="bar-accent h-full" style={{ width: `${percent}%`, borderRadius: '999px' }} />
+      </div>
+      <span className="shrink-0 font-semibold tabular-nums tone-accent">
+        {TEXT.dashboard.period.coverage(percent)}
+      </span>
+      <span className="shrink-0 tabular-nums">{rangeLabel}</span>
+    </div>
+  )
+}
+
 export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const status = props.collection.kind === 'ready' ? props.collection.status : null
   const job = status?.job ?? null
   const running = status?.running ?? null
@@ -82,7 +108,7 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
 
   const days = job === null ? [] : periodDays(job)
   const coverage = job === null ? null : collectionCoveragePercent(job)
-  const detail =
+  const stored =
     running !== null
       ? TEXT.dashboard.collectionStored(running.collectionPages, running.insertedPostCount)
       : lastFinished === null
@@ -92,7 +118,7 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
   return (
     <section className="panel overflow-hidden" style={{ flex: 'none' }}>
       <div className="flex">
-        <div className={`w-1 shrink-0 bar-${props.state.tone}`} />
+        <div className={`w-1 shrink-0 bar-${props.state.tone}${props.state.tone === 'accent' ? ' rail-live' : ''}`} />
         <div className="flex min-w-0 flex-1 flex-col gap-2 px-5 py-3">
 
           <div className="flex items-center justify-between gap-5">
@@ -100,9 +126,6 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
               <CollectIcon />
               <span className="text-sm font-bold">{TEXT.dashboard.job.collection}</span>
               <span className={`text-xs tone-${props.state.tone}`}>{props.state.status}</span>
-              <span className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                {TEXT.dashboard.job.collectionHint}
-              </span>
             </div>
             <div className="flex shrink-0 gap-2">
               <button
@@ -111,7 +134,7 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
                 disabled={props.busy || running !== null || status === null}
                 onClick={props.onCollectNow}
               >
-                {TEXT.collection.collectNow}
+                {running !== null ? TEXT.collection.collectNowPending : TEXT.collection.collectNow}
               </button>
               {props.onStartSchedule === null ? (
                 <button
@@ -141,39 +164,29 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
           <div className={`text-[0.8125rem] leading-5 tabular-nums ${props.state.tone === 'ok' ? '' : `tone-${props.state.tone}`}`}>
             {props.state.why}
           </div>
-          <div className="text-xs leading-[1.125rem] tabular-nums" style={{ color: 'var(--ink-muted)' }}>
-            {detail}
-          </div>
           {props.refusal !== null && (
             <div className="text-[0.8125rem] leading-5 tone-warn">{props.refusal}</div>
           )}
+          {job !== null && coverage !== null && (
+            // The end is the midnight after the last day, so naming it
+            // directly would announce a day outside the period.
+            <CoverageBar
+              percent={coverage}
+              rangeLabel={`${formatKstDate(job.targetStartMs)} — ${formatKstDate(job.targetEndMs - 1)}`}
+            />
+          )}
 
-          {job !== null && days.length > 0 && (
-            <>
-              <div className="h-px" style={{ background: 'var(--line)' }} />
+          <div className="h-px" style={{ background: 'var(--line)' }} />
+
+          {job !== null && days.length > 0 ? (
+            <Details
+              summary={`${TEXT.dashboard.details.period} · ${stored}`}
+              open={detailsOpen}
+              onToggle={() => setDetailsOpen((open) => !open)}
+            >
+              <PeriodDays days={days} />
               <div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span
-                    className="text-[0.6875rem] font-medium uppercase tracking-wider"
-                    style={{ color: 'var(--ink-muted)' }}
-                  >
-                    {TEXT.dashboard.period.heading}
-                  </span>
-                  {/* The end is the midnight after the last day, so naming it
-                      directly would announce a day outside the period. */}
-                  <span className="text-[0.9375rem] font-semibold tabular-nums">
-                    {formatKstDate(job.targetStartMs)} — {formatKstDate(job.targetEndMs - 1)}
-                  </span>
-                  {coverage !== null && (
-                    <span className="text-[0.8125rem] font-semibold tabular-nums tone-accent">
-                      {TEXT.dashboard.period.coverage(coverage)}
-                    </span>
-                  )}
-                </div>
-
-                <PeriodDays days={days} />
-
-                <div className="mt-2 text-[0.8125rem] leading-5 tabular-nums">
+                <div className="text-[0.8125rem] leading-5 tabular-nums">
                   {job.cursorPostedAtMs === null
                     ? TEXT.dashboard.period.walkedNone
                     : TEXT.dashboard.period.walked(
@@ -200,7 +213,11 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
                   </div>
                 )}
               </div>
-            </>
+            </Details>
+          ) : (
+            <div className="text-xs leading-[1.125rem] tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+              {stored}
+            </div>
           )}
 
         </div>

@@ -23,6 +23,7 @@ function status(id: string, overrides: Partial<AutomationStatus> = {}): Automati
     lastOutcomeAt: null,
     nextSessionAt: null,
     sessionProgress: null,
+    executedByHourToday: Array.from({ length: 24 }, () => 0),
     ...overrides,
   }
 }
@@ -52,6 +53,16 @@ function snapshot(automations: AutomationStatus[]): DashboardSnapshot {
 }
 
 describe('commentCards', () => {
+  it("carries each automation's own hours, so one card's bars never show another's sessions", () => {
+    const welcomeHours = Array.from({ length: 24 }, (_, hour) => (hour === 10 ? 2 : 0))
+    const cards = commentCards(
+      snapshot([status(WELCOME_AUTOMATION_ID, { executedByHourToday: welcomeHours }), status(PREFIX_REMINDER_AUTOMATION_ID)]),
+    )
+
+    expect(cards[0]?.executedByHour).toBe(welcomeHours)
+    expect(cards[1]?.executedByHour.every((n) => n === 0)).toBe(true)
+  })
+
   it('draws one card per automation, in the order the snapshot lists them, named by the catalogue', () => {
     const cards = commentCards(
       snapshot([status(WELCOME_AUTOMATION_ID), status(PREFIX_REMINDER_AUTOMATION_ID)]),

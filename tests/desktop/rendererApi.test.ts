@@ -368,6 +368,7 @@ describe('getDashboard', () => {
           lastOutcomeAt: null,
           nextSessionAt: null,
           sessionProgress: null,
+          executedByHourToday: Array.from({ length: 24 }, () => 0),
         },
         {
           id: PREFIX_REMINDER_AUTOMATION_ID,
@@ -380,6 +381,7 @@ describe('getDashboard', () => {
           lastOutcomeAt: null,
           nextSessionAt: null,
           sessionProgress: null,
+          executedByHourToday: Array.from({ length: 24 }, () => 0),
         },
       ],
       startupPreview: null,
