@@ -1,4 +1,5 @@
 import type { CollectionJob, CollectionStatus } from './collection-db/statusQuery.js'
+import type { LogEntry } from './recentLog.js'
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
@@ -19,6 +20,7 @@ import type { WarmCheck } from './sessionWarmer.js'
 // Re-exported so the renderer reads every answer this surface gives from the
 // one module, as it does for the collection results below.
 export type { ApproveResult } from './approvals.js'
+export type { LogEntry, LogSource } from './recentLog.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -27,6 +29,7 @@ export const IPC_CHANNELS = {
   getDashboard: 'wm:getDashboard',
   getCollectionStatus: 'wm:getCollectionStatus',
   getCollectionSchedule: 'wm:getCollectionSchedule',
+  getRecentLog: 'wm:getRecentLog',
   setCollectionSchedule: 'wm:setCollectionSchedule',
   startCollection: 'wm:startCollection',
   stopCollection: 'wm:stopCollection',
@@ -300,6 +303,8 @@ export interface RendererApi {
    */
   setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult>
   getCollectionSchedule(): Promise<CollectionScheduleView>
+  /** The log screen's timeline, newest first, already capped. */
+  getRecentLog(): Promise<readonly LogEntry[]>
   /** Saves the schedule and re-lays the next beat; returns what was stored. */
   setCollectionSchedule(schedule: CollectionSchedule): Promise<CollectionScheduleView>
   /**

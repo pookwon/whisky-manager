@@ -27,6 +27,8 @@ import { createSqliteDedupeStore, type DedupeStore } from './db/dedupeStore.js'
 import { createExecutionsRepo, type ExecutionsRepo } from './db/executionsRepo.js'
 import { createSettingsRepo, type SettingsRepo } from './db/settingsRepo.js'
 import { createTemplatesRepo, type TemplatesRepo } from './db/templatesRepo.js'
+import { createDiagnosticsLog, type DiagnosticsLog } from './diagnosticsLog.js'
+import { stamp } from './refusalLog.js'
 import { systemClock, systemRandom } from './runtime.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { CollectorContext, SessionRequest } from './session.js'
@@ -117,7 +119,12 @@ export interface AutomationControl {
   nextRunAt(automationId: string): number | null
 }
 
+/** Enough to cover a night of scheduled blocks; the console has the rest. */
+const DIAGNOSTICS_CAPACITY = 200
+
 export interface AppContext {
+  /** What the main process complained about lately, for the log screen. */
+  readonly diagnostics: DiagnosticsLog
   readonly db: AppDatabase
   readonly settings: SettingsRepo
   readonly repos: AppRepos
@@ -161,6 +168,7 @@ export interface AppContext {
 }
 
 export async function createAppContext(options: AppContextOptions): Promise<AppContext> {
+  const diagnostics = createDiagnosticsLog({ capacity: DIAGNOSTICS_CAPACITY, now: () => systemClock.now() })
   const db = openDatabase(options.databasePath, { migrationsFolder: options.migrationsFolder })
   const settings = createSettingsRepo(db)
   const collection = await openOptionalCollectionContext(
@@ -321,7 +329,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       // reporting it as a sighting would date-stamp something never seen.
       return reply.type === 'LOGIN_STATE' ? { loggedIn: reply.loggedIn } : null
     },
-    onError: (error) => console.warn('[warm]', error),
+    onError: (error) => diagnostics.warn('warm', error),
     setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
   })
@@ -423,9 +431,9 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       // refusal cannot leave — the read counts and what was done about them — and
       // both share the one file so the day reads in the order sessions closed.
       onOutcome: (outcome, wake) => spec.recorder.complete(outcome, wake),
-      onError: (error) => console.error(`[session:${spec.automationId}]`, error),
+      onError: (error) => diagnostics.error(`session:${spec.automationId}`, error),
       onHalt: (reason) => {
-        console.warn(`[session:${spec.automationId}] halted:`, reason)
+        diagnostics.warn(`session:${spec.automationId}`, `halted: ${reason}`)
         // Login is cafe-wide: one runtime finding it gone means every runtime's
         // next session would too, so they all stop rather than take turns
         // rediscovering the same logout.
@@ -532,7 +540,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     isSessionBusy: isAnySessionInFlight,
     lock: collectionLock,
     newId: () => randomUUID(),
-    onError: (error) => console.error('[collection]', error),
+    onError: (error) => diagnostics.error('collection', error),
   })
 
   const memberCollectionRunner = createMemberCollectionRunner({
@@ -547,8 +555,8 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onError: (error) => {
       // Only the fields `safeMemberErrorFields` allows: a failing query's own
       // message quotes the member rows it was inserting.
-      if (error instanceof Error) console.error('[member-collection]', safeMemberErrorFields(error))
-      else console.error('[member-collection] non-Error thrown')
+      if (error instanceof Error) diagnostics.error('member-collection', safeMemberErrorFields(error))
+      else diagnostics.error('member-collection', 'non-Error thrown')
     },
   })
 
@@ -569,7 +577,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     clearTimer: (handle) => clearTimeout(handle as unknown as NodeJS.Timeout),
     onStarted: (result, scheduledFor) => {
       if (result.kind === 'refused') {
-        console.warn('[collection] scheduled run refused:', result.reason, scheduledFor)
+        diagnostics.warn('collection', `scheduled run refused: ${result.reason} ${stamp(scheduledFor)}`)
       }
     },
   })
@@ -656,7 +664,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         }).then((result) => {
           startupPreview = result
         }).catch((error) => {
-          console.error('[startup-preview] failed:', error)
+          diagnostics.error('startup-preview', error)
           startupPreview = { kind: 'UNAVAILABLE', reason: 'READ_FAILED' }
         })
       }
@@ -683,6 +691,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   startBridgeMonitor()
 
   return {
+    diagnostics,
     db,
     settings,
     repos,

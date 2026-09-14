@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRefusal } from '../../src/desktop/refusalLog.js'
+import { formatRefusal, parseStamp, stamp } from '../../src/desktop/refusalLog.js'
 import { KST_OFFSET_MS } from '../../src/shared/kst.js'
 
 const OPENING = Date.UTC(2026, 7, 26, 10, 0, 0) - KST_OFFSET_MS // 10:00:00.000 KST
@@ -46,5 +46,16 @@ describe('formatRefusal', () => {
       wake: { scheduledFor: OPENING, wokeAt: OPENING },
     })
     expect(line.trimEnd().split('\n')).toHaveLength(1)
+  })
+})
+
+describe('parseStamp', () => {
+  it('reads back the instant stamp wrote, so a log line can be placed in time', () => {
+    expect(parseStamp(`${stamp(OPENING)} KST  welcome-comment  SETTLE  opened`)).toBe(OPENING)
+  })
+
+  it('returns null for a line that does not begin with a stamp', () => {
+    expect(parseStamp('not a log line')).toBeNull()
+    expect(parseStamp('')).toBeNull()
   })
 })

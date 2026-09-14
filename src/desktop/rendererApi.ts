@@ -3,6 +3,8 @@ import { parseConfigBundle, parseJsonRecord, serializeConfigBundle } from '../sh
 import type { Clock } from '../shared/ports.js'
 import type { ApprovalPolicy, Limits } from '../shared/types.js'
 import { countByKstHour, kstDayRange } from '../shared/kst.js'
+import type { DiagnosticEntry } from './diagnosticsLog.js'
+import { mergeRecentLog, type LogEntry } from './recentLog.js'
 import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
@@ -125,12 +127,19 @@ export interface RendererApiDeps {
   readonly clock: Clock
   readonly limits: Limits
   readonly newId: () => string
+  /** The recent end of the session log file, oldest first. */
+  readonly sessionLogTail: () => readonly string[]
+  /** What the main process complained about lately, oldest first. */
+  readonly diagnostics: () => readonly DiagnosticEntry[]
 }
 
 /**
  * Everything the renderer can do, with no Electron dependency. `main.ts` only
  * forwards IPC channels here, which keeps this whole surface unit-testable.
  */
+/** What the log screen shows at most; the files keep everything. */
+const RECENT_LOG_LIMIT = 200
+
 export function createRendererApi(deps: RendererApiDeps): RendererApi {
   const { repos, settings } = deps
   const startedAt = deps.clock.now()
@@ -208,6 +217,17 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
   }
 
   return {
+    async getRecentLog(): Promise<readonly LogEntry[]> {
+      const collection = deps.collection()
+      const collectionRuns = collection.kind === 'ready' ? (await collection.status.read()).recentRuns : []
+      return mergeRecentLog({
+        sessionLines: deps.sessionLogTail(),
+        diagnostics: deps.diagnostics(),
+        collectionRuns,
+        limit: RECENT_LOG_LIMIT,
+      })
+    },
+
     getCollectionSchedule(): Promise<CollectionScheduleView> {
       return Promise.resolve(scheduleView())
     },

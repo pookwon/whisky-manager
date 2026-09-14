@@ -14,6 +14,7 @@ import {
   type ExtensionSetupResult,
 } from './extensionSetup.js'
 import { IPC_CHANNELS, type RendererApi } from './ipc.js'
+import { readTailLines } from './logTail.js'
 import { readLocalConfig } from './localConfig.js'
 import { ensureCollectionDatabaseConfig } from './collectionDatabaseConfig.js'
 import { createRendererApi } from './rendererApi.js'
@@ -36,6 +37,8 @@ const STAGED_EXTENSION_DIRNAME = 'chrome-extension'
  * replaces the bundle, and the operator would have to enter it again.
  */
 const COLLECTION_CONFIG_FILENAME = 'collection-db.json'
+/** A few hundred session lines; the log screen shows at most 200 entries. */
+const SESSION_LOG_TAIL_BYTES = 64 * 1024
 
 function collectionConfigPath(): string {
   return join(app.getPath('userData'), COLLECTION_CONFIG_FILENAME)
@@ -229,9 +232,10 @@ void app.whenReady().then(async () => {
   }
 
   const profile = app.isPackaged ? 'production' : 'debug'
+  const sessionLogPath = join(app.getPath('userData'), 'sessions.log')
   context = await createAppContext({
     databasePath: join(app.getPath('userData'), 'whisky-manager.db'),
-    sessionLogPath: join(app.getPath('userData'), 'sessions.log'),
+    sessionLogPath,
     migrationsFolder: join(app.getAppPath(), 'drizzle'),
     collectionMigrationsFolder: join(app.getAppPath(), 'drizzle-collection'),
     collectionConfigPath: collectionConfigPath(),
@@ -267,6 +271,8 @@ void app.whenReady().then(async () => {
       nextSessionAt: (automationId) => appContext.automation.nextRunAt(automationId),
       sessionProgress: (automationId) => appContext.sessionProgress(automationId),
       lastWarm: () => appContext.lastWarm(),
+      sessionLogTail: () => readTailLines(sessionLogPath, SESSION_LOG_TAIL_BYTES),
+      diagnostics: () => appContext.diagnostics.recent(),
       previewDay: (dayStartMs) => appContext.previewDay(dayStartMs),
       openExtensionSetup,
       recoverExtensionSetup: () =>
