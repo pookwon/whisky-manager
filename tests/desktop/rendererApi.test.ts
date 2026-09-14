@@ -126,6 +126,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     },
   }
   const api = createRendererApi({
+    sessionLogTail: () => [],
+    diagnostics: () => [],
     repos,
     settings,
     bridge: {

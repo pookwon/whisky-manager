@@ -8,6 +8,7 @@ export type Route =
   | { readonly kind: 'automation'; readonly id: string; readonly panel: AutomationPanel }
   | { readonly kind: 'collection'; readonly panel: CollectionPanel }
   | { readonly kind: 'commonSettings' }
+  | { readonly kind: 'log' }
 
 export const DEFAULT_ROUTE: Route = { kind: 'dashboard' }
 

@@ -19,6 +19,19 @@ export function stamp(epochMs: number): string {
   return new Date(epochMs + KST_OFFSET_MS).toISOString().replace('T', ' ').replace('Z', '')
 }
 
+const STAMP_LENGTH = '2026-08-26 10:00:00.000'.length
+
+/**
+ * The instant a line's leading stamp names, or null when the line does not
+ * begin with one. The inverse of `stamp`, for reading the log back.
+ */
+export function parseStamp(line: string): number | null {
+  const head = line.slice(0, STAMP_LENGTH)
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/.test(head)) return null
+  const epochMs = Date.parse(`${head.replace(' ', 'T')}Z`) - KST_OFFSET_MS
+  return Number.isNaN(epochMs) ? null : epochMs
+}
+
 /**
  * The reason and, if the run was scheduled, how far the wake drifted — the tail
  * of a refusal line, without the leading timestamp. Shared so the one-line

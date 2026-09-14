@@ -28,6 +28,17 @@ const RISK_LABEL: Record<RiskFlag, string> = {
  * Lives in `shared` because three surfaces speak to the operator: the renderer,
  * the tray menu in the main process, and anything else that has to name the app.
  */
+/** A collection run's ending, as the two screens that name it share it. */
+const COLLECTION_RUN_STATUS = {
+  running: '진행 중',
+  succeeded: '완료',
+  partial: '일부만',
+  failed: '중단',
+  interrupted: '멈춤',
+} as const
+
+export type CollectionRunStatus = keyof typeof COLLECTION_RUN_STATUS
+
 export const TEXT = {
   app: {
     title: '네이버 카페 관리',
@@ -35,6 +46,7 @@ export const TEXT = {
   },
   nav: {
     dashboard: '대시보드',
+    log: '최근 기록',
     approvals: '승인 큐',
     templates: '문구',
     settings: '자동화 설정',
@@ -108,13 +120,7 @@ export const TEXT = {
     /** A range said in days, because that is what the operator asked for. */
     targetRange: (days: number) => `최근 ${days}일`,
     targetHours: (hours: number) => `최근 ${hours}시간`,
-    runStatus: {
-      running: '진행 중',
-      succeeded: '완료',
-      partial: '일부만',
-      failed: '중단',
-      interrupted: '멈춤',
-    },
+    runStatus: COLLECTION_RUN_STATUS,
     /**
      * Storage is optional, and the two ways it can be missing need different
      * answers: one is a choice, the other is something to fix.
@@ -203,6 +209,31 @@ export const TEXT = {
       },
       horizonHint: '카페가 이 게시판의 목록을 여기까지만 줍니다. 그 아래는 이 방법으로 닿지 않습니다.',
     },
+  },
+  /**
+   * The log screen: what the app did and complained about lately, on one
+   * timeline. Debugging aid for the operator; the wording is terse on purpose.
+   */
+  log: {
+    heading: '최근 기록',
+    hint: '세션, 수집 실행, 메인 프로세스 오류를 시각순으로 보여줍니다 · 최근 200건',
+    filter: '기록 종류',
+    empty: '아직 기록이 없습니다',
+    readFailed: '기록을 읽지 못했습니다 — 다음 새로고침에 다시 시도합니다',
+    source: {
+      session: '세션',
+      refusal: '거절',
+      collection: '수집',
+      diagnostic: '오류',
+    },
+    /** A collection run in one line: what it stored and, if it stopped early, why. */
+    collectionRun: (status: CollectionRunStatus, pages: number, posts: number, board: string | null, stopReason: string | null) =>
+      [
+        `수집 ${COLLECTION_RUN_STATUS[status]}`,
+        `${pages}쪽 저장 · 신규 ${posts}건`,
+        ...(board === null ? [] : [board]),
+        ...(stopReason === null ? [] : [`중단 사유 ${stopReason}`]),
+      ].join(' · '),
   },
   dashboard: {
     heading: '대시보드',

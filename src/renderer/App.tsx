@@ -13,6 +13,7 @@ import { AutomationSettings } from './views/AutomationSettings.js'
 import { CollectionSettings } from './views/CollectionSettings.js'
 import { CollectionStatus } from './views/CollectionStatus.js'
 import { CommonSettings } from './views/CommonSettings.js'
+import { RecentLog } from './views/RecentLog.js'
 import { Dashboard } from './views/Dashboard.js'
 import { ExtensionSetupDialog } from './views/ExtensionSetupDialog.js'
 import { Templates } from './views/Templates.js'
@@ -207,6 +208,14 @@ export function App(): React.JSX.Element {
           >
             <span>{TEXT.nav.commonSettings}</span>
           </button>
+          <button
+            type="button"
+            className="nav-item"
+            aria-current={route.kind === 'log' ? 'page' : undefined}
+            onClick={() => setRoute({ kind: 'log' })}
+          >
+            <span>{TEXT.nav.log}</span>
+          </button>
         </section>
       </nav>
 
@@ -220,6 +229,7 @@ export function App(): React.JSX.Element {
         {route.kind === 'collection' && route.panel === 'status' && <CollectionStatus />}
         {route.kind === 'collection' && route.panel === 'settings' && <CollectionSettings />}
         {route.kind === 'commonSettings' && <CommonSettings />}
+        {route.kind === 'log' && <RecentLog />}
         {route.kind === 'automation' && route.panel === 'approvals' && (
           <Approvals automationId={route.id} />
         )}
