@@ -53,6 +53,9 @@ import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, type CollectionRunner } from './collectionRunner.js'
 import { createMemberCollectionRunner, type MemberCollectionRunner } from './memberCollectionRunner.js'
 import { createCollectionLock } from './collectionLock.js'
+import { createBoardSearchRunner, type BoardSearchRunner } from './boardSearchRunner.js'
+import { createBoardSearchPageFetcher } from './boardSearchPageFetcher.js'
+import { createBoardSearchJob } from './boardSearchJob.js'
 import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
@@ -141,6 +144,8 @@ export interface AppContext {
   readonly memberCollectionRunner: MemberCollectionRunner
   /** The periodic member re-walk, on its own cursor. */
   readonly memberResyncRunner: MemberCollectionRunner
+  /** The search backfill past each board's list horizon, one block at a time. */
+  readonly boardSearchRunner: BoardSearchRunner
   /** Re-read after the schedule is saved, so a change takes effect without a restart. */
   readonly collectionLoop: CollectionLoop
   readonly automation: AutomationControl
@@ -574,6 +579,22 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   const memberCollectionRunner = createMemberRunner(() => (collection.kind === 'ready' ? collection.memberRepository : null))
   const memberResyncRunner = createMemberRunner(() => (collection.kind === 'ready' ? collection.memberResyncRepository : null))
 
+  // The search backfill takes the same lock and the same read gate as the
+  // list walk: one browser session, one walk at a time.
+  const boardSearchRunner = createBoardSearchRunner({
+    repository: () => (collection.kind === 'ready' ? collection.boardSearchRepository : null),
+    fetcher: createBoardSearchPageFetcher(transport, () => randomUUID()),
+    isConnected: () => transport.isConnected(),
+    clock: systemClock,
+    random: systemRandom,
+    pacing: () => readCollectionPacing(settings),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    isSessionBusy: isAnySessionInFlight,
+    lock: collectionLock,
+    newId: () => randomUUID(),
+    onError: (error) => diagnostics.error('board-search', error),
+  })
+
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
     pacing: () => readCollectionPacing(settings),
@@ -592,6 +613,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         runner: memberResyncRunner,
         intervalDays: () => readMemberResyncInterval(settings),
         now: () => systemClock.now(),
+      }),
+      createBoardSearchJob({
+        repository: () => (collection.kind === 'ready' ? collection.boardSearchRepository : null),
+        runner: boardSearchRunner,
       }),
     ],
     clock: systemClock,
@@ -722,6 +747,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     collectionRunner,
     memberCollectionRunner,
     memberResyncRunner,
+    boardSearchRunner,
     collectionLoop,
     automation,
     resetExtensionPairing() {
@@ -786,6 +812,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       collectionRunner.stop()
       memberCollectionRunner.stop()
       memberResyncRunner.stop()
+      boardSearchRunner.stop()
       warmer.stop()
       await bridge.close()
       await collection.close()
