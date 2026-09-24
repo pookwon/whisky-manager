@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   countByKstHour,
-  kstHourOf,
+  isKstDayKey,
+  kstDayKey,
+  kstDayKeyRange,
   kstDayRange,
   kstDayStartMs,
+  kstHourOf,
+  kstLocalDateTimeToEpochMs,
   kstMonthRange,
   recentCompletedKstDays,
 } from '../../src/shared/kst.js'
@@ -105,5 +109,43 @@ describe('kstHourOf', () => {
     // put a nought-thirty block in the middle of the previous afternoon.
     expect(kstHourOf(Date.parse('2026-08-24T00:30:00+09:00'))).toBe(0)
     expect(kstHourOf(Date.parse('2026-08-24T23:59:00+09:00'))).toBe(23)
+  })
+})
+
+describe('KST day keys', () => {
+  it('names the KST day of an instant, not the UTC one', () => {
+    // 2025-01-31 15:30 UTC is 2025-02-01 00:30 KST.
+    expect(kstDayKey(Date.UTC(2025, 0, 31, 15, 30))).toBe('20250201')
+    expect(kstDayKey(Date.UTC(2025, 0, 31, 14, 59, 59, 999))).toBe('20250131')
+  })
+
+  it('accepts only real calendar days', () => {
+    expect(isKstDayKey('20250228')).toBe(true)
+    expect(isKstDayKey('20250229')).toBe(false)
+    expect(isKstDayKey('2025-01-01')).toBe(false)
+    expect(isKstDayKey('2025011')).toBe(false)
+  })
+
+  it('turns a key back into the KST day it names', () => {
+    const day = kstDayKeyRange('20250101')
+    expect(day.startMs).toBe(Date.UTC(2024, 11, 31, 15))
+    expect(day.endMs - day.startMs).toBe(86_400_000)
+    expect(kstDayKey(day.startMs)).toBe('20250101')
+    expect(() => kstDayKeyRange('20251301')).toThrow()
+  })
+
+  it('reads an offset-less wall-clock time as KST', () => {
+    // Stored post 661354 was written 2025-01-16 12:13:05.183 KST; the search
+    // API spells it this way.
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05.183')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5, 183))
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5))
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05.1')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5, 100))
+  })
+
+  it('refuses a time it cannot read rather than guessing', () => {
+    expect(kstLocalDateTimeToEpochMs('2025-01-16 12:13:05')).toBeNull()
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05+09:00')).toBeNull()
+    expect(kstLocalDateTimeToEpochMs('2025-02-30T00:00:00')).toBeNull()
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T24:00:00')).toBeNull()
   })
 })
