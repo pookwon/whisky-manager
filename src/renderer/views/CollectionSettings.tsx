@@ -5,24 +5,33 @@ import {
   MAX_WORK_BLOCK_MINUTES,
   MIN_REST_MINUTES,
   MIN_WORK_BLOCK_MINUTES,
-  pagesPerWorkBlock,
   type CollectionSchedule,
 } from '../../shared/collectionSchedule.js'
+import { pagesPerWorkBlock, type CollectionPacing } from '../../shared/collectionPacing.js'
 import { api } from '../api.js'
 import { formatKstTime } from '../format.js'
 import { useApp } from '../store.js'
+import { CollectionPacingFields } from './CollectionPacingFields.js'
 
 export function CollectionSettings(): React.JSX.Element {
   const view = useApp((s) => s.collectionSchedule)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
   const [draft, setDraft] = useState<CollectionSchedule | null>(null)
+  const [pacingDraft, setPacingDraft] = useState<CollectionPacing | null>(null)
 
   useEffect(() => {
     if (view !== null) setDraft(view.schedule)
   }, [view])
 
-  if (view === null || draft === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
+  // Keyed on the stored value, not the polled object, so the page budget keeps
+  // following the fields while the operator is still typing.
+  const storedPacing = view === null ? null : JSON.stringify(view.pacing)
+  useEffect(() => {
+    if (storedPacing !== null) setPacingDraft(JSON.parse(storedPacing) as CollectionPacing)
+  }, [storedPacing])
+
+  if (view === null || draft === null || pacingDraft === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
   const save = (next: CollectionSchedule): void => {
     setDraft(next)
@@ -121,7 +130,7 @@ export function CollectionSettings(): React.JSX.Element {
           />
         </label>
         <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-          {TEXT.collectionSettings.workBlockHint(pagesPerWorkBlock(draft.workBlockMinutes))}
+          {TEXT.collectionSettings.workBlockHint(pagesPerWorkBlock(draft.workBlockMinutes, pacingDraft))}
         </p>
       </section>
 
@@ -176,7 +185,6 @@ export function CollectionSettings(): React.JSX.Element {
         </div>
       </section>
 
-      {/* Stated rather than offered: these are not knobs. */}
       <section className="flex flex-col gap-2">
         <h2
           className="text-[0.6875rem] font-medium uppercase tracking-wider"
@@ -184,18 +192,11 @@ export function CollectionSettings(): React.JSX.Element {
         >
           {TEXT.collectionSettings.pace}
         </h2>
-        <div className="panel flex flex-col gap-1.5 px-4 py-3 text-[0.8125rem]">
-          {[
-            [TEXT.collectionSettings.paceBetween, TEXT.collectionSettings.paceBetweenValue],
-            [TEXT.collectionSettings.paceTwenty, TEXT.collectionSettings.paceTwentyValue],
-            [TEXT.collectionSettings.paceHundred, TEXT.collectionSettings.paceHundredValue],
-          ].map(([label, value]) => (
-            <div key={label} className="flex justify-between gap-4">
-              <span style={{ color: 'var(--ink-muted)' }}>{label}</span>
-              <span className="tabular-nums">{value}</span>
-            </div>
-          ))}
-        </div>
+        <CollectionPacingFields
+          pacing={view.pacing}
+          onDraft={setPacingDraft}
+          onSave={(pacing) => void act(() => api.setCollectionPacing(pacing))}
+        />
         <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
           {TEXT.collectionSettings.paceWhy}
         </p>

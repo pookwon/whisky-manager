@@ -5,7 +5,6 @@ import {
   collectionRangeOfDays,
   nextCollectionRunTime,
   normalizeCollectionSchedule,
-  pagesPerWorkBlock,
 } from '../../src/shared/collectionSchedule.js'
 
 const DAY = 86_400_000
@@ -57,19 +56,6 @@ describe('collection schedule', () => {
     const lastRunEnd = NOW + 9 * HOUR // 18:00 KST
     const result = nextCollectionRunTime(NOW, enabled, { lastRunEndMs: lastRunEnd })
     expect(kst(result ?? 0)).toBe('2026-08-31 20:00')
-  })
-
-  it('estimates pages per work block conservatively', () => {
-    // 120 minutes should fit ~299 requests with pacing
-    const pages = pagesPerWorkBlock(120)
-    expect(pages).toBeGreaterThan(200)
-    expect(pages).toBeLessThan(350)
-  })
-
-  it('scales pages down with smaller work blocks', () => {
-    const pages30 = pagesPerWorkBlock(30)
-    const pages120 = pagesPerWorkBlock(120)
-    expect(pages30).toBeLessThan(pages120)
   })
 
   it('turns two chosen dates into whole KST days', () => {

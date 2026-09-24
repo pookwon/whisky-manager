@@ -9,6 +9,7 @@ import type {
   CollectionRangeProblem,
   CollectionSchedule,
 } from '../shared/collectionSchedule.js'
+import type { CollectionPacing } from '../shared/collectionPacing.js'
 import type { SessionOutcome, SessionProgress } from './orchestrator.js'
 import type { BundleProblem } from '../shared/configBundle.js'
 import type { ImportSummary } from './configTransfer.js'
@@ -31,6 +32,7 @@ export const IPC_CHANNELS = {
   getCollectionSchedule: 'wm:getCollectionSchedule',
   getRecentLog: 'wm:getRecentLog',
   setCollectionSchedule: 'wm:setCollectionSchedule',
+  setCollectionPacing: 'wm:setCollectionPacing',
   startCollection: 'wm:startCollection',
   stopCollection: 'wm:stopCollection',
   setCollectionForced: 'wm:setCollectionForced',
@@ -174,6 +176,7 @@ export type CollectionStatusView =
  */
 export interface CollectionScheduleView {
   readonly schedule: CollectionSchedule
+  readonly pacing: CollectionPacing
   readonly nextRunAtMs: number | null
   readonly running: boolean
 }
@@ -307,6 +310,8 @@ export interface RendererApi {
   getRecentLog(): Promise<readonly LogEntry[]>
   /** Saves the schedule and re-lays the next beat; returns what was stored. */
   setCollectionSchedule(schedule: CollectionSchedule): Promise<CollectionScheduleView>
+  /** Saves how fast a walk reads; a block already under way keeps the pacing it started with. */
+  setCollectionPacing(pacing: CollectionPacing): Promise<CollectionScheduleView>
   /**
    * Starts one collection now. Omit the request for the configured window
    * ending now; pass two days to collect exactly that period. Resolves once it

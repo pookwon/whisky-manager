@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
 import { createMemberCollectionOrchestrator, MEMBERS_PER_PAGE, TOPUP_MAX_PAGES } from '../../src/desktop/memberCollectionOrchestrator.js'
 import type { MemberRepository, PersistMemberPageInput } from '../../src/desktop/collection-db/memberRepository.js'
 import type { CollectedMember, CollectedMemberPage } from '../../src/shared/cafeMemberList.js'
@@ -45,7 +46,7 @@ function fakeRepo(overrides: Partial<MemberRepository> = {}) {
   return { repo: base, persisted, finished, isCompleted: () => completed, getStoredTotal: () => storedTotal }
 }
 
-const noBusy = { random: { intInclusive: (min: number) => min }, sleep: async () => undefined, clock: { now: () => 1_000 }, isSessionBusy: () => false, isAbortRequested: () => false }
+const noBusy = { random: { intInclusive: (min: number) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined, clock: { now: () => 1_000 }, isSessionBusy: () => false, isAbortRequested: () => false }
 
 describe('member collection orchestrator', () => {
   it('walks from page 1 and ends on a short final page', async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_COLLECTION_PACING, pagesPerWorkBlock, type CollectionPacing } from '../../src/shared/collectionPacing.js'
 import { createCollectionLoop } from '../../src/desktop/collectionLoop.js'
 import {
   DEFAULT_COLLECTION_SCHEDULE,
@@ -21,7 +22,7 @@ interface FakeJobSpec {
   maintenance?: (nowMs: number) => CollectionStartResult | null
 }
 
-function harness(schedule: CollectionSchedule, specs: FakeJobSpec[]) {
+function harness(schedule: CollectionSchedule, specs: FakeJobSpec[], pacing: CollectionPacing = DEFAULT_COLLECTION_PACING) {
   const started: { name: string; maxPages: number }[] = []
   const cleared: number[] = []
   let pending: { fn: () => void; dueAt: number; handle: number } | null = null
@@ -50,6 +51,7 @@ function harness(schedule: CollectionSchedule, specs: FakeJobSpec[]) {
     }))
 
   const loop = createCollectionLoop({
+    pacing: () => pacing,
     schedule: () => current,
     clock: { now: () => now },
     jobs,
@@ -135,8 +137,21 @@ describe('collection loop', () => {
     h.loop.refresh()
     await h.advance(2 * HOUR)
 
-    expect(h.started[0]?.maxPages).toBeGreaterThan(250)
-    expect(h.started[0]?.maxPages).toBeLessThan(320)
+    expect(h.started[0]?.maxPages).toBe(pagesPerWorkBlock(120, DEFAULT_COLLECTION_PACING))
+  })
+
+  it('works the page budget out from the pacing the operator set', async () => {
+    const slow: CollectionPacing = {
+      perPage: { minSeconds: 20, maxSeconds: 40 },
+      everyTwentyPages: { minSeconds: 600, maxSeconds: 600 },
+      everyHundredPages: { minSeconds: 1_800, maxSeconds: 1_800 },
+    }
+    const h = harness({ ...enabled, workBlockMinutes: 120 }, [articleSpec()], slow)
+    h.loop.refresh()
+    await h.advance(2 * HOUR)
+
+    expect(h.started[0]?.maxPages).toBe(pagesPerWorkBlock(120, slow))
+    expect(h.started[0]?.maxPages).toBeLessThan(pagesPerWorkBlock(120, DEFAULT_COLLECTION_PACING))
   })
 
   it('makes no request at all when there is no job', async () => {
@@ -324,6 +339,7 @@ describe('collection loop', () => {
     const timer: { fn: (() => void) | null } = { fn: null }
 
     const loop = createCollectionLoop({
+      pacing: () => DEFAULT_COLLECTION_PACING,
       schedule: () => ({ ...enabled }),
       clock: { now: () => inWindow },
       jobs: () => [

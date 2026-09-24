@@ -4,8 +4,8 @@ import { pauseUnlessStopped } from './collectionPause.js'
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedMemberPage } from '../shared/cafeMemberList.js'
 import type { Random } from '../shared/ports.js'
+import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CreateMemberRunInput, MemberFeedState, MemberRepository } from './collection-db/memberRepository.js'
-import { collectionDelayMs } from './collectionOrchestrator.js'
 import { locateMemberResumePosition, type MemberScheduledReader } from './memberCollectionResume.js'
 import type { ExtensionTransport } from './ws/server.js'
 
@@ -32,6 +32,7 @@ export interface MemberCollectionOrchestratorDeps {
   readonly fetcher: MemberPageFetcher
   readonly clock: MemberCollectionClock
   readonly random: Random
+  readonly pacing: CollectionPacing
   readonly sleep: (ms: number) => Promise<void>
   readonly isSessionBusy: () => boolean
   readonly isAbortRequested: () => boolean
@@ -94,7 +95,7 @@ function createScheduledReader(deps: MemberCollectionOrchestratorDeps, runId: st
       await deps.sleep(1_000)
     }
     if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')
-    const delay = collectionDelayMs(reads + 1, deps.random)
+    const delay = collectionDelayMs(reads + 1, deps.pacing, deps.random)
     if (!(await pauseUnlessStopped(delay, deps.sleep, deps.isAbortRequested))) throw new MemberCollectionPageError('ABORTED')
     while (deps.isSessionBusy()) {
       if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')

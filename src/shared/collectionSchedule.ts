@@ -56,41 +56,6 @@ export function normalizeCollectionSchedule(value: Partial<CollectionSchedule>):
 }
 
 /**
- * How many page requests fit in a work block, given the pacing delays.
- * Uses the delay rule already in collectionOrchestrator.ts:
- * - First request: 0ms
- * - Subsequent requests: 5–9s each
- * - Every 20th request adds 2–5min
- * - Every 100th request adds 10–20min
- *
- * This returns a conservative estimate (worst-case): middle delays.
- */
-export function pagesPerWorkBlock(workBlockMinutes: number): number {
-  const blockMs = workBlockMinutes * MINUTE_MS
-  // Conservative (worst-case) delays: 7s base, 3:30min per 20th, 15min per 100th
-  let timeSpent = 0
-  let requests = 0
-
-  for (requests = 1; requests <= 500; requests++) {
-    if (requests === 1) {
-      // First request has no delay
-    } else {
-      timeSpent += 7_000 // 5–9s middle point
-    }
-    if (requests % 20 === 0) {
-      timeSpent += 3.5 * 60 * 1_000 // 2–5min middle point
-    }
-    if (requests % 100 === 0) {
-      timeSpent += 15 * 60 * 1_000 // 10–20min middle point
-    }
-    if (timeSpent > blockMs) {
-      return Math.max(1, requests - 1)
-    }
-  }
-  return requests
-}
-
-/**
  * When the next scheduled read is due, or null when nothing is scheduled.
  *
  * The time is the start of the next work block that fits in the active window.

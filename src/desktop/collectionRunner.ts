@@ -1,4 +1,5 @@
 import type { Random } from '../shared/ports.js'
+import type { CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionRange } from '../shared/collectionSchedule.js'
 import type { CollectionFeed, CollectionRepository } from './collection-db/repository.js'
 import {
@@ -49,6 +50,11 @@ export interface CollectionRunnerDeps {
   readonly transport: ExtensionTransport
   readonly clock: CollectionClock
   readonly random: Random
+  /**
+   * Read once as a block starts and held for all of it: the block's page budget
+   * was worked out from the same pacing, and the two must not drift apart.
+   */
+  readonly pacing: () => CollectionPacing
   readonly sleep: (ms: number) => Promise<void>
   /** True while a greeting session holds the browser; the walk waits it out. */
   readonly isSessionBusy: () => boolean
@@ -84,6 +90,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
    */
   async function walk(request: CollectionStartRequest, repository: CollectionRepository): Promise<readonly CollectionRunResult[]> {
     const results: CollectionRunResult[] = []
+    const pacing = deps.pacing()
     let spent = 0
     for (const feed of request.feeds) {
       if (abortRequested || spent >= request.maxPages) break
@@ -92,6 +99,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
         fetcher: createBoardPageFetcher(deps.transport, deps.newId, feed.menuId),
         clock: deps.clock,
         random: deps.random,
+        pacing,
         sleep: deps.sleep,
         isSessionBusy: deps.isSessionBusy,
         isAbortRequested: () => abortRequested,

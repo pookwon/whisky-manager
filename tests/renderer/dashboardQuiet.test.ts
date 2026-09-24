@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
 import type {
   CollectionScheduleView,
   CollectionStatusView,
@@ -145,6 +146,7 @@ const SCHEDULE: CollectionScheduleView = {
     workBlockMinutes: 30,
     restMinutes: 30,
   },
+  pacing: DEFAULT_COLLECTION_PACING,
   nextRunAtMs: kst('2026-08-24T14:12:00'),
   running: false,
 }

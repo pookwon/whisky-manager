@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WELCOME_AUTOMATION_ID } from '../../src/desktop/bootstrap.js'
 import { PREFIX_REMINDER_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
 import { createAutomationSettingsRepo } from '../../src/desktop/db/automationSettingsRepo.js'
 import { openDatabase, type AppDatabase } from '../../src/desktop/db/client.js'
 import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
@@ -514,6 +515,27 @@ describe('getDashboard', () => {
       { id: WELCOME_AUTOMATION_ID, succeededToday: 1, failedToday: 1 },
       { id: PREFIX_REMINDER_AUTOMATION_ID, succeededToday: 0, failedToday: 0 },
     ])
+  })
+})
+
+describe('collection pacing', () => {
+  it('starts at the defaults and hands back what it stored, normalized', async () => {
+    const { api } = build()
+    expect((await api.getCollectionSchedule()).pacing).toEqual(DEFAULT_COLLECTION_PACING)
+
+    const view = await api.setCollectionPacing({
+      perPage: { minSeconds: 0, maxSeconds: 2 },
+      everyTwentyPages: { minSeconds: 10, maxSeconds: 20 },
+      everyHundredPages: { minSeconds: 60, maxSeconds: 30 },
+    })
+
+    const expected = {
+      perPage: { minSeconds: 1, maxSeconds: 2 },
+      everyTwentyPages: { minSeconds: 10, maxSeconds: 20 },
+      everyHundredPages: { minSeconds: 60, maxSeconds: 60 },
+    }
+    expect(view.pacing).toEqual(expected)
+    expect((await api.getCollectionSchedule()).pacing).toEqual(expected)
   })
 })
 

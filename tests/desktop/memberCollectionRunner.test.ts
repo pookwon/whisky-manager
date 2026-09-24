@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
 import { createCollectionLock } from '../../src/desktop/collectionLock.js'
 import { createCollectionRunner } from '../../src/desktop/collectionRunner.js'
 import { createMemberCollectionRunner } from '../../src/desktop/memberCollectionRunner.js'
@@ -88,6 +89,7 @@ describe('shared lock contention between article and member runners', () => {
       transport: fakeTransport(),
       clock: { now: () => Date.now() },
       random: { intInclusive: () => 0 },
+      pacing: () => DEFAULT_COLLECTION_PACING,
       sleep: async () => {},
       isSessionBusy: () => false,
       lock,
@@ -99,6 +101,7 @@ describe('shared lock contention between article and member runners', () => {
       transport: fakeTransport(),
       clock: { now: () => Date.now() },
       random: { intInclusive: () => 0 },
+      pacing: () => DEFAULT_COLLECTION_PACING,
       sleep: async () => {},
       isSessionBusy: () => false,
       lock,
@@ -135,6 +138,7 @@ describe('shared lock contention between article and member runners', () => {
       transport: fakeTransport(),
       clock: { now: () => Date.now() },
       random: { intInclusive: () => 0 },
+      pacing: () => DEFAULT_COLLECTION_PACING,
       sleep: async () => {},
       isSessionBusy: () => false,
       lock,
@@ -149,5 +153,32 @@ describe('shared lock contention between article and member runners', () => {
     // Wait for the orchestrator to fail and release the lock.
     await new Promise((r) => setTimeout(r, 50))
     expect(lock.isHeld()).toBe(false)
+  })
+})
+
+describe('member collection pacing', () => {
+  it('reads the pacing once, as the block starts', async () => {
+    let reads = 0
+    const runner = createMemberCollectionRunner({
+      repository: () => fullFakeRepo(),
+      transport: fakeTransport(),
+      clock: { now: () => Date.now() },
+      random: { intInclusive: () => 0 },
+      pacing: () => {
+        reads += 1
+        return DEFAULT_COLLECTION_PACING
+      },
+      sleep: async () => {},
+      isSessionBusy: () => false,
+      lock: createCollectionLock(),
+      newId: () => 'id-pacing',
+      onError: () => {},
+    })
+
+    expect(runner.start({ mode: 'incremental', maxPages: 10, resumeFromCheckpoint: false })).toEqual({ kind: 'started' })
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(runner.isRunning()).toBe(false)
+    expect(reads).toBe(1)
   })
 })

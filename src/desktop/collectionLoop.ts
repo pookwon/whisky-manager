@@ -1,8 +1,5 @@
-import {
-  nextCollectionRunTime,
-  pagesPerWorkBlock,
-  type CollectionSchedule,
-} from '../shared/collectionSchedule.js'
+import { nextCollectionRunTime, type CollectionSchedule } from '../shared/collectionSchedule.js'
+import { pagesPerWorkBlock, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import type { CollectionStartResult } from './collectionRunner.js'
 import type { CollectionJob } from './collectionJob.js'
@@ -25,6 +22,8 @@ const BRIDGE_RETRY_MINUTES = 2
 
 export interface CollectionLoopDeps {
   readonly schedule: () => CollectionSchedule
+  /** How fast a block reads, which decides how many pages it is given. */
+  readonly pacing: () => CollectionPacing
   readonly clock: CollectionClock
   /** The collectable jobs, read on every beat so a job that appears is picked up. */
   readonly jobs: () => readonly CollectionJob[]
@@ -117,7 +116,7 @@ export function createCollectionLoop(deps: CollectionLoopDeps): CollectionLoop {
           return { exists: false as const, complete: false as const, forced: false as const }
         })
         forced = progress.some((p) => p.forced)
-        const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
+        const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes, deps.pacing())
 
         // Daily maintenance (the member top-up) is offered before the main walk
         // and only starts when it is actually due.

@@ -14,11 +14,12 @@ import type { OptionalCollectionContext } from './collectionContext.js'
 import type { CollectionLoop } from './collectionLoop.js'
 import type { CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
+import { readCollectionPacing, writeCollectionPacing } from './collectionPacingSettings.js'
+import { pagesPerWorkBlock } from '../shared/collectionPacing.js'
 import { describeJob } from './collectionScope.js'
 import {
   checkCollectionRange,
   collectionRangeOfDays,
-  pagesPerWorkBlock,
   type CollectionRange,
 } from '../shared/collectionSchedule.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
@@ -148,6 +149,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
   const scheduleView = (): CollectionScheduleView => ({
     schedule: readCollectionSchedule(settings),
+    pacing: readCollectionPacing(settings),
     nextRunAtMs: deps.collectionLoop.nextRunAt(),
     running: deps.collectionRunner.isRunning(),
   })
@@ -240,6 +242,12 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve(scheduleView())
     },
 
+    setCollectionPacing(pacing): Promise<CollectionScheduleView> {
+      // A block reads it as it starts, so there is no beat to re-lay.
+      writeCollectionPacing(settings, pacing)
+      return Promise.resolve(scheduleView())
+    },
+
     async startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
       const collection = deps.collection()
       const stored = collection.kind === 'ready' ? await collection.status.read() : null
@@ -248,7 +256,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const startFor = (range: CollectionRange, feeds: readonly CollectionFeed[], resumeFromCheckpoint: boolean): StartCollectionResult => {
         const schedule = readCollectionSchedule(settings)
         const started = deps.collectionRunner.start({
-          range, kind: 'backfill', maxPages: pagesPerWorkBlock(schedule.workBlockMinutes), feeds, resumeFromCheckpoint,
+          range, kind: 'backfill', maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)), feeds, resumeFromCheckpoint,
         })
         return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
@@ -337,7 +345,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const state = await collection.memberRepository.readMemberFeedState()
       if (state?.complete === true) return { kind: 'refused', reason: 'JOB_FINISHED' }
       const schedule = readCollectionSchedule(settings)
-      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
+      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings))
       // First start walks from page 1; an existing unfinished row resumes.
       const started = deps.memberCollectionRunner.start({
         mode: state === null ? 'backfill' : 'incremental',

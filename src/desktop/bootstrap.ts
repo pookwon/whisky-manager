@@ -56,6 +56,7 @@ import { createCollectionLock } from './collectionLock.js'
 import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
+import { readCollectionPacing } from './collectionPacingSettings.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
 import { createSessionRecorder, type SessionRecorder } from './sessionLog.js'
 import {
@@ -536,6 +537,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     transport,
     clock: systemClock,
     random: systemRandom,
+    pacing: () => readCollectionPacing(settings),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     isSessionBusy: isAnySessionInFlight,
     lock: collectionLock,
@@ -548,6 +550,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     transport,
     clock: systemClock,
     random: systemRandom,
+    pacing: () => readCollectionPacing(settings),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     isSessionBusy: isAnySessionInFlight,
     lock: collectionLock,
@@ -562,6 +565,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
 
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
+    pacing: () => readCollectionPacing(settings),
     jobs: () => [
       createArticleCollectionJob({
         repository: () => (collection.kind === 'ready' ? collection.repository : null),

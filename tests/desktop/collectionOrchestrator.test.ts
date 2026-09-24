@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CollectionPageError, collectionDelayMs, createBoardPageFetcher, createCollectionOrchestrator, findCollectionStartPage } from '../../src/desktop/collectionOrchestrator.js'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
+import { CollectionPageError, createBoardPageFetcher, createCollectionOrchestrator, findCollectionStartPage } from '../../src/desktop/collectionOrchestrator.js'
 import type { CollectionFeed, CollectionRepository, PersistCollectedPageInput } from '../../src/desktop/collection-db/repository.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
 
@@ -107,7 +108,7 @@ function repositoryWithCheckpoint(checkpoint: {
 }
 
 function deps(repo: CollectionRepository) {
-  return { repository: repo, clock: { now: () => 1_000 }, random: { intInclusive: () => 0 }, sleep: async () => undefined, isSessionBusy: () => false, isAbortRequested: () => false }
+  return { repository: repo, clock: { now: () => 1_000 }, random: { intInclusive: () => 0 }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined, isSessionBusy: () => false, isAbortRequested: () => false }
 }
 
 describe('collection planning and orchestration', () => {
@@ -137,6 +138,7 @@ describe('collection planning and orchestration', () => {
       fetcher: { read: (n) => Promise.resolve(pages[n] ?? page([post('a', 900_000)], 2)) },
       clock: { now: () => 1_000 },
       random: { intInclusive: (min: number) => min },
+      pacing: DEFAULT_COLLECTION_PACING,
       sleep: () => Promise.resolve(),
       isSessionBusy: () => false,
       isAbortRequested: () => false,
@@ -164,6 +166,7 @@ describe('collection planning and orchestration', () => {
       fetcher: { read: (n) => reader.probe(n) },
       clock: { now: () => 1_000 },
       random: { intInclusive: (min: number) => min },
+      pacing: DEFAULT_COLLECTION_PACING,
       sleep: () => Promise.resolve(),
       isSessionBusy: () => false,
       isAbortRequested: () => false,
@@ -191,6 +194,7 @@ describe('collection planning and orchestration', () => {
       fetcher: { read: (n) => reader.probe(n) },
       clock: { now: () => 1_000 },
       random: { intInclusive: (min: number) => min },
+      pacing: DEFAULT_COLLECTION_PACING,
       sleep: () => Promise.resolve(),
       isSessionBusy: () => false,
       isAbortRequested: () => false,
@@ -201,14 +205,6 @@ describe('collection planning and orchestration', () => {
     })
 
     expect(result).toMatchObject({ kind: 'failed', code: 'BOARD_PAGE_DUPLICATE_POST' })
-  })
-
-  it('has deterministic injected delays with the required short and long breaks', () => {
-    const random = { intInclusive: (min: number) => min }
-    expect(collectionDelayMs(1, random)).toBe(0)
-    expect(collectionDelayMs(2, random)).toBe(5_000)
-    expect(collectionDelayMs(20, random)).toBe(125_000)
-    expect(collectionDelayMs(100, random)).toBe(725_000)
   })
 
   it('filters range rows, yields while the greeting session is busy, and ends at the older boundary', async () => {
@@ -227,6 +223,7 @@ describe('collection planning and orchestration', () => {
       }),
       clock: { now: () => 1_000 },
       random: { intInclusive: (min) => min },
+      pacing: DEFAULT_COLLECTION_PACING,
       sleep: async (ms) => { sleeps.push(ms); busy = false },
       isSessionBusy: () => busy,
       isAbortRequested: () => false,
@@ -243,7 +240,7 @@ describe('collection planning and orchestration', () => {
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
       fetcher: fetcher({ 1: page([post('1', 300), post('2', 250)]), 2: page([post('older', 150)]) }),
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => true,
     })
 
@@ -257,7 +254,7 @@ describe('collection planning and orchestration', () => {
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
       fetcher: fetcher({ 1: page([post('1', 280), post('2', 250)]), 2: page([post('older', 150)]) }),
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -284,7 +281,7 @@ describe('collection planning and orchestration', () => {
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
       fetcher: fetcher({ 1: page([post('new', 320), post('still-new', 300)]), 2: page([post('older', 150)]) }),
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -314,7 +311,7 @@ describe('collection planning and orchestration', () => {
           return pages[number as keyof typeof pages] ?? page([], 1)
         },
       },
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min },
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING,
       sleep: async (ms) => {
         sleeps.push(ms)
         if (ms === 5_000 && !delayedOnce) {
@@ -349,7 +346,7 @@ describe('collection planning and orchestration', () => {
           return pages[number as keyof typeof pages] ?? page([], 1)
         },
       },
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -376,7 +373,7 @@ describe('collection planning and orchestration', () => {
           return number === 1 ? resultPage : page([post('older', 150)])
         },
       },
-      clock: { now: () => now }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => now }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -397,7 +394,7 @@ describe('collection planning and orchestration', () => {
     const orchestrator = createCollectionOrchestrator({
       repository: repo,
       fetcher: { read: async (number) => { fetched.push(number); return pages[number as keyof typeof pages] ?? page([], 1) } },
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -430,7 +427,7 @@ describe('collection planning and orchestration', () => {
           return pageOneReads <= 2 ? pageOneBefore : pageOneAfterDeletion
         },
       },
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -457,7 +454,7 @@ describe('collection planning and orchestration', () => {
           return pageOneReads <= 2 ? pageOneBefore : pageOneMoved
         },
       },
-      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, sleep: async () => undefined,
+      clock: { now: () => 1_000 }, random: { intInclusive: (min) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined,
       isSessionBusy: () => false, isAbortRequested: () => false,
     })
 
@@ -550,6 +547,7 @@ describe('collection planning and orchestration', () => {
     const orchestrator = createCollectionOrchestrator({
       ...deps(repo),
       random: { intInclusive: () => 600_000 },
+      pacing: DEFAULT_COLLECTION_PACING,
       sleep: async (ms) => { sleptMs += ms; if (sleptMs >= 1_000) stop = true },
       isAbortRequested: () => stop,
       fetcher: fetcher(pages),
