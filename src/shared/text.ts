@@ -717,7 +717,7 @@ export const TEXT = {
     preview: (count: number, from: string, to: string) => `검색어 ${count.toLocaleString('ko-KR')}개 · ${from} ~ ${to}`,
     previewButton: '미리 보기',
     create: '보충 작업 만들기',
-    replaceConfirm: '진행 중인 보충 작업을 지우고 새로 만듭니다. 계속할까요?',
+    replaceConfirm: '기존 보충 작업을 지우고 새로 만듭니다. 계속할까요?',
     start: '지금 보충',
     resume: '이어서 보충',
     stop: '멈추기',
@@ -727,8 +727,8 @@ export const TEXT = {
     finished: '보충 완료',
     summary: (done: number, total: number, inserted: number, current: string | null) =>
       `검색어 ${done} / ${total} · 새 글 ${inserted.toLocaleString('ko-KR')}건${current === null ? '' : ` · 다음 '${current}'`}`,
-    coverage: (remaining: number, ratio: number) =>
-      `아직 못 거둔 글 약 ${remaining.toLocaleString('ko-KR')}건 (삭제·비수집 게시판 ${(ratio * 100).toFixed(1)}% 제외)`,
+    coverage: (span: number, missing: number, ratio: number, remaining: number) =>
+      `빈 구간 id ${span.toLocaleString('ko-KR')}개 중 비어 있는 것 ${missing.toLocaleString('ko-KR')}개. 기준선 ${(ratio * 100).toFixed(1)}%(삭제·비수집 게시판)를 빼면 아직 못 거둔 글 약 ${remaining.toLocaleString('ko-KR')}건`,
     window: (board: string, from: string, to: string) => `${board} · ${from} ~ ${to}`,
     queries: '검색어별 진행',
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },

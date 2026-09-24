@@ -2,7 +2,15 @@ import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
 import type { BoardSearchPlanView, BoardSearchStatusView, StartCollectionResult } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
-import { boardSearchCoverageLine, boardSearchQueryState, boardSearchSummaryLine, dayKeyLabel, dayKeyOfDateInput } from './boardSearchLines.js'
+import {
+  boardSearchCoverageLine,
+  boardSearchPlanOutcome,
+  boardSearchQueryState,
+  boardSearchStartLabel,
+  boardSearchSummaryLine,
+  dayKeyLabel,
+  dayKeyOfDateInput,
+} from './boardSearchLines.js'
 
 type ReadyView = Extract<BoardSearchStatusView, { readonly kind: 'ready' }>['view']
 
@@ -13,12 +21,6 @@ interface BoardSearchCardProps {
 }
 
 const DEFAULT_FROM = '2025-01-01'
-
-function planLine(plan: BoardSearchPlanView, fromDay: string): string {
-  return plan.kind === 'ready'
-    ? TEXT.boardSearch.preview(plan.queryCount, dayKeyLabel(fromDay), dayKeyLabel(plan.toDay))
-    : TEXT.boardSearch.refused[plan.reason]
-}
 
 function startRefusal(result: StartCollectionResult): string | null {
   return result.kind === 'refused' ? TEXT.boardSearch.startRefused[result.reason] : null
@@ -32,11 +34,25 @@ function startRefusal(result: StartCollectionResult): string | null {
 export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): React.JSX.Element {
   const [boardId, setBoardId] = useState(view.job?.boardId ?? view.boards[0]?.boardId ?? '')
   const [fromDate, setFromDate] = useState(view.job === null ? DEFAULT_FROM : dayKeyLabel(view.job.fromDay))
-  const [message, setMessage] = useState<string | null>(null)
+  /** The last preview or create that came back as a plan, until the next press. */
+  const [plan, setPlan] = useState<string | null>(null)
+  /** Why the last press did nothing, until the next press. */
+  const [refusal, setRefusal] = useState<string | null>(null)
   const { job, running } = view
   const fromDay = dayKeyOfDateInput(fromDate)
   const coverageLine = job === null ? null : boardSearchCoverageLine(job.coverage)
   const finished = job !== null && job.current === null
+
+  const clear = (): void => {
+    setPlan(null)
+    setRefusal(null)
+  }
+
+  const answer = (outcome: BoardSearchPlanView): void => {
+    const { kind, text } = boardSearchPlanOutcome(outcome, fromDay)
+    if (kind === 'plan') setPlan(text)
+    else setRefusal(text)
+  }
 
   return (
     <section className="panel overflow-hidden">
@@ -75,12 +91,25 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                   )}
                 </>
               )}
-              {message !== null && <div className="mt-1 text-sm tone-warn">{message}</div>}
+              {plan !== null && (
+                <div className="mt-1 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+                  {plan}
+                </div>
+              )}
+              {refusal !== null && <div className="mt-1 text-sm tone-warn">{refusal}</div>}
             </div>
             {job !== null &&
               !finished &&
               (running ? (
-                <button type="button" className="btn shrink-0" disabled={busy} onClick={() => void act(() => api.stopBoardSearch())}>
+                <button
+                  type="button"
+                  className="btn shrink-0"
+                  disabled={busy}
+                  onClick={() => {
+                    clear()
+                    void act(() => api.stopBoardSearch())
+                  }}
+                >
                   {TEXT.boardSearch.stop}
                 </button>
               ) : (
@@ -89,11 +118,11 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                   className="btn shrink-0"
                   disabled={busy}
                   onClick={() => {
-                    setMessage(null)
-                    void act(async () => setMessage(startRefusal(await api.startBoardSearch())))
+                    clear()
+                    void act(async () => setRefusal(startRefusal(await api.startBoardSearch())))
                   }}
                 >
-                  {job.completedCount > 0 || job.insertedTotal > 0 ? TEXT.boardSearch.resume : TEXT.boardSearch.start}
+                  {boardSearchStartLabel(job)}
                 </button>
               ))}
           </div>
@@ -103,8 +132,8 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
             onSubmit={(event) => {
               event.preventDefault()
               if (job !== null && !window.confirm(TEXT.boardSearch.replaceConfirm)) return
-              setMessage(null)
-              void act(async () => setMessage(planLine(await api.createBoardSearchJob({ boardId, fromDay }), fromDay)))
+              clear()
+              void act(async () => answer(await api.createBoardSearchJob({ boardId, fromDay })))
             }}
           >
             <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -131,7 +160,10 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
               type="button"
               className="btn"
               disabled={busy || boardId === ''}
-              onClick={() => void act(async () => setMessage(planLine(await api.previewBoardSearchJob({ boardId, fromDay }), fromDay)))}
+              onClick={() => {
+                clear()
+                void act(async () => answer(await api.previewBoardSearchJob({ boardId, fromDay })))
+              }}
             >
               {TEXT.boardSearch.previewButton}
             </button>
