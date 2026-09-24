@@ -10,7 +10,11 @@ import type { ExtensionTransport } from './ws/server.js'
 
 export interface CollectionClock { now(): number }
 export interface BoardPageFetcher { read(page: number): Promise<CollectedArticlePage> }
-export interface CollectionRunOptions { readonly feed: CollectionFeed; readonly run: CreateCollectionRunInput; readonly maxPages: number; readonly maxProbePages?: number }
+export interface CollectionRunOptions {
+  readonly feed: CollectionFeed; readonly run: CreateCollectionRunInput; readonly maxPages: number; readonly maxProbePages?: number
+  /** Requests the block already made on earlier feeds, so pacing counts on across board switches. */
+  readonly requestsBefore?: number
+}
 export type CollectionRunResult =
   | { readonly kind: 'succeeded'; readonly pagesStored: number; readonly requests: number }
   | { readonly kind: 'partial'; readonly pagesStored: number; readonly requests: number; readonly reason: 'PAGE_BUDGET_SPENT' | 'FEED_HORIZON' }
@@ -112,7 +116,7 @@ export interface ScheduledReader {
   observedAt(page: CollectedArticlePage): Date
   readonly reads: number
 }
-function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, maxPages: number, maxProbePages: number): ScheduledReader {
+function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, maxPages: number, maxProbePages: number, requestsBefore: number): ScheduledReader {
   let reads = 0; let probes = 0
   const observations = new WeakMap<CollectedArticlePage, Date>()
   const read = async (page: number, phase: 'probe' | 'collection'): Promise<CollectedArticlePage> => {
@@ -120,7 +124,7 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     if (phase === 'probe' && probes >= maxProbePages) throw new CollectionPageError('PROBE_PAGE_LIMIT')
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
-    const delay = collectionDelayMs(reads + 1, deps.random)
+    const delay = collectionDelayMs(requestsBefore + reads + 1, deps.random)
     if (!(await pauseUnlessStopped(delay, deps.sleep, deps.isAbortRequested))) throw new CollectionPageError('ABORTED')
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
@@ -200,7 +204,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
     try {
       if (options.run.feedKind !== options.feed.feedKind || options.run.menuId !== options.feed.menuId) throw new CollectionPageError('RUN_FEED_MISMATCH')
       const initial = await deps.repository.startRun(options.run)
-      reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 64)
+      reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 64, options.requestsBefore ?? 0)
       let state: CollectionFeedState = initial
       let pageNumber: number; let firstOffset = 0; let firstPage: CollectedArticlePage | null = null
       const resumed = state.anchorPostId !== null && state.anchorPostedAtMs !== null && state.referencePage !== null

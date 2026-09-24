@@ -53,6 +53,28 @@ function runner(repo: CollectionRepository, t: ReturnType<typeof transport>['tra
   })
 }
 
+const BASE_PAUSE = 5_000
+const TWENTIETH_BREAK = 120_000
+
+/**
+ * Random at its low bound, so every pause is exact; each read records how long
+ * the walk slept since the read before it.
+ */
+function pacedRunner(repo: CollectionRepository, t: ReturnType<typeof transport>['transport']) {
+  const pauses: number[] = []
+  let slept = 0
+  const request = (t as { request: (m: never) => Promise<unknown> }).request
+  ;(t as { request: unknown }).request = async (message: never) => { pauses.push(slept); slept = 0; return request(message) }
+  let resolveDone!: () => void
+  const done = new Promise<void>((resolve) => { resolveDone = resolve })
+  const paced = createCollectionRunner({
+    repository: () => repo, transport: t, clock: { now: () => 1_000 }, random: { intInclusive: (low) => low },
+    sleep: async (ms) => { slept += ms }, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => 'id',
+    onFinished: () => resolveDone(),
+  })
+  return { runner: paced, done, pauses }
+}
+
 const inPeriod = (id: string) => page([post(id, 150)], 1)
 const feeds = [{ feedKind: 'board' as const, menuId: '137' }, { feedKind: 'board' as const, menuId: '189' }, { feedKind: 'board' as const, menuId: '205' }]
 
@@ -90,6 +112,30 @@ describe('collection runner over a queue of feeds', () => {
     r.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages: 30, feeds, resumeFromCheckpoint: true })
     await done
     expect(finished).toEqual(['succeeded:', 'failed:BOARD_PAGE_HTTP_ERROR', 'succeeded:'])
+  })
+
+  it('waits before the next feed\'s first read', async () => {
+    const t = transport({ '137': { 1: inPeriod('a') }, '189': { 1: inPeriod('b') } })
+    const { repo } = repository()
+    const paced = pacedRunner(repo, t.transport)
+    paced.runner.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages: 30, feeds: feeds.slice(0, 2), resumeFromCheckpoint: true })
+    await paced.done
+    expect(t.asked).toEqual(['137:1', '137:1', '137:2', '189:1', '189:1', '189:2'])
+    expect(paced.pauses).toEqual([0, BASE_PAUSE, BASE_PAUSE, BASE_PAUSE, BASE_PAUSE, BASE_PAUSE])
+  })
+
+  it('takes the every-20th break on the block\'s count, not each feed\'s', async () => {
+    // Nine three-read boards: none reaches twenty alone, the block does on its seventh.
+    const small = Array.from({ length: 9 }, (_, index) => ({ feedKind: 'board' as const, menuId: `${300 + index}` }))
+    const t = transport(Object.fromEntries(small.map((feed) => [feed.menuId, { 1: inPeriod(`p${feed.menuId}`) }])))
+    const { repo } = repository()
+    const paced = pacedRunner(repo, t.transport)
+    paced.runner.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages: 30, feeds: small, resumeFromCheckpoint: true })
+    await paced.done
+    expect(paced.pauses).toHaveLength(27)
+    expect(t.asked[19]).toBe('306:1')
+    expect(paced.pauses[19]).toBe(BASE_PAUSE + TWENTIETH_BREAK)
+    expect(paced.pauses.filter((pause, index) => index !== 0 && index !== 19)).toEqual(Array(25).fill(BASE_PAUSE))
   })
 
   it('does not go on after a stop', async () => {
