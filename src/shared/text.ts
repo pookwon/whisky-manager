@@ -53,6 +53,8 @@ export const TEXT = {
     collection: '게시판 수집',
     collectionStatus: '수집 현황',
     collectionSettings: '수집 설정',
+    members: '회원 수집',
+    memberStatus: '회원 현황',
     commonSettings: '카페 · 계정 설정',
     common: '공통',
   },
@@ -626,6 +628,8 @@ export const TEXT = {
     quit: '종료',
   },
   memberCollection: {
+    pageHeading: '회원 현황',
+    sharesSchedule: '활동 시간과 읽기 속도는 게시판 수집의 수집 설정을 함께 따릅니다.',
     heading: '회원 목록',
     running: '수집 중',
     idle: '대기',

@@ -13,6 +13,7 @@ import { AutomationSettings } from './views/AutomationSettings.js'
 import { CollectionSettings } from './views/CollectionSettings.js'
 import { CollectionStatus } from './views/CollectionStatus.js'
 import { CommonSettings } from './views/CommonSettings.js'
+import { MemberCollection } from './views/members/MemberCollection.js'
 import { RecentLog } from './views/RecentLog.js'
 import { Dashboard } from './views/Dashboard.js'
 import { ExtensionSetupDialog } from './views/ExtensionSetupDialog.js'
@@ -27,6 +28,7 @@ export function App(): React.JSX.Element {
   const loadCafeImage = useApp((s) => s.loadCafeImage)
   const dashboard = useApp((s) => s.dashboard)
   const collection = useApp((s) => s.collection)
+  const memberCollection = useApp((s) => s.memberCollection)
   const cafeImage = useApp((s) => s.cafeImage)
   const error = useApp((s) => s.error)
   const [setupMode, setSetupMode] = useState<'connect' | 'recover' | null>(null)
@@ -66,6 +68,7 @@ export function App(): React.JSX.Element {
 
   /** Only a storage that answered can report a run; anything else is not "no". */
   const collectionRunning = collection?.kind === 'ready' && collection.status.running !== null
+  const memberCollectionRunning = memberCollection?.kind === 'ready' && memberCollection.status.running
 
   /** Read from the dashboard, which every route polls, so the badge stays live. */
   const awaitingFor = (automationId: string): number =>
@@ -198,6 +201,21 @@ export function App(): React.JSX.Element {
           </div>
         </section>
 
+        <section className="mt-5" aria-label={TEXT.nav.members}>
+          <h2 className="nav-section">{TEXT.nav.members}</h2>
+          <div className="nav-children">
+            <button
+              type="button"
+              className="nav-item nav-item-sub"
+              aria-current={route.kind === 'members' ? 'page' : undefined}
+              onClick={() => setRoute({ kind: 'members' })}
+            >
+              <span>{TEXT.nav.memberStatus}</span>
+              {memberCollectionRunning && <span className="chip tone-accent">{TEXT.memberCollection.running}</span>}
+            </button>
+          </div>
+        </section>
+
         <section className="mt-5" aria-label={TEXT.nav.common}>
           <h2 className="nav-group-label">{TEXT.nav.common}</h2>
           <button
@@ -228,6 +246,7 @@ export function App(): React.JSX.Element {
         {route.kind === 'dashboard' && <Dashboard />}
         {route.kind === 'collection' && route.panel === 'status' && <CollectionStatus />}
         {route.kind === 'collection' && route.panel === 'settings' && <CollectionSettings />}
+        {route.kind === 'members' && <MemberCollection />}
         {route.kind === 'commonSettings' && <CommonSettings />}
         {route.kind === 'log' && <RecentLog />}
         {route.kind === 'automation' && route.panel === 'approvals' && (
