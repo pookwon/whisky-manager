@@ -72,6 +72,32 @@ describe('createNaverReadGate', () => {
     await secondBoard
   })
 
+  it('queues a COLLECT_BOARD_SEARCH_PAGE behind an in-flight COLLECT, just like COLLECT_BOARD_PAGE', async () => {
+    const { transport, sent } = deferredTransport()
+    const gate = createNaverReadGate(createCollectGate(transport))
+
+    const activeCollect = gate.request(collect('collect-1'), TIMEOUT_MS)
+    await settleMicrotasks()
+    expect(sent).toHaveLength(1)
+
+    const searchPage = gate.request(
+      { type: 'COLLECT_BOARD_SEARCH_PAGE', requestId: 'search-1', cafeId: '14538121', menuId: '137', query: '글렌', fromDay: '20250101', toDay: '20250828', page: 1, pageSize: 50 },
+      TIMEOUT_MS,
+    )
+    await settleMicrotasks()
+    // Search page must not be passed to the inner transport while COLLECT is in flight.
+    expect(sent).toHaveLength(1)
+
+    sent[0]!.settle({ type: 'COLLECTED', requestId: 'collect-1', candidates: [] })
+    await activeCollect
+    await settleMicrotasks()
+    expect(sent).toHaveLength(2)
+    expect(sent[1]!.message.type).toBe('COLLECT_BOARD_SEARCH_PAGE')
+
+    sent[1]!.settle({ type: 'BOARD_PAGE_COLLECTED', requestId: 'search-1', page: 1, result: { items: [], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 0 }, pageIdentity: 'empty' } })
+    await searchPage
+  })
+
   it('does not delay non-read requests behind a board page', async () => {
     const { transport, sent } = deferredTransport()
     const gate = createNaverReadGate(createCollectGate(transport))

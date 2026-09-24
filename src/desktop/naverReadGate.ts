@@ -3,8 +3,14 @@ import type { ExtensionTransport } from './ws/server.js'
 
 type InterimListener = (message: ExtensionMessage) => void
 
+type PageRead = Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' | 'COLLECT_BOARD_SEARCH_PAGE' }>
+
+function isPageRead(message: AppMessage): message is PageRead {
+  return message.type === 'COLLECT_BOARD_PAGE' || message.type === 'COLLECT_BOARD_SEARCH_PAGE'
+}
+
 interface QueuedBoardPage {
-  readonly message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }>
+  readonly message: PageRead
   readonly timeoutMs: number
   readonly onInterim: InterimListener | undefined
   readonly resolve: (message: ExtensionMessage) => void
@@ -12,10 +18,10 @@ interface QueuedBoardPage {
 }
 
 /**
- * Serializes all Naver reads without changing createCollectGate's special
- * same-range joining behaviour. Existing COLLECT calls may join the active
- * walk; a queued COLLECT always runs before the next board page. Writes and
- * other non-read messages deliberately bypass this gate.
+ * Serializes all Naver reads — list and search pages alike — without changing
+ * createCollectGate's special same-range joining behaviour. Existing COLLECT
+ * calls may join the active walk; a queued COLLECT always runs before the next
+ * board page. Writes and other non-read messages deliberately bypass this gate.
  */
 export function createNaverReadGate(inner: ExtensionTransport): ExtensionTransport {
   let activeCollects = 0
@@ -85,7 +91,7 @@ export function createNaverReadGate(inner: ExtensionTransport): ExtensionTranspo
         })
       }
 
-      if (message.type === 'COLLECT_BOARD_PAGE') {
+      if (isPageRead(message)) {
         return new Promise<ExtensionMessage>((resolve, reject) => {
           queuedBoardPages.push({ message, timeoutMs, onInterim, resolve, reject })
           drain()
