@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { CAFE_ARTICLE_LIST } from '../../src/shared/cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from '../../src/shared/cafeMemberFixture.js'
-import type { AppMessage, ExtensionMessage, SourceRef } from '../../src/shared/protocol.js'
+import type { AppMessage, CollectBoardSearchPageRequest, ExtensionMessage, SourceRef } from '../../src/shared/protocol.js'
 import { createDispatcher, type DispatcherDeps } from '../../src/extension/dispatch.js'
 import type { ExecuteResult } from '../../src/extension/cafeClient.js'
 
@@ -39,6 +39,7 @@ function setup(overrides: Partial<DispatcherDeps> = {}) {
     cafe,
     articleCafe,
     boardPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'BOARD_PAGE_HTTP_ERROR' as const }) },
+    boardSearchPageReader: { read: async () => ({ ok: false as const, code: 'BOARD_SEARCH_BAD_REQUEST' as const }) },
     memberPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'MEMBER_PAGE_FORBIDDEN' as const }) },
     probe: (requestId, url, reply) => {
       reply({ type: 'PROBE_RESULT', requestId, status: 200, contentType: null, text: url, error: null })
@@ -181,6 +182,28 @@ describe('the rest of the instructions', () => {
 
     expect(replies[0]).toMatchObject({ type: 'BOARD_PAGE_COLLECTED', page: 3 })
     expect(replies[1]).toMatchObject({ type: 'MEMBER_PAGE_COLLECTED', page: 4 })
+  })
+
+  it('answers a board search page read with BOARD_PAGE_COLLECTED', async () => {
+    const result = { items: [], pageIdentity: 'q', totalCount: null }
+    const searchRequest: CollectBoardSearchPageRequest = {
+      type: 'COLLECT_BOARD_SEARCH_PAGE',
+      requestId: 'rs1',
+      cafeId: '14538121',
+      menuId: '137',
+      query: '글렌',
+      fromDay: '20250101',
+      toDay: '20250131',
+      page: 1,
+      pageSize: 50,
+    }
+    const { run, replies } = setup({
+      boardSearchPageReader: { read: async () => ({ ok: true as const, page: 1, result: result as never }) },
+    })
+
+    await run(searchRequest)
+
+    expect(replies[0]).toMatchObject({ type: 'BOARD_PAGE_COLLECTED', requestId: 'rs1', page: 1 })
   })
 
   it('hands a probe to the probe itself and ignores an abort', async () => {

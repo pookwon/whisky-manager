@@ -5,6 +5,7 @@ import {
 } from '../../src/shared/automations/prefix-reminder/articleCafe.js'
 import { commentPostUrl } from '../../src/shared/automations/welcome-comment/cafe.js'
 import { cafeArticleListUrl } from '../../src/shared/cafeArticleFixture.js'
+import { cafeBoardSearchReferer, cafeBoardSearchUrl } from '../../src/shared/cafeBoardSearchEndpoint.js'
 import { REFERER_RULE_IDS, refererRuleFor } from '../../src/extension/refererRule.js'
 
 const REFERER = 'https://cafe.naver.com/ca-fe/cafes/1/articles/2'
@@ -12,6 +13,7 @@ const REFERER = 'https://cafe.naver.com/ca-fe/cafes/1/articles/2'
 const memoWrite = commentPostUrl
 const articleWrite = articleCommentPostUrl
 const articleRead = articleCommentListUrl({ cafeId: '1', boardId: '2' }, '3', 1)
+const boardSearch = cafeBoardSearchUrl({ menuId: '137', query: '글렌', fromDay: '20250101', toDay: '20250131', page: 1 })
 /** A collection walk: the same host as the article write, and no referer of its own. */
 const collection = cafeArticleListUrl(1, '0')
 
@@ -43,24 +45,36 @@ describe('refererRuleFor', () => {
   it('covers every endpoint that needs a referer', () => {
     // A write that slips past this rule is answered with 200 and quietly does
     // nothing, so an uncovered endpoint is a silently lost comment.
-    for (const url of [memoWrite, articleWrite, articleRead]) {
+    for (const url of [memoWrite, articleWrite, articleRead, boardSearch]) {
       expect(refererRuleFor(url, REFERER)).not.toBeNull()
     }
   })
 
   it('gives each endpoint a rule id of its own', () => {
-    const ids = [memoWrite, articleWrite, articleRead].map((url) => refererRuleFor(url, REFERER)?.id)
+    const ids = [memoWrite, articleWrite, articleRead, boardSearch].map((url) => refererRuleFor(url, REFERER)?.id)
     // One shared id let a second request's teardown strip the first's rule, and
     // that write then went out with no referer at all.
-    expect(new Set(ids).size).toBe(3)
+    expect(new Set(ids).size).toBe(4)
     for (const id of ids) expect(REFERER_RULE_IDS).toContain(id)
   })
 
+  it('routes the board search to rule 4 and sets origin https://cafe.naver.com', () => {
+    const rule = refererRuleFor(boardSearch, cafeBoardSearchReferer('137'))
+    expect(rule?.id).toBe(4)
+    expect(rule?.action.requestHeaders).toContainEqual({
+      header: 'origin',
+      operation: 'set',
+      value: 'https://cafe.naver.com',
+    })
+    // A collection walk on the main host is not affected by the search rule.
+    expect(refererRuleFor(cafeArticleListUrl(1, '137'), 'https://cafe.naver.com/')).toBeNull()
+  })
+
   it('matches only the endpoint it was installed for', () => {
-    for (const installedFor of [memoWrite, articleWrite, articleRead]) {
+    for (const installedFor of [memoWrite, articleWrite, articleRead, boardSearch]) {
       const rule = refererRuleFor(installedFor, REFERER)
       if (rule === null) throw new Error(`no rule for ${installedFor}`)
-      for (const url of [memoWrite, articleWrite, articleRead]) {
+      for (const url of [memoWrite, articleWrite, articleRead, boardSearch]) {
         expect(matches(rule, url)).toBe(url === installedFor)
       }
     }
@@ -70,7 +84,7 @@ describe('refererRuleFor', () => {
     // The board list is on the same host as the article write and legitimately
     // carries neither referer nor origin. A rule scoped to the whole host would
     // rewrite both on it, in the middle of someone else's write.
-    for (const url of [memoWrite, articleWrite, articleRead]) {
+    for (const url of [memoWrite, articleWrite, articleRead, boardSearch]) {
       const rule = refererRuleFor(url, REFERER)
       if (rule === null) throw new Error(`no rule for ${url}`)
       expect(matches(rule, collection)).toBe(false)

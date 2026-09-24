@@ -28,10 +28,12 @@ describe('extension manifest', () => {
   it('limits host permissions to the cafe origins it needs', () => {
     // `article.cafe.naver.com` is its own host, not a path under the first one:
     // the article comment read goes there and is blocked without this entry.
+    // `apis.cafe.naver.com` serves the board title search, which the list horizon sends us to.
     expect(manifest.host_permissions).toEqual([
       'https://cafe.naver.com/*',
       'https://article.cafe.naver.com/*',
       'https://apis.naver.com/*',
+      'https://apis.cafe.naver.com/*',
     ])
   })
 })

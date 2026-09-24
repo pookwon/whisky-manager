@@ -17,7 +17,8 @@
   "host_permissions": [
     "https://cafe.naver.com/*",
     "https://article.cafe.naver.com/*",
-    "https://apis.naver.com/*"
+    "https://apis.naver.com/*",
+    "https://apis.cafe.naver.com/*"
   ],
   "options_ui": {
     "page": "options.html",

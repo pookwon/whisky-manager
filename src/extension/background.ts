@@ -5,6 +5,7 @@ import { createArticleClient } from './articleClient.js'
 import { createBridgeClient, type Reply } from './bridgeClient.js'
 import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeClient.js'
 import { createBoardPageReader } from './boardPageReader.js'
+import { createBoardSearchPageReader } from './boardSearchPageReader.js'
 import { createDispatcher, type CollectionProgress } from './dispatch.js'
 import { createMemberPageReader } from './memberPageReader.js'
 import { refererRuleFor } from './refererRule.js'
@@ -139,6 +140,7 @@ const cafe = createCafeClient({
 const articleCafe = createArticleClient({ http: request, beforeCommentPost: async () => runLcsDo() })
 
 const boardPageReader = createBoardPageReader({ http: request })
+const boardSearchPageReader = createBoardSearchPageReader({ http: request })
 const memberPageReader = createMemberPageReader({ http: request })
 
 /** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
@@ -170,6 +172,7 @@ const dispatch = createDispatcher({
   cafe,
   articleCafe,
   boardPageReader,
+  boardSearchPageReader,
   memberPageReader,
   probe,
   onHandshakeRejected: (reason) => {
