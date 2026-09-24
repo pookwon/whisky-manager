@@ -13,6 +13,7 @@ const wm = {
   startMemberCollection: vi.fn(),
   stopMemberCollection: vi.fn(),
   setMemberCollectionForced: vi.fn(),
+  getBoardSearchStatus: vi.fn(),
   getCollectionSchedule: vi.fn(),
   setCollectionSchedule: vi.fn(),
   startCollection: vi.fn(),
@@ -106,6 +107,7 @@ beforeEach(() => {
   // one every SQLite-only screen has to keep working in.
   wm.getCollectionStatus.mockResolvedValue({ kind: 'disabled' })
   wm.getMemberCollectionStatus.mockResolvedValue(memberCollectionReady)
+  wm.getBoardSearchStatus.mockResolvedValue({ kind: 'disabled' })
   wm.getCollectionSchedule.mockResolvedValue({
     schedule: DEFAULT_COLLECTION_SCHEDULE,
     nextRunAtMs: null,
@@ -126,6 +128,17 @@ describe('useApp.refresh member collection', () => {
 
     expect(wm.getMemberCollectionStatus).toHaveBeenCalledTimes(1)
     expect(useApp.getState().memberCollection).toEqual(memberCollectionReady)
+  })
+})
+
+describe('useApp.refresh board search', () => {
+  it('loads the search backfill status into the store', async () => {
+    useApp.setState({ route: DEFAULT_ROUTE })
+
+    await useApp.getState().refresh()
+
+    expect(wm.getBoardSearchStatus).toHaveBeenCalledTimes(1)
+    expect(useApp.getState().boardSearch).toEqual({ kind: 'disabled' })
   })
 })
 

@@ -39,7 +39,7 @@ const COLLECTION_RUN_STATUS = {
 
 export type CollectionRunStatus = keyof typeof COLLECTION_RUN_STATUS
 
-/** Why a press to walk the member list did nothing; both member walks answer with these. */
+/** Why a press to start a walk did nothing; both member walks and the search backfill answer with these. */
 const MEMBER_START_REFUSED = {
   NO_STORAGE: '수집 저장소가 없어 시작하지 못했습니다.',
   ALREADY_RUNNING: '이미 수집이 돌고 있습니다.',
@@ -707,6 +707,45 @@ export const TEXT = {
       ...MEMBER_START_REFUSED,
       NO_JOB: '첫 전체 수집이 끝난 뒤에 다시 확인할 수 있습니다.',
       JOB_FINISHED: '이번 재확인은 이미 끝났습니다.',
+    },
+  },
+  boardSearch: {
+    heading: '검색어 보충 수집',
+    why: '게시판 목록은 1000쪽까지만 보입니다. 그 너머의 글을 제목 검색으로 찾아 채웁니다. 검색어는 이미 모은 제목에서 많이 쓰인 단어로 고릅니다.',
+    board: '게시판',
+    fromDay: '시작일',
+    preview: (count: number, from: string, to: string) => `검색어 ${count.toLocaleString('ko-KR')}개 · ${from} ~ ${to}`,
+    previewButton: '미리 보기',
+    create: '보충 작업 만들기',
+    replaceConfirm: '진행 중인 보충 작업을 지우고 새로 만듭니다. 계속할까요?',
+    start: '지금 보충',
+    resume: '이어서 보충',
+    stop: '멈추기',
+    none: '보충 작업이 없습니다',
+    running: '보충 중',
+    idle: '대기',
+    finished: '보충 완료',
+    summary: (done: number, total: number, inserted: number, current: string | null) =>
+      `검색어 ${done} / ${total} · 새 글 ${inserted.toLocaleString('ko-KR')}건${current === null ? '' : ` · 다음 '${current}'`}`,
+    coverage: (remaining: number, ratio: number) =>
+      `아직 못 거둔 글 약 ${remaining.toLocaleString('ko-KR')}건 (삭제·비수집 게시판 ${(ratio * 100).toFixed(1)}% 제외)`,
+    window: (board: string, from: string, to: string) => `${board} · ${from} ~ ${to}`,
+    queries: '검색어별 진행',
+    columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
+    states: { done: '완료', walking: '진행', waiting: '대기' },
+    refused: {
+      NO_STORAGE: '수집 DB에 연결되어 있지 않습니다.',
+      NO_POSTS: '이 게시판에 저장된 글이 없어 검색어를 고를 수 없습니다.',
+      NOTHING_BEFORE: '시작일이 저장된 가장 오래된 글보다 뒤입니다.',
+      NO_QUERIES: '제목에서 쓸 만한 검색어를 찾지 못했습니다.',
+      BAD_DAY: '날짜를 읽지 못했습니다.',
+      STOP_RUNNING_FIRST: '보충이 도는 중입니다. 먼저 멈추세요.',
+    },
+    /** The member walk's words, except where "the job" means the search job. */
+    startRefused: {
+      ...MEMBER_START_REFUSED,
+      NO_JOB: '보충 작업을 먼저 만드세요.',
+      JOB_FINISHED: '이 보충 작업은 끝났습니다.',
     },
   },
 } as const

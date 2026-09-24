@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AutomationSettingsView,
   AwaitingItem,
+  BoardSearchStatusView,
   CollectionScheduleView,
   CollectionStatusView,
   MemberCollectionStatusView,
@@ -24,6 +25,8 @@ interface AppState {
   collection: CollectionStatusView | null
   /** Null until the first answer; the view itself carries "no storage". */
   memberCollection: MemberCollectionStatusView | null
+  /** Null until the first answer; the view itself carries "no storage". */
+  boardSearch: BoardSearchStatusView | null
   collectionSchedule: CollectionScheduleView | null
   cafeImage: string | null
   busy: boolean
@@ -45,6 +48,7 @@ export const useApp = create<AppState>((set, get) => ({
   commonSettings: null,
   collection: null,
   memberCollection: null,
+  boardSearch: null,
   collectionSchedule: null,
   cafeImage: null,
   busy: false,
@@ -76,18 +80,19 @@ export const useApp = create<AppState>((set, get) => ({
     // sidebar says whether a collection is running from wherever the operator
     // happens to be standing.
     if (automationId === null) {
-      const [dashboard, commonSettings, collection, memberCollection, collectionSchedule] = await Promise.all([
+      const [dashboard, commonSettings, collection, memberCollection, boardSearch, collectionSchedule] = await Promise.all([
         api.getDashboard(),
         api.getCommonSettings(),
         api.getCollectionStatus(),
         api.getMemberCollectionStatus(),
+        api.getBoardSearchStatus(),
         api.getCollectionSchedule(),
       ])
-      set({ dashboard, commonSettings, collection, memberCollection, collectionSchedule })
+      set({ dashboard, commonSettings, collection, memberCollection, boardSearch, collectionSchedule })
       return
     }
 
-    const [dashboard, awaiting, templates, automationSettings, collection, memberCollection, collectionSchedule] =
+    const [dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, collectionSchedule] =
       await Promise.all([
         api.getDashboard(),
         api.listAwaiting(automationId),
@@ -95,9 +100,10 @@ export const useApp = create<AppState>((set, get) => ({
         api.getAutomationSettings(automationId),
         api.getCollectionStatus(),
         api.getMemberCollectionStatus(),
+        api.getBoardSearchStatus(),
         api.getCollectionSchedule(),
       ])
-    set({ dashboard, awaiting, templates, automationSettings, collection, memberCollection, collectionSchedule })
+    set({ dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, collectionSchedule })
   },
 
   loadCafeImage: async () => {

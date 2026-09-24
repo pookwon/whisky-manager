@@ -1,0 +1,182 @@
+import { useState } from 'react'
+import { TEXT } from '../../../shared/text.js'
+import type { BoardSearchPlanView, BoardSearchStatusView, StartCollectionResult } from '../../../desktop/ipc.js'
+import { api } from '../../api.js'
+import { boardSearchCoverageLine, boardSearchQueryState, boardSearchSummaryLine, dayKeyLabel, dayKeyOfDateInput } from './boardSearchLines.js'
+
+type ReadyView = Extract<BoardSearchStatusView, { readonly kind: 'ready' }>['view']
+
+interface BoardSearchCardProps {
+  readonly view: ReadyView
+  readonly busy: boolean
+  readonly act: (run: () => Promise<unknown>) => Promise<boolean>
+}
+
+const DEFAULT_FROM = '2025-01-01'
+
+function planLine(plan: BoardSearchPlanView, fromDay: string): string {
+  return plan.kind === 'ready'
+    ? TEXT.boardSearch.preview(plan.queryCount, dayKeyLabel(fromDay), dayKeyLabel(plan.toDay))
+    : TEXT.boardSearch.refused[plan.reason]
+}
+
+function startRefusal(result: StartCollectionResult): string | null {
+  return result.kind === 'refused' ? TEXT.boardSearch.startRefused[result.reason] : null
+}
+
+/**
+ * The search backfill: make a job for a board, see where it stands, start or
+ * stop a block. It takes turns with the other walks on the schedule; the
+ * buttons are for not waiting.
+ */
+export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): React.JSX.Element {
+  const [boardId, setBoardId] = useState(view.job?.boardId ?? view.boards[0]?.boardId ?? '')
+  const [fromDate, setFromDate] = useState(view.job === null ? DEFAULT_FROM : dayKeyLabel(view.job.fromDay))
+  const [message, setMessage] = useState<string | null>(null)
+  const { job, running } = view
+  const fromDay = dayKeyOfDateInput(fromDate)
+  const coverageLine = job === null ? null : boardSearchCoverageLine(job.coverage)
+  const finished = job !== null && job.current === null
+
+  return (
+    <section className="panel overflow-hidden">
+      <div className="flex">
+        <div className={`w-1 shrink-0 ${running ? 'bar-accent' : 'bar-idle'}`} />
+        <div className="flex min-w-0 flex-1 flex-col gap-3 px-5 py-4">
+          <div className="flex items-center justify-between gap-6">
+            <div className="min-w-0 flex-1">
+              <div
+                className="text-[0.6875rem] font-medium uppercase tracking-wider"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                {TEXT.boardSearch.heading}
+              </div>
+              <div className="mt-1 text-lg font-semibold">
+                {job === null ? (
+                  <span>{TEXT.boardSearch.none}</span>
+                ) : running ? (
+                  <span className="tone-accent">{TEXT.boardSearch.running}</span>
+                ) : (
+                  <span>{finished ? TEXT.boardSearch.finished : TEXT.boardSearch.idle}</span>
+                )}
+              </div>
+              {job !== null && (
+                <>
+                  <div className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                    {TEXT.boardSearch.window(job.boardName ?? job.boardId, dayKeyLabel(job.fromDay), dayKeyLabel(job.toDay))}
+                  </div>
+                  <div className="mt-0.5 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+                    {boardSearchSummaryLine(job)}
+                  </div>
+                  {coverageLine !== null && (
+                    <div className="mt-0.5 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
+                      {coverageLine}
+                    </div>
+                  )}
+                </>
+              )}
+              {message !== null && <div className="mt-1 text-sm tone-warn">{message}</div>}
+            </div>
+            {job !== null &&
+              !finished &&
+              (running ? (
+                <button type="button" className="btn shrink-0" disabled={busy} onClick={() => void act(() => api.stopBoardSearch())}>
+                  {TEXT.boardSearch.stop}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn shrink-0"
+                  disabled={busy}
+                  onClick={() => {
+                    setMessage(null)
+                    void act(async () => setMessage(startRefusal(await api.startBoardSearch())))
+                  }}
+                >
+                  {job.completedCount > 0 || job.insertedTotal > 0 ? TEXT.boardSearch.resume : TEXT.boardSearch.start}
+                </button>
+              ))}
+          </div>
+
+          <form
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (job !== null && !window.confirm(TEXT.boardSearch.replaceConfirm)) return
+              setMessage(null)
+              void act(async () => setMessage(planLine(await api.createBoardSearchJob({ boardId, fromDay }), fromDay)))
+            }}
+          >
+            <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              {TEXT.boardSearch.board}
+              <select className="field" value={boardId} disabled={busy || running} onChange={(event) => setBoardId(event.target.value)}>
+                {view.boards.map((board) => (
+                  <option key={board.boardId} value={board.boardId}>
+                    {board.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              {TEXT.boardSearch.fromDay}
+              <input
+                className="field"
+                type="date"
+                value={fromDate}
+                disabled={busy || running}
+                onChange={(event) => setFromDate(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || boardId === ''}
+              onClick={() => void act(async () => setMessage(planLine(await api.previewBoardSearchJob({ boardId, fromDay }), fromDay)))}
+            >
+              {TEXT.boardSearch.previewButton}
+            </button>
+            <button type="submit" className="btn" disabled={busy || running || boardId === ''}>
+              {TEXT.boardSearch.create}
+            </button>
+          </form>
+
+          {job !== null && (
+            <details>
+              <summary className="cursor-pointer text-sm">{TEXT.boardSearch.queries}</summary>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-sm tabular-nums">
+                  <thead>
+                    <tr style={{ color: 'var(--ink-muted)' }}>
+                      <th className="text-left">{TEXT.boardSearch.columns.order}</th>
+                      <th className="text-left">{TEXT.boardSearch.columns.query}</th>
+                      <th className="text-left">{TEXT.boardSearch.columns.state}</th>
+                      <th className="text-right">{TEXT.boardSearch.columns.page}</th>
+                      <th className="text-right">{TEXT.boardSearch.columns.inserted}</th>
+                      <th className="text-right">{TEXT.boardSearch.columns.total}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {job.queries.map((query) => (
+                      <tr key={query.query}>
+                        <td>{query.queueOrder}</td>
+                        <td>{query.query}</td>
+                        <td>{TEXT.boardSearch.states[boardSearchQueryState(query, job.current, running)]}</td>
+                        <td className="text-right">{query.lastCommittedPage ?? '—'}</td>
+                        <td className="text-right">{query.insertedCount.toLocaleString('ko-KR')}</td>
+                        <td className="text-right">{query.totalCount === null ? '—' : query.totalCount.toLocaleString('ko-KR')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            {TEXT.boardSearch.why}
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
