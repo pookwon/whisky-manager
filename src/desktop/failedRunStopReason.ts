@@ -1,5 +1,5 @@
 import { describeFailure } from './collectionFailure.js'
-import { CollectionPageError } from './collectionOrchestrator.js'
+import { CollectionPageError } from './collectionPageError.js'
 
 export interface FailedRunStopReason {
   /** Bare, for callers that match on it. */
