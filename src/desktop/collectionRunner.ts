@@ -116,6 +116,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
           startedAt: new Date(deps.clock.now()),
         },
         maxPages: request.maxPages - spent,
+        requestsBefore: spent,
       })
       results.push(result)
       spent += result.requests
