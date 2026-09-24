@@ -1,3 +1,5 @@
+import { isBoardSearchQuery } from './cafeBoardSearchEndpoint.js'
+
 /**
  * Picks the title searches that recover a board's posts past the list horizon.
  *
@@ -44,7 +46,8 @@ function candidatesOf(words: readonly (readonly string[])[], candidateLimit: num
   const uses = new Map<string, number>()
   for (const titleWordList of words) {
     for (const word of new Set(titleWordList)) {
-      if (word.length >= MIN_WORD_LENGTH) uses.set(word, (uses.get(word) ?? 0) + 1)
+      // A word the search would refuse is never a candidate, however common.
+      if (isBoardSearchQuery(word)) uses.set(word, (uses.get(word) ?? 0) + 1)
     }
   }
   const kept = [...uses.entries()]

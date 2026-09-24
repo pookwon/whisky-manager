@@ -38,6 +38,13 @@ describe('buildBoardSearchDictionary', () => {
     expect(buildBoardSearchDictionary(['a b c', 'a d'], { minGain: 1 })).toEqual([])
   })
 
+  it('never picks a word longer than the search accepts', () => {
+    const long = '가'.repeat(41)
+    const picked = buildBoardSearchDictionary([long, long, `${long} 나나`], { minGain: 1 }).map((entry) => entry.query)
+    expect(picked).toEqual(['나나'])
+    expect(buildBoardSearchDictionary(['가'.repeat(40)], { minGain: 1 })).toEqual([{ query: '가'.repeat(40), expectedGain: 1 }])
+  })
+
   it('stops at the limit and below the minimum gain', () => {
     const titles = ['가가 나나', '가가 다다', '라라', '라라', '마마']
     expect(buildBoardSearchDictionary(titles, { limit: 1, minGain: 1 })).toEqual([{ query: '가가', expectedGain: 2 }])
