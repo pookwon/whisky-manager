@@ -63,7 +63,7 @@ export class CafeArticleListParseError extends Error {
   }
 }
 
-type JsonRecord = Record<string, unknown>
+export type JsonRecord = Record<string, unknown>
 
 const MAX_DATE_MS = 8_640_000_000_000_000
 const MIN_EPOCH_MILLISECONDS = 1_000_000_000_000
@@ -71,7 +71,7 @@ const FNV_OFFSET_BASIS = 0xcbf29ce484222325n
 const FNV_PRIME = 0x100000001b3n
 const FNV_MASK = 0xffffffffffffffffn
 
-function fail(code: CafeArticleListParseErrorCode, message: string): never {
+export function fail(code: CafeArticleListParseErrorCode, message: string): never {
   throw new CafeArticleListParseError(code, message)
 }
 
@@ -79,7 +79,7 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function record(value: unknown, path: string, code: CafeArticleListParseErrorCode): JsonRecord {
+export function record(value: unknown, path: string, code: CafeArticleListParseErrorCode): JsonRecord {
   if (!isRecord(value)) fail(code, `${path} must be an object`)
   return value
 }
@@ -88,7 +88,7 @@ function hasOwn(record: JsonRecord, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key)
 }
 
-function nullableString(record: JsonRecord, key: string, path: string, code: CafeArticleListParseErrorCode): string | null {
+export function nullableString(record: JsonRecord, key: string, path: string, code: CafeArticleListParseErrorCode): string | null {
   if (!hasOwn(record, key)) fail(code, `${path}.${key} is missing`)
   const value = record[key]
   if (value === null || typeof value === 'string') return value
@@ -100,7 +100,7 @@ function optionalNullableString(record: JsonRecord, key: string, path: string, c
   return nullableString(record, key, path, code)
 }
 
-function safeInteger(
+export function safeInteger(
   record: JsonRecord,
   key: string,
   path: string,
@@ -136,7 +136,7 @@ function authorNicknameOf(item: JsonRecord, writerInfo: JsonRecord, path: string
   return fallback
 }
 
-function prefixOf(item: JsonRecord, path: string): string | null {
+export function prefixOf(item: JsonRecord, path: string): string | null {
   const headName = optionalNullableString(item, 'headName', path, 'INVALID_ARTICLE')
   if (headName !== undefined) return headName
   // A post with no prefix always omits `headName`, and reports `headId` either
@@ -181,7 +181,7 @@ function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
   }
 }
 
-function parsePageInfo(value: unknown): CafeArticlePageInfo {
+export function parsePageInfo(value: unknown): CafeArticlePageInfo {
   const pageInfo = record(value, 'result.pageInfo', 'INVALID_PAGE_INFO')
   const visibleNextButton = pageInfo.visibleNextButton
   if (typeof visibleNextButton !== 'boolean') {
@@ -212,19 +212,22 @@ export function cafeArticlePageIdentity(postIds: readonly string[]): string {
   return `fnv1a64:${hash.toString(16).padStart(16, '0')}`
 }
 
-/** Parses a decoded JSON value from the exact list endpoint. */
-export function parseCafeArticleList(value: unknown): CollectedArticlePage {
-  const response = record(value, 'response', 'INVALID_ENVELOPE')
-  const result = record(response.result, 'response.result', 'INVALID_ENVELOPE')
-  if (!Array.isArray(result.articleList)) fail('INVALID_ENVELOPE', 'result.articleList must be an array')
-
-  const items = result.articleList.map((entry, index) => parseArticle(entry, index))
+/** A parsed page from its items: no post twice, its page info read, its identity stamped. */
+export function collectedArticlePage(items: readonly CollectedPostMetadata[], rawPageInfo: unknown): CollectedArticlePage {
   const postIds = new Set<string>()
   for (const item of items) {
     if (postIds.has(item.postId)) fail('DUPLICATE_POST_ID', `result.articleList has duplicate articleId ${item.postId}`)
     postIds.add(item.postId)
   }
-  return { items, pageInfo: parsePageInfo(result.pageInfo), pageIdentity: cafeArticlePageIdentity(items.map((item) => item.postId)) }
+  return { items, pageInfo: parsePageInfo(rawPageInfo), pageIdentity: cafeArticlePageIdentity(items.map((item) => item.postId)) }
+}
+
+/** Parses a decoded JSON value from the exact list endpoint. */
+export function parseCafeArticleList(value: unknown): CollectedArticlePage {
+  const response = record(value, 'response', 'INVALID_ENVELOPE')
+  const result = record(response.result, 'response.result', 'INVALID_ENVELOPE')
+  if (!Array.isArray(result.articleList)) fail('INVALID_ENVELOPE', 'result.articleList must be an array')
+  return collectedArticlePage(result.articleList.map((entry, index) => parseArticle(entry, index)), result.pageInfo)
 }
 
 /** Parses decoded response text without treating HTML/login pages as an empty list. */
