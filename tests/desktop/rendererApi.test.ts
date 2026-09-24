@@ -16,6 +16,7 @@ import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
+import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
@@ -229,6 +230,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
             } as unknown as MemberResyncRepository,
             // Not read by any screen yet: any touch fails the test.
             boardSearchRepository: {} as unknown as BoardSearchRepository,
+            boardSearchCoverage: {} as unknown as BoardSearchCoverageQuery,
             memberStatus: {
               read: () =>
                 Promise.resolve({

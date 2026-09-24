@@ -10,6 +10,7 @@ import { parseCafeMemberListText } from '../../../src/shared/cafeMemberList.js'
 import { parseCafeBoardSearchListText } from '../../../src/shared/cafeBoardSearchList.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from '../../../src/desktop/collection-db/client.js'
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
+import { createBoardSearchCoverageQuery } from '../../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import { createBoardSearchRepository } from '../../../src/desktop/collection-db/boardSearchRepository.js'
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { createMemberResyncRepository } from '../../../src/desktop/collection-db/memberResyncRepository.js'
@@ -648,5 +649,11 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect((await search.listQueries()).map((q) => q.query)).toEqual(['이마트'])
     expect(await search.readBoardTitles('137')).toEqual(expect.arrayContaining(['글렌알라키 12 이마트 구매', '글렌 두 병']))
     expect(await search.oldestPostedAtMs('137')).toBe(Date.UTC(2025, 0, 30, 23, 1))
+  })
+
+  it('counts id holes in the search window and in the stretch after it', async () => {
+    const coverage = await createBoardSearchCoverageQuery(connection.db).read({ fromDay: '20250101', toDay: '20250201' }, 'a')
+    // The search fixture's two posts (667850, 667901) are the only ones in January 2025 here.
+    expect(coverage).toMatchObject({ span: 667_901 - 667_850 + 1, missing: 667_901 - 667_850 + 1 - 2 })
   })
 })
