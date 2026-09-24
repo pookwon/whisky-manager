@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assertBoardSearchPage } from '../../src/desktop/boardSearchPageCheck.js'
-import { CollectionPageError } from '../../src/desktop/collectionOrchestrator.js'
+import { CollectionPageError } from '../../src/desktop/collectionPageError.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
 
 const post = (postId: string, boardId: string, postedAt: number): CollectedPostMetadata => ({

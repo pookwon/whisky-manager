@@ -1,6 +1,6 @@
 import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
 import { kstDayKeyRange } from '../shared/kst.js'
-import { CollectionPageError } from './collectionOrchestrator.js'
+import { CollectionPageError } from './collectionPageError.js'
 
 export interface BoardSearchWindow {
   readonly boardId: string

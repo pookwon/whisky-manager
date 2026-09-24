@@ -2,7 +2,7 @@ import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
 import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import { CAFE_BOARD_SEARCH, type BoardSearchPage } from '../shared/cafeBoardSearchEndpoint.js'
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
-import { CollectionPageError } from './collectionOrchestrator.js'
+import { CollectionPageError } from './collectionPageError.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface BoardSearchPageFetcher {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBoardSearchPageFetcher } from '../../src/desktop/boardSearchPageFetcher.js'
-import { CollectionPageError } from '../../src/desktop/collectionOrchestrator.js'
+import { CollectionPageError } from '../../src/desktop/collectionPageError.js'
 import type { AppMessage, ExtensionMessage } from '../../src/shared/protocol.js'
 import type { ExtensionTransport } from '../../src/desktop/ws/server.js'
 

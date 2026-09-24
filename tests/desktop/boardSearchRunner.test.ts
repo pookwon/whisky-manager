@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createBoardSearchRunner } from '../../src/desktop/boardSearchRunner.js'
 import { createCollectionLock } from '../../src/desktop/collectionLock.js'
-import { CollectionPageError } from '../../src/desktop/collectionOrchestrator.js'
+import { CollectionPageError } from '../../src/desktop/collectionPageError.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from '../../src/desktop/boardSearchPageFetcher.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
