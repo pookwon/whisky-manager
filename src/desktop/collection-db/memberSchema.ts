@@ -6,9 +6,10 @@ import { collectionRunStatus } from './collectionRunStatus.js'
  * The member list has no board, so the `(feed_kind, menu_id)` identity the
  * article tables carry is not reused. A single-row state table stands in for it,
  * and the run kinds are the member walk's own: a full backfill, an incremental
- * resume, and the daily top-up that adds only new joiners.
+ * resume, the daily top-up that adds only new joiners, and the periodic
+ * re-walk that refreshes what existing members look like now.
  */
-export const memberRunKind = pgEnum('member_run_kind', ['backfill', 'incremental', 'topup'])
+export const memberRunKind = pgEnum('member_run_kind', ['backfill', 'incremental', 'topup', 'resync'])
 
 const observedTimestamp = (name: string) => timestamp(name, { withTimezone: true, precision: 3 })
 

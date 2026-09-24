@@ -3,6 +3,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
 import { createMemberCollectionStatusQuery, type MemberCollectionStatusQuery } from './collection-db/memberStatusQuery.js'
+import { createMemberResyncRepository, type MemberResyncRepository } from './collection-db/memberResyncRepository.js'
 import { createCollectionRepository, type CollectionRepository } from './collection-db/repository.js'
 import { createCollectionStatusQuery, type CollectionStatusQuery } from './collection-db/statusQuery.js'
 
@@ -22,6 +23,8 @@ export type OptionalCollectionContext =
       readonly status: CollectionStatusQuery
       readonly memberRepository: MemberRepository
       readonly memberStatus: MemberCollectionStatusQuery
+      /** The periodic re-walk, on its own cursor. */
+      readonly memberResyncRepository: MemberResyncRepository
       close(): Promise<void>
     }
   | {
@@ -123,6 +126,7 @@ export async function openOptionalCollectionContext(
       status: createCollectionStatusQuery(connection.db),
       memberRepository,
       memberStatus: createMemberCollectionStatusQuery(connection.db),
+      memberResyncRepository: createMemberResyncRepository(connection.db, memberRepository),
       close: connection.close,
     }
   } catch (error) {

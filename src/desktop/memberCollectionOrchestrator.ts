@@ -4,14 +4,14 @@ import { pauseUnlessStopped } from './collectionPause.js'
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedMemberPage } from '../shared/cafeMemberList.js'
 import type { Random } from '../shared/ports.js'
-import type { CreateMemberRunInput, MemberFeedState, MemberRepository } from './collection-db/memberRepository.js'
-import { collectionDelayMs } from './collectionOrchestrator.js'
+import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
+import type { CreateMemberRunInput, MemberCursorState, MemberWalkRepository } from './collection-db/memberRepository.js'
 import { locateMemberResumePosition, type MemberScheduledReader } from './memberCollectionResume.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface MemberCollectionClock { now(): number }
 export interface MemberPageFetcher { read(page: number): Promise<CollectedMemberPage> }
-export type MemberRunMode = 'backfill' | 'incremental' | 'topup'
+export type MemberRunMode = 'backfill' | 'incremental' | 'topup' | 'resync'
 
 export interface MemberCollectionRunOptions {
   readonly run: CreateMemberRunInput
@@ -28,10 +28,11 @@ export type MemberCollectionRunResult =
   | { readonly kind: 'failed'; readonly pagesStored: number; readonly code: string }
 
 export interface MemberCollectionOrchestratorDeps {
-  readonly repository: MemberRepository
+  readonly repository: MemberWalkRepository
   readonly fetcher: MemberPageFetcher
   readonly clock: MemberCollectionClock
   readonly random: Random
+  readonly pacing: CollectionPacing
   readonly sleep: (ms: number) => Promise<void>
   readonly isSessionBusy: () => boolean
   readonly isAbortRequested: () => boolean
@@ -94,7 +95,7 @@ function createScheduledReader(deps: MemberCollectionOrchestratorDeps, runId: st
       await deps.sleep(1_000)
     }
     if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')
-    const delay = collectionDelayMs(reads + 1, deps.random)
+    const delay = collectionDelayMs(reads + 1, deps.pacing, deps.random)
     if (!(await pauseUnlessStopped(delay, deps.sleep, deps.isAbortRequested))) throw new MemberCollectionPageError('ABORTED')
     while (deps.isSessionBusy()) {
       if (deps.isAbortRequested()) throw new MemberCollectionPageError('ABORTED')
@@ -132,8 +133,8 @@ async function persistSlice(
   observedPage: CollectedMemberPage,
   slicedPage: CollectedMemberPage,
   pageNumber: number,
-  state: MemberFeedState,
-): Promise<{ kind: 'stored'; state: MemberFeedState } | { kind: 'conflict' }> {
+  state: MemberCursorState,
+): Promise<{ kind: 'stored'; state: MemberCursorState } | { kind: 'conflict' }> {
   const stored = await deps.repository.persistPage({
     runId,
     observedAt: reader.observedAt(observedPage),
@@ -165,7 +166,7 @@ export function createMemberCollectionOrchestrator(deps: MemberCollectionOrchest
       try {
         const initial = await deps.repository.startRun(options.run)
         const reader = createScheduledReader(deps, options.run.id, options.maxPages, options.maxProbePages ?? 32)
-        let state: MemberFeedState = initial
+        let state: MemberCursorState = initial
 
         // The top-up walk always starts at page 1 and stops when a whole page is
         // already known; the main walk resumes from the cursor when there is one.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
 import { createMemberCollectionOrchestrator, MEMBERS_PER_PAGE, TOPUP_MAX_PAGES } from '../../src/desktop/memberCollectionOrchestrator.js'
 import type { MemberRepository, PersistMemberPageInput } from '../../src/desktop/collection-db/memberRepository.js'
 import type { CollectedMember, CollectedMemberPage } from '../../src/shared/cafeMemberList.js'
@@ -23,8 +24,8 @@ function fakeRepo(overrides: Partial<MemberRepository> = {}) {
   let anchor: string | null = null
   let storedTotal: number | null = null
   const base: MemberRepository = {
-    readMemberFeedState: async () => ({ stateVersion: version, anchorMemberKey: anchor, anchorJoinDate: null, referencePage: null, pageIdentity: null, totalMemberCount: null, cursorUpdatedAtMs: 1_000, complete: false, forced: false, toppedUpAtMs: null }),
-    startRun: async () => ({ stateVersion: version, anchorMemberKey: anchor, anchorJoinDate: null, referencePage: null, pageIdentity: null, totalMemberCount: null, cursorUpdatedAtMs: 1_000, complete: false, forced: false, toppedUpAtMs: null }),
+    readMemberFeedState: async () => ({ stateVersion: version, anchorMemberKey: anchor, anchorJoinDate: null, referencePage: null, pageIdentity: null, totalMemberCount: null, cursorUpdatedAtMs: 1_000, complete: false, completedAtMs: null, forced: false, toppedUpAtMs: null }),
+    startRun: async () => ({ stateVersion: version, anchorMemberKey: anchor, anchorJoinDate: null, referencePage: null, pageIdentity: null, totalMemberCount: null, cursorUpdatedAtMs: 1_000, complete: false, completedAtMs: null, forced: false, toppedUpAtMs: null }),
     recordPageRequest: async () => undefined,
     finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
     persistPage: async (input) => {
@@ -45,7 +46,7 @@ function fakeRepo(overrides: Partial<MemberRepository> = {}) {
   return { repo: base, persisted, finished, isCompleted: () => completed, getStoredTotal: () => storedTotal }
 }
 
-const noBusy = { random: { intInclusive: (min: number) => min }, sleep: async () => undefined, clock: { now: () => 1_000 }, isSessionBusy: () => false, isAbortRequested: () => false }
+const noBusy = { random: { intInclusive: (min: number) => min }, pacing: DEFAULT_COLLECTION_PACING, sleep: async () => undefined, clock: { now: () => 1_000 }, isSessionBusy: () => false, isAbortRequested: () => false }
 
 describe('member collection orchestrator', () => {
   it('walks from page 1 and ends on a short final page', async () => {
@@ -60,6 +61,25 @@ describe('member collection orchestrator', () => {
     expect(persisted).toHaveLength(2)
     expect(isCompleted()).toBe(true)
     expect(finished[0]).toBe('succeeded:')
+  })
+
+  it('re-walks every page of members it already knows, and marks its own pass complete, never a top-up', async () => {
+    let toppedUp = false
+    const { repo, persisted, isCompleted } = fakeRepo({
+      knownMemberKeys: async (keys) => new Set(keys),
+      markToppedUp: async () => { toppedUp = true },
+    })
+    const pages: Record<number, CollectedMemberPage> = {
+      1: fullPage('p1', '2026-08-23'),
+      2: fullPage('p2', '2026-08-22'),
+      3: page(members('p3', 10, '2026-08-21')),
+    }
+    const orchestrator = createMemberCollectionOrchestrator({ ...noBusy, repository: repo, fetcher: { read: async (n) => pages[n] ?? page([]) } })
+    const result = await orchestrator.run({ run: { ...run, runKind: 'resync' }, maxPages: 10, mode: 'resync' })
+    expect(result).toEqual({ kind: 'succeeded', pagesStored: 3 })
+    expect(persisted.map((input) => input.referencePage)).toEqual([1, 2, 3])
+    expect(isCompleted()).toBe(true)
+    expect(toppedUp).toBe(false)
   })
 
   it('rewinds and continues from the item right after the tail when the tail lands at last position in the rewound page', async () => {
@@ -243,6 +263,7 @@ describe('member collection orchestrator', () => {
         totalMemberCount: null,
         cursorUpdatedAtMs: 1_000,
         complete: false,
+        completedAtMs: null,
         forced: false,
         toppedUpAtMs: null,
       }),

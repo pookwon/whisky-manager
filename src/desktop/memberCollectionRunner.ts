@@ -1,5 +1,6 @@
 import type { Random } from '../shared/ports.js'
-import type { MemberRepository } from './collection-db/memberRepository.js'
+import type { CollectionPacing } from '../shared/collectionPacing.js'
+import type { MemberWalkRepository } from './collection-db/memberRepository.js'
 import type { CollectionLock } from './collectionLock.js'
 import {
   createMemberCollectionFetcher,
@@ -18,10 +19,15 @@ export interface MemberCollectionStartRequest {
 }
 
 export interface MemberCollectionRunnerDeps {
-  readonly repository: () => MemberRepository | null
+  readonly repository: () => MemberWalkRepository | null
   readonly transport: ExtensionTransport
   readonly clock: MemberCollectionClock
   readonly random: Random
+  /**
+   * Read once as a block starts and held for all of it: the block's page budget
+   * was worked out from the same pacing, and the two must not drift apart.
+   */
+  readonly pacing: () => CollectionPacing
   readonly sleep: (ms: number) => Promise<void>
   readonly isSessionBusy: () => boolean
   readonly lock: CollectionLock
@@ -54,6 +60,7 @@ export function createMemberCollectionRunner(deps: MemberCollectionRunnerDeps): 
         fetcher: createMemberCollectionFetcher(deps.transport, deps.newId),
         clock: deps.clock,
         random: deps.random,
+        pacing: deps.pacing(),
         sleep: deps.sleep,
         isSessionBusy: deps.isSessionBusy,
         isAbortRequested: () => abortRequested,

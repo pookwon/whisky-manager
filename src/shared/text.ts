@@ -39,6 +39,16 @@ const COLLECTION_RUN_STATUS = {
 
 export type CollectionRunStatus = keyof typeof COLLECTION_RUN_STATUS
 
+/** Why a press to walk the member list did nothing; both member walks answer with these. */
+const MEMBER_START_REFUSED = {
+  NO_STORAGE: '수집 저장소가 없어 시작하지 못했습니다.',
+  ALREADY_RUNNING: '이미 수집이 돌고 있습니다.',
+  BRIDGE_OFFLINE: '확장이 연결되어 있지 않습니다.',
+  STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 다시 시도하세요.',
+  NO_JOB: '시작된 회원 수집이 없습니다.',
+  JOB_FINISHED: '전체 회원을 이미 옮겼습니다. 신규는 매일 자동으로 보탭니다.',
+}
+
 export const TEXT = {
   app: {
     title: '네이버 카페 관리',
@@ -53,6 +63,8 @@ export const TEXT = {
     collection: '게시판 수집',
     collectionStatus: '수집 현황',
     collectionSettings: '수집 설정',
+    members: '회원 수집',
+    memberStatus: '회원 현황',
     commonSettings: '카페 · 계정 설정',
     common: '공통',
   },
@@ -75,12 +87,12 @@ export const TEXT = {
     yieldsToSession: '가입인사 세션이 돌고 있으면 그것이 끝난 뒤로 미룹니다.',
     pace: '읽기 속도',
     paceBetween: '페이지 사이',
-    paceBetweenValue: '5~9초',
-    paceTwenty: '20쪽마다',
-    paceTwentyValue: '2~5분 휴지',
-    paceHundred: '100쪽마다',
-    paceHundredValue: '10~20분 휴지',
-    paceWhy: '카페가 사람이 읽는 속도로 받아들이도록 고정해 둔 값입니다.',
+    paceTwenty: '20쪽마다 추가 휴지',
+    paceHundred: '100쪽마다 추가 휴지',
+    paceFrom: '최소',
+    paceTo: '최대',
+    paceSeconds: '초',
+    paceWhy: '각 구간 안에서 무작위로 기다립니다. 줄일수록 빨라지지만 카페가 기계적인 읽기로 볼 위험이 커집니다. 페이지 사이는 1초보다 짧게 할 수 없습니다.',
     save: '저장',
   },
   collection: {
@@ -626,6 +638,8 @@ export const TEXT = {
     quit: '종료',
   },
   memberCollection: {
+    pageHeading: '회원 현황',
+    sharesSchedule: '활동 시간과 읽기 속도는 게시판 수집의 수집 설정을 함께 따릅니다.',
     heading: '회원 목록',
     running: '수집 중',
     idle: '대기',
@@ -645,14 +659,7 @@ export const TEXT = {
     toppedUpAt: (time: string) => `마지막 신규 보태기 ${time}`,
     toppedUpNever: '신규 보태기 없음',
     match: (matched: number, authors: number) => `글 작성자 ${authors.toLocaleString()}명 중 ${matched.toLocaleString()}명이 회원표에 있음`,
-    refused: {
-      NO_STORAGE: '수집 저장소가 없어 시작하지 못했습니다.',
-      ALREADY_RUNNING: '이미 수집이 돌고 있습니다.',
-      BRIDGE_OFFLINE: '확장이 연결되어 있지 않습니다.',
-      STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 다시 시도하세요.',
-      NO_JOB: '시작된 회원 수집이 없습니다.',
-      JOB_FINISHED: '전체 회원을 이미 옮겼습니다. 신규는 매일 자동으로 보탭니다.',
-    },
+    refused: MEMBER_START_REFUSED,
     /**
      * Why the most recent run stopped. Normal codes (budget spent, aborted) are
      * worded as progress, not failure. Unknown codes show the code itself so the
@@ -677,6 +684,30 @@ export const TEXT = {
       CAS_CONFLICT_REPOSITION_REQUIRED: '동시 수정 충돌이 발생했습니다. 다음 실행에서 위치를 재조정하고 이어서 진행합니다.',
     } as Record<string, string>,
     stopReasonFallback: (code: string) => `수집이 중단되었습니다 (${code}).`,
+  },
+  memberResync: {
+    heading: '전체 재확인',
+    why: '스태프가 바꾼 등급·닉네임을 반영하려고 회원 목록 전체를 주기적으로 다시 읽습니다. 신규 보태기는 이와 따로 매일 돕니다.',
+    notYet: '첫 전체 수집이 끝나야 다시 확인할 수 있습니다.',
+    inProgress: '재확인 중',
+    idle: '대기',
+    startedAt: (time: string) => `${time} 시작`,
+    completedAt: (time: string) => `마지막 재확인 완료 ${time}`,
+    never: '아직 전체 재확인을 한 적이 없습니다',
+    nextDue: (day: string) => `다음 자동 재확인 ${day}`,
+    nextDueNow: '다음 작업 블록에서 자동으로 시작합니다',
+    off: '자동 재확인 꺼짐',
+    scheduleOff: '예약 수집이 꺼져 있어 자동으로 시작하지 않습니다',
+    interval: '자동 재확인 주기',
+    intervalChoice: (days: number) => (days === 0 ? '끄기' : `${days}일마다`),
+    start: '지금 전체 다시 확인',
+    resume: '이어서 확인',
+    /** The member walk's words, except where "the job" means something else here. */
+    refused: {
+      ...MEMBER_START_REFUSED,
+      NO_JOB: '첫 전체 수집이 끝난 뒤에 다시 확인할 수 있습니다.',
+      JOB_FINISHED: '이번 재확인은 이미 끝났습니다.',
+    },
   },
 } as const
 

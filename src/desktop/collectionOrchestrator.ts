@@ -2,6 +2,7 @@ import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../shared/cafeArticleList.js'
 import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import type { Random } from '../shared/ports.js'
+import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
 import { describeFailure } from './collectionFailure.js'
@@ -27,7 +28,7 @@ export type CollectionRunResult =
  * page 1. Measured 2026-09-05 on the whole-cafe list and three boards.
  */
 export const FEED_HORIZON_PAGE = 1000
-export interface CollectionOrchestratorDeps { readonly repository: CollectionRepository; readonly fetcher: BoardPageFetcher; readonly clock: CollectionClock; readonly random: Random; readonly sleep: (ms: number) => Promise<void>; readonly isSessionBusy: () => boolean; readonly isAbortRequested: () => boolean; readonly onYieldToSession?: () => void }
+export interface CollectionOrchestratorDeps { readonly repository: CollectionRepository; readonly fetcher: BoardPageFetcher; readonly clock: CollectionClock; readonly random: Random; readonly pacing: CollectionPacing; readonly sleep: (ms: number) => Promise<void>; readonly isSessionBusy: () => boolean; readonly isAbortRequested: () => boolean; readonly onYieldToSession?: () => void }
 /**
  * `code` is the stable name a screen and a query can match on. `detail` is what
  * a person needs to see when the code alone does not say what to do — it is
@@ -101,15 +102,6 @@ function newestPostedAt(page: CollectedArticlePage): number {
 function oldest(page: CollectedArticlePage): number { return oldestPost(page).postedAt }
 function fallback(page: CollectedArticlePage, requested: number): boolean { return requested > page.pageInfo.lastNavigationPageNumber }
 
-/** Delay before request ordinal N. The first request has no delay or modulo break. */
-export function collectionDelayMs(requestOrdinal: number, random: Random): number {
-  if (requestOrdinal <= 1) return 0
-  let delay = random.intInclusive(5_000, 9_000)
-  if (requestOrdinal % 20 === 0) delay += random.intInclusive(120_000, 300_000)
-  if (requestOrdinal % 100 === 0) delay += random.intInclusive(600_000, 1_200_000)
-  return delay
-}
-
 export interface ScheduledReader {
   probe(page: number): Promise<CollectedArticlePage>
   collect(page: number): Promise<CollectedArticlePage>
@@ -124,7 +116,7 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     if (phase === 'probe' && probes >= maxProbePages) throw new CollectionPageError('PROBE_PAGE_LIMIT')
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')
-    const delay = collectionDelayMs(requestsBefore + reads + 1, deps.random)
+    const delay = collectionDelayMs(requestsBefore + reads + 1, deps.pacing, deps.random)
     if (!(await pauseUnlessStopped(delay, deps.sleep, deps.isAbortRequested))) throw new CollectionPageError('ABORTED')
     while (deps.isSessionBusy()) { if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED'); deps.onYieldToSession?.(); await deps.sleep(1_000) }
     if (deps.isAbortRequested()) throw new CollectionPageError('ABORTED')

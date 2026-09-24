@@ -188,3 +188,4 @@ export const collectionSchema = {
 // takes `collectionRunStatus` from its own module, so nothing here is imported
 // back and the two files stay free of a load-time cycle.
 export * from './memberSchema.js'
+export * from './memberResyncSchema.js'

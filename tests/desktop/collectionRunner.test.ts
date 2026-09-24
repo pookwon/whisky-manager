@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
 import { createCollectionRunner } from '../../src/desktop/collectionRunner.js'
 import type { CollectionRepository } from '../../src/desktop/collection-db/repository.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
@@ -47,14 +48,14 @@ function repository() {
 
 function runner(repo: CollectionRepository, t: ReturnType<typeof transport>['transport'], onFinished?: (r: unknown) => void) {
   return createCollectionRunner({
-    repository: () => repo, transport: t, clock: { now: () => 1_000 }, random: { intInclusive: () => 0 },
+    repository: () => repo, transport: t, clock: { now: () => 1_000 }, random: { intInclusive: () => 0 }, pacing: () => DEFAULT_COLLECTION_PACING,
     sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => 'id',
     onFinished: onFinished as never,
   })
 }
 
-const BASE_PAUSE = 5_000
-const TWENTIETH_BREAK = 120_000
+const BASE_PAUSE = DEFAULT_COLLECTION_PACING.perPage.minSeconds * 1_000
+const TWENTIETH_BREAK = DEFAULT_COLLECTION_PACING.everyTwentyPages.minSeconds * 1_000
 
 /**
  * Random at its low bound, so every pause is exact; each read records how long
@@ -69,6 +70,7 @@ function pacedRunner(repo: CollectionRepository, t: ReturnType<typeof transport>
   const done = new Promise<void>((resolve) => { resolveDone = resolve })
   const paced = createCollectionRunner({
     repository: () => repo, transport: t, clock: { now: () => 1_000 }, random: { intInclusive: (low) => low },
+    pacing: () => DEFAULT_COLLECTION_PACING,
     sleep: async (ms) => { slept += ms }, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => 'id',
     onFinished: () => resolveDone(),
   })

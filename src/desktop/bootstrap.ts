@@ -56,6 +56,10 @@ import { createCollectionLock } from './collectionLock.js'
 import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
+import { readCollectionPacing } from './collectionPacingSettings.js'
+import { readMemberResyncInterval } from './memberResyncSettings.js'
+import type { MemberWalkRepository } from './collection-db/memberRepository.js'
+import { createMemberResyncJob } from './memberResyncJob.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
 import { createSessionRecorder, type SessionRecorder } from './sessionLog.js'
 import {
@@ -135,6 +139,8 @@ export interface AppContext {
   readonly collectionRunner: CollectionRunner
   /** Starts and stops one member collection walk; the loop decides when scheduled ones happen. */
   readonly memberCollectionRunner: MemberCollectionRunner
+  /** The periodic member re-walk, on its own cursor. */
+  readonly memberResyncRunner: MemberCollectionRunner
   /** Re-read after the schedule is saved, so a change takes effect without a restart. */
   readonly collectionLoop: CollectionLoop
   readonly automation: AutomationControl
@@ -536,6 +542,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     transport,
     clock: systemClock,
     random: systemRandom,
+    pacing: () => readCollectionPacing(settings),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     isSessionBusy: isAnySessionInFlight,
     lock: collectionLock,
@@ -543,25 +550,33 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onError: (error) => diagnostics.error('collection', error),
   })
 
-  const memberCollectionRunner = createMemberCollectionRunner({
-    repository: () => (collection.kind === 'ready' ? collection.memberRepository : null),
-    transport,
-    clock: systemClock,
-    random: systemRandom,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    isSessionBusy: isAnySessionInFlight,
-    lock: collectionLock,
-    newId: () => randomUUID(),
-    onError: (error) => {
-      // Only the fields `safeMemberErrorFields` allows: a failing query's own
-      // message quotes the member rows it was inserting.
-      if (error instanceof Error) diagnostics.error('member-collection', safeMemberErrorFields(error))
-      else diagnostics.error('member-collection', 'non-Error thrown')
-    },
-  })
+  // Two walks over the member list, told apart only by the cursor their
+  // repository advances: the first walk and top-up on the feed's, the
+  // periodic re-walk on its own. They share the lock with the board walk.
+  const createMemberRunner = (repository: () => MemberWalkRepository | null): MemberCollectionRunner =>
+    createMemberCollectionRunner({
+      repository,
+      transport,
+      clock: systemClock,
+      random: systemRandom,
+      pacing: () => readCollectionPacing(settings),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      isSessionBusy: isAnySessionInFlight,
+      lock: collectionLock,
+      newId: () => randomUUID(),
+      onError: (error) => {
+        // Only the fields `safeMemberErrorFields` allows: a failing query's own
+        // message quotes the member rows it was inserting.
+        if (error instanceof Error) diagnostics.error('member-collection', safeMemberErrorFields(error))
+        else diagnostics.error('member-collection', 'non-Error thrown')
+      },
+    })
+  const memberCollectionRunner = createMemberRunner(() => (collection.kind === 'ready' ? collection.memberRepository : null))
+  const memberResyncRunner = createMemberRunner(() => (collection.kind === 'ready' ? collection.memberResyncRepository : null))
 
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
+    pacing: () => readCollectionPacing(settings),
     jobs: () => [
       createArticleCollectionJob({
         repository: () => (collection.kind === 'ready' ? collection.repository : null),
@@ -570,6 +585,13 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       createMemberCollectionJob({
         repository: () => (collection.kind === 'ready' ? collection.memberRepository : null),
         runner: memberCollectionRunner,
+      }),
+      createMemberResyncJob({
+        feed: () => (collection.kind === 'ready' ? collection.memberRepository : null),
+        resync: () => (collection.kind === 'ready' ? collection.memberResyncRepository : null),
+        runner: memberResyncRunner,
+        intervalDays: () => readMemberResyncInterval(settings),
+        now: () => systemClock.now(),
       }),
     ],
     clock: systemClock,
@@ -699,6 +721,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     collection,
     collectionRunner,
     memberCollectionRunner,
+    memberResyncRunner,
     collectionLoop,
     automation,
     resetExtensionPairing() {
@@ -762,6 +785,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       // on is either committed whole or dropped whole, never half.
       collectionRunner.stop()
       memberCollectionRunner.stop()
+      memberResyncRunner.stop()
       warmer.stop()
       await bridge.close()
       await collection.close()

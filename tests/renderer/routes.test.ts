@@ -11,6 +11,7 @@ describe('routes', () => {
     expect(routeKey(route)).toBe('automation:welcome-comment:templates')
     expect(routeKey({ kind: 'dashboard' })).toBe('dashboard')
     expect(routeKey({ kind: 'commonSettings' })).toBe('commonSettings')
+    expect(routeKey({ kind: 'members' })).toBe('members')
   })
 
   it('distinguishes panels of the same automation', () => {

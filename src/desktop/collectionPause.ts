@@ -1,11 +1,10 @@
 /**
  * Waits out a delay between requests without going deaf to a stop.
  *
- * The pacing pauses for two to five minutes every twentieth request and ten
- * to twenty every hundredth. Slept in one piece, a stop pressed at the start
- * of such a pause was not read until it ended — twenty minutes of a button
- * that appeared to do nothing. Sleeping in slices costs nothing and lets the
- * stop land within a second.
+ * The pacing takes minutes-long breaks every twentieth and hundredth request.
+ * Slept in one piece, a stop pressed at the start of such a break was not read
+ * until it ended — up to an hour of a button that appeared to do nothing.
+ * Sleeping in slices costs nothing and lets the stop land within a second.
  *
  * Resolves true when the whole delay passed, false when a stop cut it short.
  */

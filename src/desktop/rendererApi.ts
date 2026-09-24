@@ -14,11 +14,15 @@ import type { OptionalCollectionContext } from './collectionContext.js'
 import type { CollectionLoop } from './collectionLoop.js'
 import type { CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
+import { readCollectionPacing, writeCollectionPacing } from './collectionPacingSettings.js'
+import { readMemberResyncInterval, writeMemberResyncInterval } from './memberResyncSettings.js'
+import { readMemberResyncView } from './memberResyncView.js'
+import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
+import { pagesPerWorkBlock } from '../shared/collectionPacing.js'
 import { describeJob } from './collectionScope.js'
 import {
   checkCollectionRange,
   collectionRangeOfDays,
-  pagesPerWorkBlock,
   type CollectionRange,
 } from '../shared/collectionSchedule.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
@@ -90,6 +94,8 @@ export interface RendererApiDeps {
   readonly collectionRunner: CollectionRunner
   /** Starts and stops the member collection walk. */
   readonly memberCollectionRunner: MemberCollectionRunner
+  /** The same walk bound to the re-walk's own cursor. */
+  readonly memberResyncRunner: MemberCollectionRunner
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
@@ -148,6 +154,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
   const scheduleView = (): CollectionScheduleView => ({
     schedule: readCollectionSchedule(settings),
+    pacing: readCollectionPacing(settings),
     nextRunAtMs: deps.collectionLoop.nextRunAt(),
     running: deps.collectionRunner.isRunning(),
   })
@@ -240,6 +247,12 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return Promise.resolve(scheduleView())
     },
 
+    setCollectionPacing(pacing): Promise<CollectionScheduleView> {
+      // A block reads it as it starts, so there is no beat to re-lay.
+      writeCollectionPacing(settings, pacing)
+      return Promise.resolve(scheduleView())
+    },
+
     async startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
       const collection = deps.collection()
       const stored = collection.kind === 'ready' ? await collection.status.read() : null
@@ -248,7 +261,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const startFor = (range: CollectionRange, feeds: readonly CollectionFeed[], resumeFromCheckpoint: boolean): StartCollectionResult => {
         const schedule = readCollectionSchedule(settings)
         const started = deps.collectionRunner.start({
-          range, kind: 'backfill', maxPages: pagesPerWorkBlock(schedule.workBlockMinutes), feeds, resumeFromCheckpoint,
+          range, kind: 'backfill', maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)), feeds, resumeFromCheckpoint,
         })
         return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
@@ -328,7 +341,17 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const collection = deps.collection()
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
-      return { kind: 'ready', status: await collection.memberStatus.read() }
+      const [status, resync] = await Promise.all([
+        collection.memberStatus.read(),
+        readMemberResyncView({
+          feed: collection.memberRepository,
+          resync: collection.memberResyncRepository,
+          intervalDays: readMemberResyncInterval(settings),
+          running: deps.memberResyncRunner.isRunning(),
+          scheduleEnabled: readCollectionSchedule(settings).enabled,
+        }),
+      ])
+      return { kind: 'ready', status, resync }
     },
 
     async startMemberCollection(): Promise<StartCollectionResult> {
@@ -337,7 +360,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const state = await collection.memberRepository.readMemberFeedState()
       if (state?.complete === true) return { kind: 'refused', reason: 'JOB_FINISHED' }
       const schedule = readCollectionSchedule(settings)
-      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes)
+      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings))
       // First start walks from page 1; an existing unfinished row resumes.
       const started = deps.memberCollectionRunner.start({
         mode: state === null ? 'backfill' : 'incremental',
@@ -348,8 +371,31 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     },
 
     stopMemberCollection(): Promise<void> {
+      // One button for either walk over the member list: at most one is in flight.
       deps.memberCollectionRunner.stop()
+      deps.memberResyncRunner.stop()
       return Promise.resolve()
+    },
+
+    async startMemberResync(): Promise<StartCollectionResult> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const feed = await collection.memberRepository.readMemberFeedState()
+      // Nothing to walk again until the first walk has been through the list.
+      if (feed?.complete !== true) return { kind: 'refused', reason: 'NO_JOB' }
+      const resync = await collection.memberResyncRepository.readResyncState()
+      const schedule = readCollectionSchedule(settings)
+      const started = deps.memberResyncRunner.start({
+        mode: 'resync',
+        maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)),
+        resumeFromCheckpoint: resync?.inProgress === true,
+      })
+      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
+    },
+
+    setMemberResyncInterval(days): Promise<MemberResyncIntervalDays> {
+      // The loop asks the job whether it is due on every beat; nothing to re-lay.
+      return Promise.resolve(writeMemberResyncInterval(settings, days))
     },
 
     async setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {
