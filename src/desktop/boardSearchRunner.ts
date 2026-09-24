@@ -81,7 +81,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           return { requests, interrupted: false }
         }
         assertBoardSearchPage(result, query)
-        await repository.persistPage({ runId, boardId: query.boardId, query: query.query, page: pageNumber, observedAt, result })
+        await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
         pageNumber += 1
       }
     } catch (error) {

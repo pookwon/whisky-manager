@@ -630,9 +630,9 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const searchPage = parseCafeBoardSearchListText(
       readFileSync(fileURLToPath(new URL('../../fixtures/cafe-board-search-sample.json', import.meta.url)), 'utf8'),
     )
-    const written = await search.persistPage({ runId, boardId: '137', query: '글렌', page: 1, observedAt: at, result: searchPage })
+    const written = await search.persistPage({ runId, boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', page: 1, observedAt: at, result: searchPage })
     expect(written).toEqual({ insertedPostCount: 2, updatedPostCount: 0 })
-    const again = await search.persistPage({ runId, boardId: '137', query: '글렌', page: 1, observedAt: at, result: searchPage })
+    const again = await search.persistPage({ runId, boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', page: 1, observedAt: at, result: searchPage })
     expect(again).toEqual({ insertedPostCount: 0, updatedPostCount: 2 })
 
     await search.finishRun(runId, 'succeeded', null, at)
@@ -674,5 +674,30 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(read.running).toEqual(before.running)
 
     await search.finishRun(runningId, 'interrupted', 'ABORTED', new Date('2026-09-26T01:10:00.000Z'))
+  })
+
+  it('ties a search run\'s page and completion to the window it was started on', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-09-26T02:00:00.000Z')
+    await search.replaceJob({ boardId: '137', fromDay: '20250101', toDay: '20250829', at, queries: [{ query: '싱글몰트', expectedGain: 1 }] })
+    // A block read this queue, then the job was replaced between its queries
+    // with the same board and query over another window.
+    const [held] = await search.listQueries()
+    await search.replaceJob({ boardId: '137', fromDay: '20250201', toDay: '20250829', at, queries: [{ query: '싱글몰트', expectedGain: 1 }] })
+
+    const runId = randomUUID()
+    await search.startRun({ id: runId, boardId: held!.boardId, query: held!.query, fromDay: held!.fromDay, toDay: held!.toDay, startedAt: at })
+    const searchPage = parseCafeBoardSearchListText(
+      readFileSync(fileURLToPath(new URL('../../fixtures/cafe-board-search-sample.json', import.meta.url)), 'utf8'),
+    )
+    await expect(search.persistPage({ runId, boardId: held!.boardId, query: held!.query, fromDay: held!.fromDay, toDay: held!.toDay, page: 1, observedAt: at, result: searchPage })).rejects.toThrow('board search query does not exist')
+    await search.finishRun(runId, 'succeeded', null, at)
+
+    const [fresh] = await search.listQueries()
+    expect(fresh).toMatchObject({ fromDay: '20250201', lastCommittedPage: null, totalCount: null, lastRunId: null, complete: false })
+    // The rejected page rolled its run counters back with it.
+    const run = await pool.query<{ collection_pages: number }>('select collection_pages from runs where id = $1', [runId])
+    expect(run.rows[0]?.collection_pages).toBe(0)
   })
 })

@@ -34,6 +34,7 @@ function harness(
   setup: { readonly storage?: boolean; readonly connected?: boolean; readonly failedFinishRejectsFor?: string } = {},
 ) {
   const events: string[] = []
+  const windows: string[] = []
   const queryOfRun = new Map<string, string>()
   const repository: BoardSearchRepository = {
     listQueries: async () => queries,
@@ -43,7 +44,7 @@ function harness(
     replaceJob: async () => undefined,
     startRun: async (input) => { queryOfRun.set(input.id, input.query); events.push(`start ${input.query}`) },
     recordPageRequest: async () => undefined,
-    persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); return { insertedPostCount: input.result.items.length, updatedPostCount: 0 } },
+    persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); windows.push(`${input.fromDay}-${input.toDay}`); return { insertedPostCount: input.result.items.length, updatedPostCount: 0 } },
     finishRun: async (id, status, reason) => {
       events.push(`finish ${status}${reason === null ? '' : ' ' + reason}`)
       if (status === 'failed' && queryOfRun.get(id) === setup.failedFinishRejectsFor) throw new Error('database went away')
@@ -63,7 +64,7 @@ function harness(
     pacing: () => NO_WAIT, sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
-  return { runner, events, settle }
+  return { runner, events, windows, settle }
 }
 
 describe('boardSearchRunner', () => {
@@ -75,6 +76,13 @@ describe('boardSearchRunner', () => {
       'start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'store 글렌 p2', 'read 글렌 p3', 'finish succeeded',
       'start 구매', 'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded',
     ])
+  })
+
+  it('writes each page against the window of the query it walks', async () => {
+    const h = harness([query('글렌', 1)], { 글렌: [page([1], 2), page([2], 2)] })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.windows).toEqual(['20250101-20250829', '20250101-20250829'])
   })
 
   it('stops where the budget runs out and leaves the rest for the next block', async () => {

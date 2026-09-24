@@ -1,7 +1,7 @@
 import { and, asc, eq, min, sql } from 'drizzle-orm'
 import type { BoardSearchQuery } from '../../shared/boardSearchDictionary.js'
 import type { CollectedArticlePage } from '../../shared/cafeArticleList.js'
-import { kstDayKeyRange } from '../../shared/kst.js'
+import { kstDayKey, kstDayKeyRange } from '../../shared/kst.js'
 import type { CollectionDatabase } from './client.js'
 import { writePostRows } from './postPageWrite.js'
 import type { CollectionRepository } from './repository.js'
@@ -43,6 +43,8 @@ export interface PersistBoardSearchPageInput {
   readonly runId: string
   readonly boardId: string
   readonly query: string
+  readonly fromDay: string
+  readonly toDay: string
   readonly page: number
   readonly observedAt: Date
   readonly result: CollectedArticlePage
@@ -80,8 +82,18 @@ function toQueryState(row: StateRow): BoardSearchQueryState {
   }
 }
 
-function sameQuery(boardId: string, query: string) {
-  return and(eq(boardSearchState.boardId, boardId), eq(boardSearchState.query, query))
+/**
+ * The window is part of the match: a block that read the queue before a job
+ * was replaced must not write its old window's cursor onto a same-named query
+ * of the new one.
+ */
+function sameQueryWindow(boardId: string, query: string, fromDay: string, toDay: string) {
+  return and(
+    eq(boardSearchState.boardId, boardId),
+    eq(boardSearchState.query, query),
+    eq(boardSearchState.fromDay, fromDay),
+    eq(boardSearchState.toDay, toDay),
+  )
 }
 
 export function createBoardSearchRepository(db: CollectionDatabase, collection: CollectionRepository): BoardSearchRepository {
@@ -179,7 +191,7 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
             lastRunId: input.runId,
             updatedAt: input.observedAt,
           })
-          .where(sameQuery(input.boardId, input.query))
+          .where(sameQueryWindow(input.boardId, input.query, input.fromDay, input.toDay))
           .returning({ query: boardSearchState.query })
         if (state.length !== 1) throw new Error('board search query does not exist')
         return written
@@ -192,12 +204,19 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
           .update(collectionRuns)
           .set({ status, stopReason, finishedAt })
           .where(and(eq(collectionRuns.id, runId), eq(collectionRuns.status, 'running')))
-          .returning({ boardId: collectionRuns.menuId, query: collectionRuns.searchQuery })
+          .returning({
+            boardId: collectionRuns.menuId,
+            query: collectionRuns.searchQuery,
+            targetStartMs: collectionRuns.targetStartMs,
+            targetEndMs: collectionRuns.targetEndMs,
+          })
         const run = updated[0]
         if (run === undefined) throw new Error('board search run is not running')
         // Only reaching the empty page past the end finishes a query.
         if (status !== 'succeeded' || run.query === null) return
-        await tx.update(boardSearchState).set({ completedAt: finishedAt, updatedAt: finishedAt }).where(sameQuery(run.boardId, run.query))
+        // The run's target range is the window it was started on, end exclusive.
+        const window = sameQueryWindow(run.boardId, run.query, kstDayKey(run.targetStartMs), kstDayKey(run.targetEndMs - 1))
+        await tx.update(boardSearchState).set({ completedAt: finishedAt, updatedAt: finishedAt }).where(window)
       })
     },
   }
