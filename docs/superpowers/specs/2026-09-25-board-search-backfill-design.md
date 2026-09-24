@@ -2,7 +2,7 @@
 
 - 작성일: 2026-09-25 (KST)
 - 대상: 게시판별 백필(설계 `2026-09-05-per-board-collection-design.md`)이 `FEED_HORIZON`에서 멈춘 게시판
-- 상태: 설계 확정, 구현 전
+- 상태: 설계 확정, 검색 API 계약 캡처 완료(§9), 구현 전
 
 ## 1. 왜 필요한가
 
@@ -68,6 +68,7 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 | `expected_gain` | integer ≥ 0 | 사전이 예측한 신규 몫(원천 기준 글 수) |
 | `last_committed_page` | integer, null | 마지막으로 저장한 쪽 |
 | `inserted_count` | integer ≥ 0 | 이 검색어가 새로 넣은 글 수 |
+| `total_count` | integer, null | 검색 응답의 `totalArticleCount`. 첫 쪽을 저장할 때 적는다 |
 | `last_run_id` | uuid, FK `runs` | |
 | `completed_at` | timestamp | 끝까지 걸은 때 |
 | `updated_at` | timestamp | |
@@ -121,6 +122,23 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 
 블록당 약 150쪽, 하루 3블록이면 K=300은 **4일 남짓**이다.
 
+### 실측 보정 (2026-09-25)
+
+137이 완전한 2025-09(4,246건)를 `writeTime`으로 걸고 응답의 `totalArticleCount`를 모델 예측과 비교했다.
+
+| 검색어 | 모델 | 실제 |
+|---|---|---|
+| 글렌 | 700 | 692 |
+| 구매 | 537 | 554 |
+| 이마트 | 426 | 441 |
+| 트레이더스 | 284 | 322 |
+| 조니 | 163 | 163 |
+| 위스키 | 201 | 223 |
+| 12 | 225 | 436 |
+| gs | 348 | 167 |
+
+한글 어절은 모델과 맞는다. 영문·숫자가 섞인 어절은 어긋난다. 네이버는 `발베니12년`의 `12`를 잡고, `gs25`는 한 단어로 보아 `gs`로 잡지 않는다. 사전은 순서를 정하는 근사일 뿐이고, 검색어마다의 실제 완결성은 `total_count`로 잰다. 그래서 규칙은 바꾸지 않는다.
+
 ### 닿지 않는 꼬리
 
 약 3%는 어느 흔한 어절로도 시작하지 않는 제목이다(`득탬?`, `신나네여`, `생존신고!`). 이 설계는 그것을 쫓지 않는다. 남은 양은 §7의 잔여 추정으로 보인다.
@@ -151,20 +169,45 @@ export interface CollectBoardSearchPageRequest {
 - `fromDay`/`toDay`는 데스크톱이 `kst.ts`로만 만든다. `KST_OFFSET_MS` 밖의 시간대 계산을 들이지 않는다.
 - `PROTOCOL_VERSION` 11 → 12. 앱과 확장을 함께 다시 패키징한다(메모리 `repackage-after-protocol-bump`).
 
+### 엔드포인트 (2026-09-25 캡처)
+
+검색 화면이 부르는 요청:
+
+```
+GET https://apis.cafe.naver.com/search/v2/cafes/14538121/search/articles
+    ?query=글렌&perPage=50&page=1&menuId=137&searchBy=1
+    &writeTime.max=20250131&writeTime.min=20250101
+    &views=MEMBER_LEVEL,COUNT,SALE_INFO,CAFE_MENU
+x-cafe-product: pc
+```
+
+- 호스트가 `apis.naver.com`이 아니라 **`apis.cafe.naver.com`** 이다. 확장 `manifest.json`의 `host_permissions`에 `https://apis.cafe.naver.com/*`를 더한다.
+- `x-cafe-product: pc`가 없으면 `400`에 빈 본문이다. `accept`만으로는 안 된다.
+- `searchBy=1`이 제목 검색(`ta=SUBJECT`)이다.
+- 화면의 요청은 `cafe.naver.com`의 `Referer`/`Origin`을 달고 나간다. 확장 워커의 요청도 같게 보이도록 `refererRule.ts`에 이 경로를 더한다(기존 규칙과 같은 방식, 새 `ruleId`).
+
 ### 확장
 
-- `src/extension/cafeBoardSearchEndpoint.ts`: 검색 API URL을 만들고 알아본다. 카페 id와 경로는 상수, 게시판·검색어·날짜·쪽만 변수다. `cafeArticleFixture.ts`의 "이 엔드포인트만" 제약과 같다.
-- `src/extension/boardSearchPageReader.ts`: 한 쪽만 읽는다. 루프·커서·대기·저장 정책이 없다(`boardPageReader`와 같은 계약). 실패 코드 `BOARD_SEARCH_BAD_REQUEST | _NETWORK_ERROR | _HTTP_ERROR | _INVALID_JSON | _PARSE_ERROR`.
+- `src/shared/cafeBoardSearchEndpoint.ts`: 위 URL을 만들고 알아본다. 카페 id와 경로, `perPage`, `searchBy`, `views`는 상수, 게시판·검색어·날짜·쪽만 변수다. `cafeArticleFixture.ts`의 "이 엔드포인트만" 제약과 같다.
+- `src/extension/boardSearchPageReader.ts`: 한 쪽만 읽는다. 루프·커서·대기·저장 정책이 없다(`boardPageReader`와 같은 계약). 요청에 `x-cafe-product: pc`와 referer를 싣는다. 실패 코드 `BOARD_SEARCH_BAD_REQUEST | _NETWORK_ERROR | _HTTP_ERROR | _INVALID_JSON | _PARSE_ERROR`.
 
 ### 응답 계약
 
 `src/shared/cafeBoardSearchList.ts`. 결과는 `CollectedArticlePage`(`items`, `pageInfo`, `pageIdentity`)로 낸다. `posts` upsert가 받는 타입은 `CollectedPostMetadata` 하나뿐이다.
 
-검색 API의 요청 URL과 응답 JSON은 **아직 캡처하지 않았다.** 구현의 첫 단계가 캡처다(§9).
+봉투는 게시판 목록과 같다: `result.articleList[]`(`type: 'ARTICLE'`, `item`), `result.pageInfo`(`totalArticleCount`, `lastNavigationPageNumber`, `visibleNextButton`). 그 밖에 `result.showSuicideSaver`가 있고 읽지 않는다. 항목은 목록과 **세 군데가 다르다**:
 
-- 항목이 게시판 목록과 같은 모양(`articleList[].item`)이면 `cafeArticleList.ts`의 항목 파서를 내보내 재사용하고, 봉투와 쪽 정보만 새로 파싱한다.
-- 다르면 `2026-08-30-cafe-article-list-contract.md`처럼 계약 문서를 따로 쓰고 `CollectedPostMetadata`로 옮긴다.
-- 어느 쪽이든 필드가 빠지거나 형식이 어긋나면 크게 실패한다. 로그인 화면이나 HTML을 빈 결과로 읽지 않는다.
+| `CollectedPostMetadata` | 게시판 목록 | 검색 |
+|---|---|---|
+| `postedAt` | `writeDateTimestamp` (epoch ms) | `addDate` — `"2025-01-31T23:59:26.667"`, 오프셋 없는 **KST 현지 시각** |
+| `authorNickname` | `writerInfo.nickName` | `writerInfo.nickname` |
+| `replyCount` | `replyArticleCount` | `refArticleCount` |
+
+`addDate`가 KST라는 것은 188의 세 글(660751, 661234, 661354)이 DB의 KST 시각과 밀리초까지 같아 확인했다. 변환은 `kst.ts`의 새 함수가 `KST_OFFSET_MS`로만 한다.
+
+나머지(`cafeId`, `articleId`, `menuId`, `subject`, `headName`/`headId`, `writerInfo.memberKey`, `readCount`, `commentCount`)는 목록과 같은 이름·타입이다. `menuName`은 없다(`boardName: null`). 말머리 규칙(`headName` 없으면 `headId`가 없거나 0)도 같다.
+
+`cafeArticleList.ts`의 작은 판독 함수(`record`, `safeInteger`, `nullableString` 등)와 `cafeArticlePageIdentity`, 쪽 정보 파서를 내보내 재사용하고, 항목 매핑만 새로 쓴다. 필드가 빠지거나 형식이 어긋나면 크게 실패한다.
 
 ## 6. 걷기
 
@@ -182,17 +225,18 @@ export interface CollectBoardSearchPageRequest {
 
 ### 끝 판정
 
+캡처로 확인한 끝: 578건(12쪽)인 검색어에서 12쪽은 28건, 13쪽과 20쪽은 `200`에 항목 0건이다. 1쪽으로 되돌아오지 않는다. `lastNavigationPageNumber`는 쪽 묶음의 끝(1쪽에서 10, 11쪽에서 12)이라 끝 판정에 쓰지 않는다.
+
 | 관찰 | 판정 |
 |---|---|
 | 항목 0건 | 끝 → `succeeded`, `completed_at` |
-| 직전 쪽과 `pageIdentity`가 같다(끝을 넘겨 되돌아옴) | 끝 → `succeeded`. 그 쪽은 이미 저장했다 |
-| 쪽 정보가 다음이 없다고 말한다 | 그 쪽을 저장하고 끝 |
+| 항목이 있다 | 저장하고 다음 쪽 |
 | 항목의 `boardId` ≠ 대상 게시판 | `failed` · `BOARD_SEARCH_WRONG_BOARD`, 그 쪽은 저장하지 않는다 |
 | 항목의 `postedAt`이 KST로 [`from_day`, `to_day`] 밖 | `failed` · `BOARD_SEARCH_OUT_OF_WINDOW`, 그 쪽은 저장하지 않는다 |
 
 마지막 두 줄은 검색 필터가 조용히 풀렸을 때 다른 게시판 글이나 기간 밖 글이 보충으로 섞이지 않게 한다. 실패해도 커서는 움직이지 않는다.
 
-끝을 넘긴 요청에 무엇이 오는지는 캡처(§9)로 확정하고, 표의 첫 세 줄 중 실제로 일어나는 것만 구현한다.
+`total_count`는 완결성의 기준이다. 끝났을 때 이 검색어로 본 글 수(`runs.observed_post_count`의 합)가 `total_count`보다 적으면 화면이 그 차이를 보인다. 실행을 실패로 만들지는 않는다. 걷는 사이에 글이 지워졌을 수 있다.
 
 ## 7. 화면
 
@@ -206,7 +250,7 @@ export interface CollectBoardSearchPageRequest {
 
 ## 8. 옮기는 절차
 
-1. 앱과 확장을 새로 패키징한다(프로토콜 12).
+1. 앱과 확장을 새로 패키징한다(프로토콜 12, 확장 권한 `apis.cafe.naver.com` 추가). 확장은 `chrome://extensions`에서 다시 불러온다. 권한이 늘었으므로 Chrome이 승인을 물으면 허용한다.
 2. 앱을 끄고 마이그레이션을 적용한다(메모리 `collection-migration-before-app`):
    ```bash
    COLLECTION_MIGRATION_DATABASE_URL=postgresql://lp2k@127.0.0.1:5432/whisky_manager_collection pnpm db:collection:migrate
@@ -216,21 +260,20 @@ export interface CollectBoardSearchPageRequest {
 4. 수집 메뉴의 검색 보충 카드에서 137, 2025-01-01로 작업을 만든다.
 5. 예약이 켜져 있으면 다음 블록부터 글 작업·회원 작업과 번갈아 걷는다.
 
-## 9. 구현 순서의 첫 단계: 계약 캡처
+## 9. 계약 캡처 (완료, 2026-09-25)
 
-코드보다 먼저 한다.
+로그인된 브라우저에서 검색 화면을 열어 요청과 응답을 읽었다(§5). 끝을 넘긴 쪽(§6)과 보정 실측(§4)도 그때 쟀다. 값은 기록하지 않았고 구조만 적었다.
 
-1. 로그인된 브라우저에서 §1의 검색 페이지가 부르는 `apis.naver.com` 요청 URL과 응답 JSON을 픽스처로 저장한다(`docs/superpowers/specs/examples/`).
-2. 마지막 쪽 +1을 요청했을 때의 응답도 저장한다. §6 끝 판정 표를 확정한다.
-3. (선택) 137이 완전한 2025-09를 `from/to`로 걸고 검색어 두세 개의 결과 건수를 DB의 예측(§4 매칭 모델)과 대조한다.
+남은 확인은 하나다: 확장 워커에서 나간 요청이 화면의 요청처럼 받아들여지는지. 확장을 새로 불러온 뒤 첫 블록의 첫 검색어가 `BOARD_SEARCH_HTTP_ERROR`로 끝나면 헤더나 referer가 모자란 것이다. 그 경우 이 절에 사실을 더하고 §5를 고친다.
 
 ## 10. 테스트
 
 - `boardSearchDictionary`: 탐욕 선택 순서, 동점 규칙, K와 최소 기여 멈춤, 어절 분리(기호·이모지·영숫자 혼합), 조각이 후보가 되지 않음, 결정성.
-- `cafeBoardSearchList`: 캡처 픽스처 파싱, 봉투·항목·쪽 정보의 형식 오류가 각자의 코드로 실패.
+- `cafeBoardSearchList`: §5의 구조로 만든 합성 픽스처(값은 지어낸 것) 파싱, `addDate`의 KST 변환, 봉투·항목·쪽 정보의 형식 오류가 각자의 코드로 실패.
 - `protocol`: §5의 거절 목록, 올바른 요청 통과.
-- `cafeBoardSearchEndpoint`·`boardSearchPageReader`: URL에 게시판·검색어·날짜·쪽이 들어가고, 실패가 각 코드로 나뉜다.
-- `boardSearchRunner`: 검색어 셋을 예산 안에서 이어 걷기, 예산 소진 시 멈춤, 끝 판정 표 각 줄, 재개 시 마지막 쪽 다시 읽기, 실패하면 다음으로, 중지하면 멈춤.
+- `cafeBoardSearchEndpoint`·`boardSearchPageReader`: URL에 게시판·검색어·날짜·쪽이 들어가고, `x-cafe-product`와 referer가 실리며, 실패가 각 코드로 나뉜다.
+- `manifest`·`refererRule`: 새 호스트 권한과 새 규칙.
+- `boardSearchRunner`: 검색어 셋을 예산 안에서 이어 걷기, 예산 소진 시 멈춤, 끝 판정 표 각 줄, 재개 시 마지막 쪽 다시 읽기, 첫 쪽에서 `total_count` 기록, 실패하면 다음으로, 중지하면 멈춤.
 - 저장소: 작업 생성이 사전 순서대로 행을 만들고 교체가 모든 행을 바꾸며 running 실행이 있으면 거절, 쪽 저장과 카운터의 원자성, `WRONG_BOARD`/`OUT_OF_WINDOW`에서 커서 불변.
 - `boardSearchJob`: 존재·완료가 행들에서 맞게 모이고, 완료된 작업은 `start`하지 않는다.
 - `boardSearchCoverageQuery`: 기준선과 잔여 계산, 지문 캐시.
