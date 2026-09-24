@@ -4,11 +4,11 @@ import type { Random } from '../shared/ports.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from './boardSearchPageFetcher.js'
 import { assertBoardSearchPage } from './boardSearchPageCheck.js'
-import { describeFailure } from './collectionFailure.js'
 import type { CollectionLock } from './collectionLock.js'
 import { CollectionPageError, type CollectionClock } from './collectionOrchestrator.js'
 import { pauseUnlessStopped } from './collectionPause.js'
 import type { CollectionStartResult } from './collectionRunner.js'
+import { failedRunStopReason } from './failedRunStopReason.js'
 
 export interface BoardSearchRunnerDeps {
   readonly repository: () => BoardSearchRepository | null
@@ -61,29 +61,38 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
    */
   async function walkQuery(repository: BoardSearchRepository, query: BoardSearchQueryState, budget: number, spentBefore: number, pacing: CollectionPacing): Promise<QueryOutcome> {
     const runId = deps.newId()
-    await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: new Date(deps.clock.now()) })
     let requests = 0
     let pageNumber = query.lastCommittedPage ?? 1
-    const finish = async (status: 'succeeded' | 'partial' | 'failed' | 'interrupted', reason: string | null): Promise<QueryOutcome> => {
-      await repository.finishRun(runId, status, reason, new Date(deps.clock.now()))
-      return { requests, interrupted: status === 'interrupted' }
-    }
+    const now = () => new Date(deps.clock.now())
     try {
+      await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
       for (;;) {
-        if (requests >= budget) return await finish('partial', 'PAGE_BUDGET_SPENT')
+        if (requests >= budget) {
+          await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
+          return { requests, interrupted: false }
+        }
         await waitForTurn(spentBefore + requests + 1, pacing)
         await repository.recordPageRequest(runId)
         requests += 1
         const observedAt = new Date(deps.clock.now())
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber })
-        if (result.items.length === 0) return await finish('succeeded', null)
+        if (result.items.length === 0) {
+          await repository.finishRun(runId, 'succeeded', null, now())
+          return { requests, interrupted: false }
+        }
         assertBoardSearchPage(result, query)
         await repository.persistPage({ runId, boardId: query.boardId, query: query.query, page: pageNumber, observedAt, result })
         pageNumber += 1
       }
     } catch (error) {
-      if (error instanceof CollectionPageError && error.code === 'ABORTED') return await finish('interrupted', 'ABORTED')
-      return await finish('failed', error instanceof CollectionPageError ? error.code : describeFailure(error))
+      // A run row left behind as running is the lesser harm here: letting the
+      // write's own failure end the block would strand every query after it.
+      if (error instanceof CollectionPageError && error.code === 'ABORTED') {
+        await repository.finishRun(runId, 'interrupted', 'ABORTED', now()).catch(() => undefined)
+        return { requests, interrupted: true }
+      }
+      await repository.finishRun(runId, 'failed', failedRunStopReason(error).stopReason, now()).catch(() => undefined)
+      return { requests, interrupted: false }
     }
   }
 

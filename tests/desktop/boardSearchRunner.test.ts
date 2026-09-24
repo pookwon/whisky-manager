@@ -31,18 +31,23 @@ function harness(
   pages: Record<string, CollectedArticlePage[]>,
   fail: Record<string, string> = {},
   onRead: (query: string, page: number) => void = () => undefined,
+  setup: { readonly storage?: boolean; readonly connected?: boolean; readonly failedFinishRejectsFor?: string } = {},
 ) {
   const events: string[] = []
+  const queryOfRun = new Map<string, string>()
   const repository: BoardSearchRepository = {
     listQueries: async () => queries,
     listCollectableBoards: async () => [],
     readBoardTitles: async () => [],
     oldestPostedAtMs: async () => null,
     replaceJob: async () => undefined,
-    startRun: async (input) => { events.push(`start ${input.query}`) },
+    startRun: async (input) => { queryOfRun.set(input.id, input.query); events.push(`start ${input.query}`) },
     recordPageRequest: async () => undefined,
     persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); return { insertedPostCount: input.result.items.length, updatedPostCount: 0 } },
-    finishRun: async (_id, status, reason) => { events.push(`finish ${status}${reason === null ? '' : ' ' + reason}`) },
+    finishRun: async (id, status, reason) => {
+      events.push(`finish ${status}${reason === null ? '' : ' ' + reason}`)
+      if (status === 'failed' && queryOfRun.get(id) === setup.failedFinishRejectsFor) throw new Error('database went away')
+    },
   }
   const fetcher: BoardSearchPageFetcher = {
     read: async ({ query: q, page: p }) => {
@@ -54,7 +59,7 @@ function harness(
   }
   let id = 0
   const runner = createBoardSearchRunner({
-    repository: () => repository, fetcher, isConnected: () => true, clock: { now: () => 0 }, random: { intInclusive: (min: number) => min },
+    repository: () => (setup.storage === false ? null : repository), fetcher, isConnected: () => setup.connected !== false, clock: { now: () => 0 }, random: { intInclusive: (min: number) => min },
     pacing: () => NO_WAIT, sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
@@ -101,7 +106,7 @@ describe('boardSearchRunner', () => {
     const h = harness([query('글렌', 1)], { 글렌: [stray] })
     h.runner.start({ maxPages: 10 })
     await h.settle()
-    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD'])
+    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD: 9 on 188'])
   })
 
   it('ends the block at a stop and does not go on to the next query', async () => {
@@ -123,10 +128,24 @@ describe('boardSearchRunner', () => {
     expect(h.events).toEqual([])
   })
 
-  it('refuses a second start and a start with the extension away', async () => {
+  it('refuses a second start, a start without storage and a start with the extension away', async () => {
     const h = harness([query('글렌', 1)], {})
     h.runner.start({ maxPages: 10 })
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'refused', reason: 'ALREADY_RUNNING' })
+    await h.settle()
+    expect(harness([query('글렌', 1)], {}, {}, undefined, { storage: false }).runner.start({ maxPages: 10 })).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+    expect(harness([query('글렌', 1)], {}, {}, undefined, { connected: false }).runner.start({ maxPages: 10 })).toEqual({ kind: 'refused', reason: 'BRIDGE_OFFLINE' })
+  })
+
+  it('goes on to the next query when a failed run cannot be written, and frees the lock after', async () => {
+    const h = harness([query('글렌', 1), query('구매', 2)], { 구매: [page([4], 1)] }, { 글렌: 'BOARD_SEARCH_HTTP_ERROR' }, undefined, { failedFinishRejectsFor: '글렌' })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.events).toEqual([
+      'start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_HTTP_ERROR',
+      'start 구매', 'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded',
+    ])
+    expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })
     await h.settle()
   })
 })
