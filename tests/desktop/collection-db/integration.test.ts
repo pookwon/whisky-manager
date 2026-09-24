@@ -656,4 +656,23 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     // The search fixture's two posts (667850, 667901) are the only ones in January 2025 here.
     expect(coverage).toMatchObject({ span: 667_901 - 667_850 + 1, missing: 667_901 - 667_850 + 1 - 2 })
   })
+
+  it('keeps board search runs off the article collection status', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const status = createCollectionStatusQuery(connection.db)
+    const before = await status.read()
+    // Later than every list-walk run above, so it would head the list if it were read.
+    const finishedId = randomUUID()
+    await search.startRun({ id: finishedId, boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', startedAt: new Date('2026-09-26T00:00:00.000Z') })
+    await search.finishRun(finishedId, 'partial', 'PAGE_BUDGET_SPENT', new Date('2026-09-26T00:10:00.000Z'))
+    const runningId = randomUUID()
+    await search.startRun({ id: runningId, boardId: '137', query: '구매', fromDay: '20250101', toDay: '20250829', startedAt: new Date('2026-09-26T01:00:00.000Z') })
+
+    const read = await status.read()
+    expect(read.recentRuns.map((run) => run.id)).toEqual(before.recentRuns.map((run) => run.id))
+    expect(read.running).toEqual(before.running)
+
+    await search.finishRun(runningId, 'interrupted', 'ABORTED', new Date('2026-09-26T01:10:00.000Z'))
+  })
 })
