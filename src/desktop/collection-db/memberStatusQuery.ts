@@ -68,10 +68,12 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
           .from(memberFeedState)
           .limit(1),
         db.select({ running: sql<string>`count(*)` }).from(memberRuns).where(sql`${memberRuns.status} = 'running'`),
-        // Most recent run for its status and stop reason.
+        // Most recent run for its status and stop reason. The re-walk reports
+        // its own on its own card; its budget stops are not this walk's news.
         db
           .select({ status: memberRuns.status, stopReason: memberRuns.stopReason })
           .from(memberRuns)
+          .where(sql`${memberRuns.runKind} != 'resync'`)
           .orderBy(sql`${memberRuns.startedAt} desc`)
           .limit(1),
         // The furthest page any walk committed; used once the walk is complete.

@@ -1,7 +1,8 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import type { CollectedMember, CollectedMemberPage } from '../../shared/cafeMemberList.js'
+import type { CollectedMemberPage } from '../../shared/cafeMemberList.js'
 import type { CollectionDatabase } from './client.js'
 import { members, memberFeedState, memberRuns } from './memberSchema.js'
+import { assertPersistablePage, MemberStateConflictError, writeMemberPage } from './memberPageWrite.js'
 
 /** The single member-feed row's fixed primary key. */
 const FEED_ROW_ID = 1
@@ -11,20 +12,26 @@ export interface MemberFeedStateExpectation {
   readonly anchorMemberKey: string | null
 }
 
-export interface MemberFeedState extends MemberFeedStateExpectation {
+/** What a walk needs of a cursor to resume and to commit against it. */
+export interface MemberCursorState extends MemberFeedStateExpectation {
   readonly anchorJoinDate: string | null
   readonly referencePage: number | null
   readonly pageIdentity: string | null
-  readonly totalMemberCount: number | null
   readonly cursorUpdatedAtMs: number
+}
+
+export interface MemberFeedState extends MemberCursorState {
+  readonly totalMemberCount: number | null
   readonly complete: boolean
+  /** When the first walk reached the last page; null while `complete` is false. */
+  readonly completedAtMs: number | null
   readonly forced: boolean
   readonly toppedUpAtMs: number | null
 }
 
 export interface CreateMemberRunInput {
   readonly id: string
-  readonly runKind: 'backfill' | 'incremental' | 'topup'
+  readonly runKind: 'backfill' | 'incremental' | 'topup' | 'resync'
   readonly resumeFromCheckpoint: boolean
   readonly startedAt: Date
 }
@@ -52,42 +59,26 @@ export type PersistMemberPageResult =
     }
   | { readonly kind: 'conflict' }
 
-export interface MemberRepository {
-  readMemberFeedState(): Promise<MemberFeedState | null>
-  startRun(input: CreateMemberRunInput): Promise<MemberFeedState>
+/**
+ * What one walk over the member list needs of its storage. Every walk writes
+ * the same member rows and run rows; they differ in which cursor they advance
+ * and what "done" marks.
+ */
+export interface MemberWalkRepository {
+  startRun(input: CreateMemberRunInput): Promise<MemberCursorState>
   recordPageRequest(id: string, phase: 'probe' | 'collection'): Promise<void>
   finishRun(id: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
   persistPage(input: PersistMemberPageInput): Promise<PersistMemberPageResult>
   markCompleted(finishedAt: Date): Promise<void>
   markToppedUp(finishedAt: Date): Promise<void>
-  setForced(forcedAt: Date | null): Promise<void>
-  reconcileOrphanedRuns(finishedAt: Date): Promise<number>
   knownMemberKeys(keys: readonly string[]): Promise<Set<string>>
 }
 
-class MemberStateConflictError extends Error {
-  constructor() {
-    super('member feed state changed before this page could commit')
-    this.name = 'MemberStateConflictError'
-  }
-}
-
-function assertPersistablePage(input: PersistMemberPageInput): readonly CollectedMember[] {
-  if (!Number.isSafeInteger(input.referencePage) || input.referencePage < 1) {
-    throw new Error('referencePage must be a positive safe integer')
-  }
-  if (!Number.isSafeInteger(input.expectedState.stateVersion) || input.expectedState.stateVersion < 0) {
-    throw new Error('expected stateVersion must be a nonnegative safe integer')
-  }
-  if (input.page.items.length === 0) {
-    throw new Error('an empty member page must be handled by orchestration, not persisted')
-  }
-  const seen = new Set<string>()
-  for (const item of input.page.items) {
-    if (seen.has(item.memberKey)) throw new Error('page has a duplicate member key')
-    seen.add(item.memberKey)
-  }
-  return input.page.items
+export interface MemberRepository extends MemberWalkRepository {
+  readMemberFeedState(): Promise<MemberFeedState | null>
+  startRun(input: CreateMemberRunInput): Promise<MemberFeedState>
+  setForced(forcedAt: Date | null): Promise<void>
+  reconcileOrphanedRuns(finishedAt: Date): Promise<number>
 }
 
 function toState(row: {
@@ -111,6 +102,7 @@ function toState(row: {
     totalMemberCount: row.totalMemberCount,
     cursorUpdatedAtMs: row.updatedAt.getTime(),
     complete: row.completedAt !== null,
+    completedAtMs: row.completedAt?.getTime() ?? null,
     forced: row.forcedAt !== null,
     toppedUpAtMs: row.toppedUpAt?.getTime() ?? null,
   }
@@ -209,66 +201,11 @@ export function createMemberRepository(db: CollectionDatabase): MemberRepository
 
     async persistPage(input) {
       const items = assertPersistablePage(input)
-      const anchor = items.at(-1)
-      if (anchor === undefined) throw new Error('persistable page unexpectedly has no members')
 
       try {
         return await db.transaction(async (tx) => {
-          const existingRows = await tx
-            .select({ memberKey: members.memberKey })
-            .from(members)
-            .where(inArray(members.memberKey, items.map((item) => item.memberKey)))
-          const existing = new Set(existingRows.map((row) => row.memberKey))
-          const insertedMemberCount = items.filter((item) => !existing.has(item.memberKey)).length
-          const updatedMemberCount = items.length - insertedMemberCount
-
-          // A re-read updates in place: nickname, level, roles and snapshot move;
-          // first_seen_at stays what it was.
-          await tx
-            .insert(members)
-            .values(
-              items.map((item) => ({
-                memberKey: item.memberKey,
-                nickname: item.nickname,
-                joinDate: item.joinDate,
-                levelName: item.levelName,
-                ageGroup: item.ageGroup,
-                sex: item.sex,
-                isManager: item.isManager,
-                isStaff: item.isStaff,
-                snapshotAt: input.observedAt,
-                firstSeenAt: input.observedAt,
-                lastRunId: input.runId,
-              })),
-            )
-            .onConflictDoUpdate({
-              target: members.memberKey,
-              set: {
-                nickname: sql`excluded.nickname`,
-                joinDate: sql`excluded.join_date`,
-                levelName: sql`excluded.level_name`,
-                ageGroup: sql`excluded.age_group`,
-                sex: sql`excluded.sex`,
-                isManager: sql`excluded.is_manager`,
-                isStaff: sql`excluded.is_staff`,
-                snapshotAt: input.observedAt,
-                lastRunId: input.runId,
-              },
-            })
-
-          const updatedRun = await tx
-            .update(memberRuns)
-            .set({
-              collectionPages: sql`${memberRuns.collectionPages} + 1`,
-              observedMemberCount: sql`${memberRuns.observedMemberCount} + ${items.length}`,
-              insertedMemberCount: sql`${memberRuns.insertedMemberCount} + ${insertedMemberCount}`,
-              updatedMemberCount: sql`${memberRuns.updatedMemberCount} + ${updatedMemberCount}`,
-              lastCommittedMemberKey: anchor.memberKey,
-              lastCommittedPage: input.referencePage,
-            })
-            .where(eq(memberRuns.id, input.runId))
-            .returning({ id: memberRuns.id })
-          if (updatedRun.length !== 1) throw new Error('member run does not exist')
+          const written = await writeMemberPage(tx, input, items)
+          const { anchor } = written
 
           const stateUpdated = await tx
             .update(memberFeedState)
@@ -294,8 +231,8 @@ export function createMemberRepository(db: CollectionDatabase): MemberRepository
 
           return {
             kind: 'stored' as const,
-            insertedMemberCount,
-            updatedMemberCount,
+            insertedMemberCount: written.insertedMemberCount,
+            updatedMemberCount: written.updatedMemberCount,
             nextStateVersion: stateUpdated[0]?.stateVersion ?? input.expectedState.stateVersion + 1,
             anchorMemberKey: anchor.memberKey,
           }

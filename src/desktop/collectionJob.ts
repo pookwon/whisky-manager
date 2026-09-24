@@ -17,7 +17,7 @@ export interface CollectionJobProgress {
  * job's daily top-up; the article job has none.
  */
 export interface CollectionJob {
-  readonly name: 'articles' | 'members'
+  readonly name: 'articles' | 'members' | 'memberResync'
   readProgress(): Promise<CollectionJobProgress>
   start(maxPages: number): CollectionStartResult
   startDailyMaintenance?(maxPages: number, nowMs: number): Promise<CollectionStartResult | null>

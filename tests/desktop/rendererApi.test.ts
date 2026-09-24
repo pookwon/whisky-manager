@@ -18,6 +18,7 @@ import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
+import type { MemberResyncLastRun, MemberResyncRepository, MemberResyncState } from '../../src/desktop/collection-db/memberResyncRepository.js'
 import type { MemberCollectionStatus } from '../../src/desktop/collection-db/memberStatusQuery.js'
 import type { CollectionStartRequest } from '../../src/desktop/collectionRunner.js'
 import type { MemberCollectionStartRequest } from '../../src/desktop/memberCollectionRunner.js'
@@ -68,6 +69,10 @@ interface CollectionOverrides {
   readonly memberFeedState?: MemberFeedState | null
   /** Override for what memberStatus.read() returns. */
   readonly memberStatus?: Partial<MemberCollectionStatus>
+  /** Re-walk state returned by memberResyncRepository.readResyncState(). */
+  readonly memberResyncState?: MemberResyncState | null
+  /** What memberResyncRepository.readLastRun() returns. */
+  readonly memberResyncLastRun?: MemberResyncLastRun | null
   /** Rows replaceJob returns; defaults to a single all_articles row matching the request period. */
   readonly replaceJobRows?: readonly StoredFeedState[]
 }
@@ -81,6 +86,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
   const memberStarted: MemberCollectionStartRequest[] = []
   /** Whether the member runner's stop() was called. */
   const memberStopped: boolean[] = []
+  /** Every re-walk start the api asked for, and every stop. */
+  const memberResyncStarted: MemberCollectionStartRequest[] = []
+  const memberResyncStopped: boolean[] = []
   /** What the api wrote as the force on the member repo. */
   const memberForcedCalls: (Date | null)[] = []
   /** What the api wrote as the force, newest last; null means released. */
@@ -214,6 +222,10 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                 return Promise.resolve()
               },
             } as unknown as MemberRepository,
+            memberResyncRepository: {
+              readResyncState: () => Promise.resolve(collection.memberResyncState ?? null),
+              readLastRun: () => Promise.resolve(collection.memberResyncLastRun ?? null),
+            } as unknown as MemberResyncRepository,
             memberStatus: {
               read: () =>
                 Promise.resolve({
@@ -248,6 +260,16 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       },
       stop: () => {
         memberStopped.push(true)
+      },
+      isRunning: () => false,
+    },
+    memberResyncRunner: {
+      start: (request: MemberCollectionStartRequest) => {
+        memberResyncStarted.push(request)
+        return { kind: 'started' as const }
+      },
+      stop: () => {
+        memberResyncStopped.push(true)
       },
       isRunning: () => false,
     },
@@ -310,7 +332,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberForcedCalls, replaced }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced }
 }
 
 async function seedAwaiting(
@@ -1173,7 +1195,7 @@ describe('startMemberCollection', () => {
       stateVersion: 0, anchorMemberKey: null,
       anchorJoinDate: null, referencePage: null, pageIdentity: null,
       totalMemberCount: null, cursorUpdatedAtMs: MON_10_00,
-      complete: false, forced: false, toppedUpAtMs: null,
+      complete: false, completedAtMs: null, forced: false, toppedUpAtMs: null,
     }
     const { api, memberStarted } = build(MON_10_00, {}, { job: null, memberFeedState: feedState })
     const result = await api.startMemberCollection()
@@ -1187,7 +1209,7 @@ describe('startMemberCollection', () => {
       stateVersion: 0, anchorMemberKey: null,
       anchorJoinDate: null, referencePage: null, pageIdentity: null,
       totalMemberCount: null, cursorUpdatedAtMs: MON_10_00,
-      complete: true, forced: false, toppedUpAtMs: null,
+      complete: true, completedAtMs: null, forced: false, toppedUpAtMs: null,
     }
     const { api } = build(MON_10_00, {}, { job: null, memberFeedState: feedState })
     expect(await api.startMemberCollection()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
@@ -1200,7 +1222,92 @@ describe('startMemberCollection', () => {
 
 })
 
+describe('startMemberResync', () => {
+  const walkDone = (): MemberFeedState => ({
+    stateVersion: 7, anchorMemberKey: null,
+    anchorJoinDate: null, referencePage: 1, pageIdentity: null,
+    totalMemberCount: 209_000, cursorUpdatedAtMs: MON_10_00,
+    complete: true, completedAtMs: MON_10_00 - 40 * 86_400_000, forced: false, toppedUpAtMs: null,
+  })
+  const resyncState = (overrides: Partial<MemberResyncState>): MemberResyncState => ({
+    stateVersion: 2, anchorMemberKey: null, anchorJoinDate: null, referencePage: null, pageIdentity: null,
+    cursorUpdatedAtMs: MON_10_00, cycleStartedAtMs: null, completedAtMs: null, inProgress: false,
+    ...overrides,
+  })
+
+  it('refuses until the first walk has been through the list', async () => {
+    const { api, memberResyncStarted } = build(MON_10_00, {}, { job: null, memberFeedState: { ...walkDone(), complete: false, completedAtMs: null } })
+    expect(await api.startMemberResync()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(memberResyncStarted).toHaveLength(0)
+  })
+
+  it('refuses without storage', async () => {
+    const { api } = build()
+    expect(await api.startMemberResync()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+
+  it('starts a new cycle on the re-walk runner, not the first walk\'s', async () => {
+    const { api, memberStarted, memberResyncStarted } = build(MON_10_00, {}, { job: null, memberFeedState: walkDone() })
+    expect(await api.startMemberResync()).toEqual({ kind: 'started' })
+    expect(memberStarted).toHaveLength(0)
+    expect(memberResyncStarted[0]).toMatchObject({ mode: 'resync', resumeFromCheckpoint: false })
+  })
+
+  it('carries a cycle under way on from its cursor', async () => {
+    const { api, memberResyncStarted } = build(MON_10_00, {}, {
+      job: null,
+      memberFeedState: walkDone(),
+      memberResyncState: resyncState({ cycleStartedAtMs: MON_10_00 - 86_400_000, referencePage: 300, inProgress: true }),
+    })
+    await api.startMemberResync()
+    expect(memberResyncStarted[0]).toMatchObject({ mode: 'resync', resumeFromCheckpoint: true })
+  })
+
+  it('shows the re-walk beside the member status, due the interval after the walk finished', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, memberFeedState: walkDone() })
+    await api.setMemberResyncInterval(60)
+    const view = await api.getMemberCollectionStatus()
+    expect(view.kind).toBe('ready')
+    if (view.kind === 'ready') {
+      expect(view.resync).toMatchObject({ intervalDays: 60, available: true, inProgress: false, pagesStored: 0, completedAtMs: null })
+      expect(view.resync.nextDueAtMs).toBeGreaterThan(MON_10_00)
+    }
+  })
+
+  it('shows a cycle under way with its page, its last stop, and whether the schedule would carry it on', async () => {
+    const { api } = build(MON_10_00, {}, {
+      job: null,
+      memberFeedState: walkDone(),
+      memberResyncState: resyncState({ cycleStartedAtMs: MON_10_00 - 86_400_000, referencePage: 300, inProgress: true }),
+      memberResyncLastRun: { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' },
+    })
+    const view = await api.getMemberCollectionStatus()
+    if (view.kind !== 'ready') throw new Error('expected a ready view')
+    expect(view.resync).toMatchObject({
+      inProgress: true,
+      running: false,
+      pagesStored: 300,
+      scheduleEnabled: false,
+      lastRun: { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' },
+    })
+  })
+
+  it('stores only an offered interval', async () => {
+    const { api } = build()
+    expect(await api.setMemberResyncInterval(14)).toBe(14)
+    expect(await api.setMemberResyncInterval(0)).toBe(0)
+    expect(await api.setMemberResyncInterval(3)).toBe(30)
+  })
+})
+
 describe('stopMemberCollection', () => {
+  it('stops whichever walk over the member list is in flight', async () => {
+    const { api, memberStopped, memberResyncStopped } = build(MON_10_00, {}, { job: null })
+    await api.stopMemberCollection()
+    expect(memberStopped).toHaveLength(1)
+    expect(memberResyncStopped).toHaveLength(1)
+  })
+
   it('calls the runner stop', async () => {
     const { api, memberStopped } = build(MON_10_00, {}, { job: null })
     await api.stopMemberCollection()
@@ -1214,7 +1321,7 @@ describe('setMemberCollectionForced', () => {
     stateVersion: 0, anchorMemberKey: null,
     anchorJoinDate: null, referencePage: null, pageIdentity: null,
     totalMemberCount: null, cursorUpdatedAtMs: MON_10_00,
-    complete: false, forced: false, toppedUpAtMs: null,
+    complete: false, completedAtMs: null, forced: false, toppedUpAtMs: null,
     ...overrides,
   })
 

@@ -4,7 +4,7 @@
  */
 export const KST_OFFSET_MS = 9 * 60 * 60 * 1000
 
-const MS_PER_DAY = 86_400_000
+export const MS_PER_DAY = 86_400_000
 
 /** Days since the epoch, counted on the KST calendar. */
 function kstDayOf(epochMs: number): number {

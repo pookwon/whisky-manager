@@ -10,6 +10,8 @@ import { parseCafeMemberListText } from '../../../src/shared/cafeMemberList.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from '../../../src/desktop/collection-db/client.js'
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
+import { createMemberResyncRepository } from '../../../src/desktop/collection-db/memberResyncRepository.js'
+import { createMemberCollectionStatusQuery } from '../../../src/desktop/collection-db/memberStatusQuery.js'
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 import { members } from '../../../src/desktop/collection-db/memberSchema.js'
@@ -26,7 +28,7 @@ const memberPage = parseCafeMemberListText(
   readFileSync(fileURLToPath(new URL('../../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
 )
 
-const COLLECTION_TABLES = ['members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
+const COLLECTION_TABLES = ['member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
 const COLLECTION_TYPES = ['collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
 
 let pool: Pool
@@ -445,6 +447,52 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     // ageGroup and sex are null in the sample fixture (fields absent)
     expect(row[0]!.ageGroup).toBeNull()
     expect(row[0]!.sex).toBeNull()
+  })
+
+  it('re-walks members on its own cursor, leaving the feed cursor where the top-up put it', async () => {
+    const feed = createMemberRepository(connection.db)
+    const resync = createMemberResyncRepository(connection.db, feed)
+    // The previous test leaves its second run in flight.
+    await feed.reconcileOrphanedRuns(new Date(4_500))
+    const feedBefore = await feed.readMemberFeedState()
+    expect(await resync.readResyncState()).toBeNull()
+
+    // The first run of a cycle starts it from page 1.
+    const first = { id: randomUUID(), runKind: 'resync' as const, resumeFromCheckpoint: false, startedAt: new Date(5_000) }
+    const cycle = await resync.startRun(first)
+    expect(cycle).toMatchObject({ anchorMemberKey: null, referencePage: null })
+    const stored = await resync.persistPage({ runId: first.id, observedAt: new Date(5_500), referencePage: 1, expectedState: cycle, page: memberPage, totalMemberCount: null })
+    expect(stored).toMatchObject({ kind: 'stored', insertedMemberCount: 0, updatedMemberCount: memberPage.items.length })
+    await resync.finishRun(first.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(6_000))
+
+    const walking = await resync.readResyncState()
+    expect(walking).toMatchObject({ inProgress: true, referencePage: 1, anchorMemberKey: memberPage.items.at(-1)!.memberKey, cycleStartedAtMs: 5_000 })
+    // The feed's cursor and its members' first sighting are untouched.
+    expect(await feed.readMemberFeedState()).toEqual(feedBefore)
+    const row = await connection.db.select({ firstSeenAt: members.firstSeenAt, snapshotAt: members.snapshotAt }).from(members).where(eq(members.memberKey, memberPage.items[0]!.memberKey))
+    expect(row[0]).toEqual({ firstSeenAt: new Date(1_000), snapshotAt: new Date(5_500) })
+
+    // A later run of the same cycle keeps its place; a stale expectation conflicts.
+    const second = { id: randomUUID(), runKind: 'resync' as const, resumeFromCheckpoint: true, startedAt: new Date(7_000) }
+    const resumed = await resync.startRun(second)
+    expect(resumed).toMatchObject({ stateVersion: walking!.stateVersion, anchorMemberKey: walking!.anchorMemberKey, referencePage: 1 })
+    expect(await resync.persistPage({ runId: second.id, observedAt: new Date(7_500), referencePage: 2, expectedState: cycle, page: memberPage, totalMemberCount: null })).toEqual({ kind: 'conflict' })
+    await resync.markCompleted(new Date(8_000))
+    await resync.finishRun(second.id, 'succeeded', null, new Date(8_000))
+    expect(await resync.readResyncState()).toMatchObject({ inProgress: false, completedAtMs: 8_000 })
+
+    // The next run after a finished cycle begins a new one from the top.
+    const third = { id: randomUUID(), runKind: 'resync' as const, resumeFromCheckpoint: false, startedAt: new Date(9_000) }
+    const fresh = await resync.startRun(third)
+    expect(fresh).toMatchObject({ anchorMemberKey: null, referencePage: null })
+    expect(fresh.stateVersion).toBeGreaterThan(walking!.stateVersion)
+    expect(await resync.readResyncState()).toMatchObject({ inProgress: true, cycleStartedAtMs: 9_000, completedAtMs: null })
+    await resync.finishRun(third.id, 'interrupted', 'ABORTED', new Date(9_500))
+
+    // The re-walk's stops are its own card's news, not the member walk's.
+    expect(await resync.readLastRun()).toEqual({ status: 'interrupted', stopReason: 'ABORTED' })
+    const walkStatus = await createMemberCollectionStatusQuery(connection.db).read()
+    expect(walkStatus.lastRunStopReason).toBe('ORPHANED_RUNNING_RUN')
   })
 
   it('makes a board job with one row per board, most stored posts first, and replaces it whole', async () => {

@@ -2,6 +2,7 @@ import { TEXT } from '../../../shared/text.js'
 import { useApp } from '../../store.js'
 import { CollectionUnavailable } from '../collection/CollectionUnavailable.js'
 import { MemberCollectionCard } from './MemberCollectionCard.js'
+import { MemberResyncCard } from './MemberResyncCard.js'
 
 /** The member list's own screen: the walk that copies it, apart from the boards. */
 export function MemberCollection(): React.JSX.Element {
@@ -20,7 +21,10 @@ export function MemberCollection(): React.JSX.Element {
         </p>
       </header>
       {memberCollection.kind === 'ready' ? (
-        <MemberCollectionCard memberCollection={memberCollection} busy={busy} act={act} />
+        <>
+          <MemberCollectionCard memberCollection={memberCollection} busy={busy} act={act} />
+          <MemberResyncCard view={memberCollection} busy={busy} act={act} />
+        </>
       ) : (
         <CollectionUnavailable view={memberCollection} />
       )}

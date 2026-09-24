@@ -1,6 +1,8 @@
 import type { CollectionJob, CollectionStatus } from './collection-db/statusQuery.js'
 import type { LogEntry } from './recentLog.js'
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
+import type { MemberResyncView } from './memberResyncView.js'
+import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
 import type { ApproveResult } from './approvals.js'
@@ -22,6 +24,7 @@ import type { WarmCheck } from './sessionWarmer.js'
 // one module, as it does for the collection results below.
 export type { ApproveResult } from './approvals.js'
 export type { LogEntry, LogSource } from './recentLog.js'
+export type { MemberResyncView } from './memberResyncView.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -40,6 +43,8 @@ export const IPC_CHANNELS = {
   startMemberCollection: 'wm:startMemberCollection',
   stopMemberCollection: 'wm:stopMemberCollection',
   setMemberCollectionForced: 'wm:setMemberCollectionForced',
+  startMemberResync: 'wm:startMemberResync',
+  setMemberResyncInterval: 'wm:setMemberResyncInterval',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -157,7 +162,7 @@ export interface DashboardSnapshot {
 export type MemberCollectionStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
-  | { readonly kind: 'ready'; readonly status: MemberCollectionStatus }
+  | { readonly kind: 'ready'; readonly status: MemberCollectionStatus; readonly resync: MemberResyncView }
 
 /**
  * Collection storage is optional, so its screen has three answers rather than
@@ -305,6 +310,13 @@ export interface RendererApi {
    * back inside them. Releases itself when the walk completes.
    */
   setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult>
+  /**
+   * Starts a block of the member re-walk now: a new cycle from page 1 when the
+   * last one finished, otherwise the cycle under way from where it stopped.
+   */
+  startMemberResync(): Promise<StartCollectionResult>
+  /** Sets how many days after a complete pass the next re-walk is due; 0 turns it off. */
+  setMemberResyncInterval(days: number): Promise<MemberResyncIntervalDays>
   getCollectionSchedule(): Promise<CollectionScheduleView>
   /** The log screen's timeline, newest first, already capped. */
   getRecentLog(): Promise<readonly LogEntry[]>

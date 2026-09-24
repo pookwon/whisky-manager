@@ -43,6 +43,13 @@
       "when": 1789101228333,
       "tag": "0005_warm_post",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790263351644,
+      "tag": "0006_talented_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

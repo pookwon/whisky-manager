@@ -1,6 +1,6 @@
 import type { Random } from '../shared/ports.js'
 import type { CollectionPacing } from '../shared/collectionPacing.js'
-import type { MemberRepository } from './collection-db/memberRepository.js'
+import type { MemberWalkRepository } from './collection-db/memberRepository.js'
 import type { CollectionLock } from './collectionLock.js'
 import {
   createMemberCollectionFetcher,
@@ -19,7 +19,7 @@ export interface MemberCollectionStartRequest {
 }
 
 export interface MemberCollectionRunnerDeps {
-  readonly repository: () => MemberRepository | null
+  readonly repository: () => MemberWalkRepository | null
   readonly transport: ExtensionTransport
   readonly clock: MemberCollectionClock
   readonly random: Random

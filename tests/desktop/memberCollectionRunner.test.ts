@@ -25,6 +25,7 @@ const baseState: MemberFeedState = {
   totalMemberCount: null,
   cursorUpdatedAtMs: 0,
   complete: false,
+  completedAtMs: null,
   forced: false,
   toppedUpAtMs: null,
 }
