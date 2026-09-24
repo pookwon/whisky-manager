@@ -21,6 +21,8 @@ const page = (ids: number[], total: number): CollectedArticlePage => ({
   items: ids.map(postAt), pageInfo: { totalArticleCount: total, lastNavigationPageNumber: 1, visibleNextButton: false }, pageIdentity: ids.join(','),
 })
 const EMPTY = page([], 0)
+/** One post from another board: the query's own results are wrong, not the request. */
+const STRAY = { ...page([9], 1), items: [{ ...postAt(9), boardId: '188' }] }
 
 function query(q: string, order: number, lastCommittedPage: number | null = null, complete = false): BoardSearchQueryState {
   return { boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', queueOrder: order, expectedGain: 1, lastCommittedPage, insertedCount: 0, totalCount: null, complete, lastRunId: null }
@@ -99,19 +101,25 @@ describe('boardSearchRunner', () => {
     expect(h.events.slice(0, 4)).toEqual(['start 글렌', 'read 글렌 p2', 'store 글렌 p2', 'read 글렌 p3'])
   })
 
-  it('skips finished queries, and moves on after a failure', async () => {
+  it('skips finished queries, and ends the block at a failure every query would share', async () => {
     const h = harness([query('끝남', 1, 5, true), query('글렌', 2), query('구매', 3)], { 구매: [page([4], 1)] }, { 글렌: 'BOARD_SEARCH_HTTP_ERROR' })
     h.runner.start({ maxPages: 10 })
     await h.settle()
+    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_HTTP_ERROR'])
+  })
+
+  it('moves on to the next query after a failure of the query\'s own results', async () => {
+    const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [STRAY], 구매: [page([4], 1)] })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
     expect(h.events).toEqual([
-      'start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_HTTP_ERROR',
+      'start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD: 9 on 188',
       'start 구매', 'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded',
     ])
   })
 
   it('does not store a page that breaks the board or window guard', async () => {
-    const stray = { ...page([9], 1), items: [{ ...postAt(9), boardId: '188' }] }
-    const h = harness([query('글렌', 1)], { 글렌: [stray] })
+    const h = harness([query('글렌', 1)], { 글렌: [STRAY] })
     h.runner.start({ maxPages: 10 })
     await h.settle()
     expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD: 9 on 188'])
@@ -146,11 +154,11 @@ describe('boardSearchRunner', () => {
   })
 
   it('goes on to the next query when a failed run cannot be written, and frees the lock after', async () => {
-    const h = harness([query('글렌', 1), query('구매', 2)], { 구매: [page([4], 1)] }, { 글렌: 'BOARD_SEARCH_HTTP_ERROR' }, undefined, { failedFinishRejectsFor: '글렌' })
+    const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [STRAY], 구매: [page([4], 1)] }, {}, undefined, { failedFinishRejectsFor: '글렌' })
     h.runner.start({ maxPages: 10 })
     await h.settle()
     expect(h.events).toEqual([
-      'start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_HTTP_ERROR',
+      'start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD: 9 on 188',
       'start 구매', 'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded',
     ])
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })

@@ -32,7 +32,14 @@ export interface BoardSearchRunner {
   isRunning(): boolean
 }
 
-type QueryOutcome = { readonly requests: number; readonly interrupted: boolean }
+/**
+ * The failures that belong to one query's results. Anything else — a refused
+ * or unreadable request — would meet every query after it the same way, and
+ * going on would only spend the budget one failed run at a time.
+ */
+const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOARD', 'BOARD_SEARCH_OUT_OF_WINDOW', 'BOARD_PAGE_DUPLICATE_POST'])
+
+type QueryOutcome = { readonly requests: number; readonly endsBlock: boolean }
 
 export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearchRunner {
   let inFlight: Promise<void> | null = null
@@ -69,7 +76,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       for (;;) {
         if (requests >= budget) {
           await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
-          return { requests, interrupted: false }
+          return { requests, endsBlock: false }
         }
         await waitForTurn(spentBefore + requests + 1, pacing)
         await repository.recordPageRequest(runId)
@@ -78,7 +85,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber })
         if (result.items.length === 0) {
           await repository.finishRun(runId, 'succeeded', null, now())
-          return { requests, interrupted: false }
+          return { requests, endsBlock: false }
         }
         assertBoardSearchPage(result, query)
         await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
@@ -89,14 +96,18 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       // write's own failure end the block would strand every query after it.
       if (error instanceof CollectionPageError && error.code === 'ABORTED') {
         await repository.finishRun(runId, 'interrupted', 'ABORTED', now()).catch(() => undefined)
-        return { requests, interrupted: true }
+        return { requests, endsBlock: true }
       }
-      await repository.finishRun(runId, 'failed', failedRunStopReason(error).stopReason, now()).catch(() => undefined)
-      return { requests, interrupted: false }
+      const failure = failedRunStopReason(error)
+      await repository.finishRun(runId, 'failed', failure.stopReason, now()).catch(() => undefined)
+      return { requests, endsBlock: !QUERY_OWN_FAILURES.has(failure.code) }
     }
   }
 
-  /** A block over the queue: unused budget passes on, a failure moves on, a stop does not. */
+  /**
+   * A block over the queue: unused budget passes on and a query's own failure
+   * moves on; a stop, or a failure every query would share, ends the block.
+   */
   async function walk(repository: BoardSearchRepository, maxPages: number): Promise<void> {
     const pacing = deps.pacing()
     let spent = 0
@@ -105,7 +116,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       if (abortRequested || spent >= maxPages) break
       const outcome = await walkQuery(repository, query, maxPages - spent, spent, pacing)
       spent += outcome.requests
-      if (outcome.interrupted) break
+      if (outcome.endsBlock) break
     }
   }
 
