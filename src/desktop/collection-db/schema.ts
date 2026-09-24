@@ -31,7 +31,7 @@ import { collectionRunStatus } from './collectionRunStatus.js'
  * thousand in total. A period older than the whole-cafe list can reach is
  * walked board by board.
  */
-export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended', 'board'])
+export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended', 'board', 'board_search'])
 export const collectionRunKind = pgEnum('collection_run_kind', ['development', 'backfill', 'incremental'])
 
 /** Every time this schema records is an instant, stored to the millisecond. */
@@ -43,6 +43,8 @@ export const collectionRuns = pgTable(
     id: uuid('id').primaryKey(),
     feedKind: collectionFeedKind('feed_kind').notNull(),
     menuId: text('menu_id').notNull(),
+    /** The title search a `board_search` run walked; null for every list walk. */
+    searchQuery: text('search_query'),
     runKind: collectionRunKind('run_kind').notNull(),
     targetStartMs: bigint('target_start_ms', { mode: 'number' }).notNull(),
     targetEndMs: bigint('target_end_ms', { mode: 'number' }).notNull(),

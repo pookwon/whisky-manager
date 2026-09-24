@@ -50,6 +50,13 @@
       "when": 1790263351644,
       "tag": "0006_talented_thunderbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790271110523,
+      "tag": "0007_glamorous_surge",
+      "breakpoints": true
     }
   ]
 }

@@ -28,7 +28,7 @@ const memberPage = parseCafeMemberListText(
   readFileSync(fileURLToPath(new URL('../../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
 )
 
-const COLLECTION_TABLES = ['member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
+const COLLECTION_TABLES = ['board_search_state', 'member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
 const COLLECTION_TYPES = ['collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
 
 let pool: Pool
