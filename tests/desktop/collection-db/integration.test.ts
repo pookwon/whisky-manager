@@ -7,8 +7,10 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseCafeArticleListText } from '../../../src/shared/cafeArticleList.js'
 import { parseCafeMemberListText } from '../../../src/shared/cafeMemberList.js'
+import { parseCafeBoardSearchListText } from '../../../src/shared/cafeBoardSearchList.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from '../../../src/desktop/collection-db/client.js'
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
+import { createBoardSearchRepository } from '../../../src/desktop/collection-db/boardSearchRepository.js'
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { createMemberResyncRepository } from '../../../src/desktop/collection-db/memberResyncRepository.js'
 import { createMemberCollectionStatusQuery } from '../../../src/desktop/collection-db/memberStatusQuery.js'
@@ -605,5 +607,46 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       'select (max(post_id::bigint) - min(post_id::bigint) + 1 - count(*))::text as missing from posts',
     )
     expect(read.idGaps.deletedLikeIds + read.idGaps.suspectIds).toBe(Number(span.rows[0]?.missing))
+  })
+
+  it('keeps a search job query by query, writing pages and completion atomically', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-09-25T00:00:00.000Z')
+    // The search names no board, so the board row must exist before its posts.
+    await pool.query(`insert into boards (board_id, name, first_seen_at, last_seen_at) values ('137', '국내구입기 & 정보', $1, $1) on conflict do nothing`, [at])
+
+    await search.replaceJob({
+      boardId: '137', fromDay: '20250101', toDay: '20250829', at,
+      queries: [{ query: '글렌', expectedGain: 10 }, { query: '구매', expectedGain: 5 }],
+    })
+    expect((await search.listQueries()).map((q) => [q.queueOrder, q.query, q.complete])).toEqual([[1, '글렌', false], [2, '구매', false]])
+
+    const runId = randomUUID()
+    await search.startRun({ id: runId, boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', startedAt: at })
+    await expect(search.replaceJob({ boardId: '137', fromDay: '20250101', toDay: '20250829', at, queries: [] })).rejects.toThrow()
+
+    const searchPage = parseCafeBoardSearchListText(
+      readFileSync(fileURLToPath(new URL('../../fixtures/cafe-board-search-sample.json', import.meta.url)), 'utf8'),
+    )
+    const written = await search.persistPage({ runId, boardId: '137', query: '글렌', page: 1, observedAt: at, result: searchPage })
+    expect(written).toEqual({ insertedPostCount: 2, updatedPostCount: 0 })
+    const again = await search.persistPage({ runId, boardId: '137', query: '글렌', page: 1, observedAt: at, result: searchPage })
+    expect(again).toEqual({ insertedPostCount: 0, updatedPostCount: 2 })
+
+    await search.finishRun(runId, 'succeeded', null, at)
+    const [glen, buy] = await search.listQueries()
+    expect(glen).toMatchObject({ lastCommittedPage: 1, insertedCount: 2, totalCount: 578, complete: true, lastRunId: runId })
+    expect(buy).toMatchObject({ lastCommittedPage: null, insertedCount: 0, totalCount: null, complete: false })
+
+    const run = await pool.query<{ feed_kind: string; menu_id: string; search_query: string; collection_pages: number; inserted_post_count: number }>(
+      'select feed_kind, menu_id, search_query, collection_pages, inserted_post_count from runs where id = $1', [runId],
+    )
+    expect(run.rows[0]).toEqual({ feed_kind: 'board_search', menu_id: '137', search_query: '글렌', collection_pages: 2, inserted_post_count: 2 })
+
+    await search.replaceJob({ boardId: '137', fromDay: '20250101', toDay: '20250829', at, queries: [{ query: '이마트', expectedGain: 3 }] })
+    expect((await search.listQueries()).map((q) => q.query)).toEqual(['이마트'])
+    expect(await search.readBoardTitles('137')).toEqual(expect.arrayContaining(['글렌알라키 12 이마트 구매', '글렌 두 병']))
+    expect(await search.oldestPostedAtMs('137')).toBe(Date.UTC(2025, 0, 30, 23, 1))
   })
 })

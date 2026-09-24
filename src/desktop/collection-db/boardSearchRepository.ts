@@ -1,0 +1,204 @@
+import { and, asc, eq, min, sql } from 'drizzle-orm'
+import type { BoardSearchQuery } from '../../shared/boardSearchDictionary.js'
+import type { CollectedArticlePage } from '../../shared/cafeArticleList.js'
+import { kstDayKeyRange } from '../../shared/kst.js'
+import type { CollectionDatabase } from './client.js'
+import { writePostRows } from './postPageWrite.js'
+import type { CollectionRepository } from './repository.js'
+import { boards, collectionRuns, posts } from './schema.js'
+import { boardSearchState } from './boardSearchSchema.js'
+
+export interface BoardSearchQueryState {
+  readonly boardId: string
+  readonly query: string
+  readonly fromDay: string
+  readonly toDay: string
+  readonly queueOrder: number
+  readonly expectedGain: number
+  readonly lastCommittedPage: number | null
+  readonly insertedCount: number
+  readonly totalCount: number | null
+  readonly complete: boolean
+  readonly lastRunId: string | null
+}
+
+export interface ReplaceBoardSearchJobInput {
+  readonly boardId: string
+  readonly fromDay: string
+  readonly toDay: string
+  readonly queries: readonly BoardSearchQuery[]
+  readonly at: Date
+}
+
+export interface BoardSearchRunInput {
+  readonly id: string
+  readonly boardId: string
+  readonly query: string
+  readonly fromDay: string
+  readonly toDay: string
+  readonly startedAt: Date
+}
+
+export interface PersistBoardSearchPageInput {
+  readonly runId: string
+  readonly boardId: string
+  readonly query: string
+  readonly page: number
+  readonly observedAt: Date
+  readonly result: CollectedArticlePage
+}
+
+export interface CollectableBoard { readonly boardId: string; readonly name: string }
+
+export interface BoardSearchRepository {
+  listQueries(): Promise<readonly BoardSearchQueryState[]>
+  listCollectableBoards(): Promise<readonly CollectableBoard[]>
+  readBoardTitles(boardId: string): Promise<readonly string[]>
+  oldestPostedAtMs(boardId: string): Promise<number | null>
+  replaceJob(input: ReplaceBoardSearchJobInput): Promise<void>
+  startRun(input: BoardSearchRunInput): Promise<void>
+  recordPageRequest(runId: string): Promise<void>
+  persistPage(input: PersistBoardSearchPageInput): Promise<{ readonly insertedPostCount: number; readonly updatedPostCount: number }>
+  finishRun(runId: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
+}
+
+type StateRow = typeof boardSearchState.$inferSelect
+
+function toQueryState(row: StateRow): BoardSearchQueryState {
+  return {
+    boardId: row.boardId,
+    query: row.query,
+    fromDay: row.fromDay,
+    toDay: row.toDay,
+    queueOrder: row.queueOrder,
+    expectedGain: row.expectedGain,
+    lastCommittedPage: row.lastCommittedPage,
+    insertedCount: row.insertedCount,
+    totalCount: row.totalCount,
+    complete: row.completedAt !== null,
+    lastRunId: row.lastRunId,
+  }
+}
+
+function sameQuery(boardId: string, query: string) {
+  return and(eq(boardSearchState.boardId, boardId), eq(boardSearchState.query, query))
+}
+
+export function createBoardSearchRepository(db: CollectionDatabase, collection: CollectionRepository): BoardSearchRepository {
+  return {
+    async listQueries() {
+      const rows = await db.select().from(boardSearchState).orderBy(asc(boardSearchState.queueOrder))
+      return rows.map(toQueryState)
+    },
+
+    async listCollectableBoards() {
+      return await db
+        .select({ boardId: boards.boardId, name: boards.name })
+        .from(boards)
+        .where(eq(boards.collectEnabled, true))
+        .orderBy(asc(boards.name))
+    },
+
+    async readBoardTitles(boardId) {
+      const rows = await db.select({ title: posts.title }).from(posts).where(eq(posts.boardId, boardId))
+      return rows.flatMap((row) => (row.title === null ? [] : [row.title]))
+    },
+
+    async oldestPostedAtMs(boardId) {
+      const rows = await db.select({ oldest: min(posts.postedAt) }).from(posts).where(eq(posts.boardId, boardId))
+      return rows[0]?.oldest?.getTime() ?? null
+    },
+
+    async replaceJob(input) {
+      await db.transaction(async (tx) => {
+        const running = await tx
+          .select({ id: collectionRuns.id })
+          .from(collectionRuns)
+          .where(and(eq(collectionRuns.feedKind, 'board_search'), eq(collectionRuns.status, 'running')))
+          .limit(1)
+        if (running.length > 0) throw new Error('cannot replace the search job while a run is writing its cursor')
+        await tx.delete(boardSearchState)
+        if (input.queries.length === 0) return
+        await tx.insert(boardSearchState).values(
+          input.queries.map((entry, index) => ({
+            boardId: input.boardId,
+            query: entry.query,
+            fromDay: input.fromDay,
+            toDay: input.toDay,
+            queueOrder: index + 1,
+            expectedGain: entry.expectedGain,
+            updatedAt: input.at,
+          })),
+        )
+      })
+    },
+
+    async startRun(input) {
+      await db.insert(collectionRuns).values({
+        id: input.id,
+        feedKind: 'board_search',
+        menuId: input.boardId,
+        searchQuery: input.query,
+        runKind: 'backfill',
+        targetStartMs: kstDayKeyRange(input.fromDay).startMs,
+        targetEndMs: kstDayKeyRange(input.toDay).endMs,
+        status: 'running',
+        startedAt: input.startedAt,
+      })
+    },
+
+    recordPageRequest(runId) {
+      return collection.recordPageRequest(runId, 'collection')
+    },
+
+    async persistPage(input) {
+      const items = input.result.items
+      const anchor = items.at(-1)
+      if (anchor === undefined) throw new Error('an empty search page ends the query; it is not persisted')
+      return await db.transaction(async (tx) => {
+        const written = await writePostRows(tx, items, input.observedAt, input.runId)
+        const run = await tx
+          .update(collectionRuns)
+          .set({
+            collectionPages: sql`${collectionRuns.collectionPages} + 1`,
+            observedPostCount: sql`${collectionRuns.observedPostCount} + ${items.length}`,
+            insertedPostCount: sql`${collectionRuns.insertedPostCount} + ${written.insertedPostCount}`,
+            updatedPostCount: sql`${collectionRuns.updatedPostCount} + ${written.updatedPostCount}`,
+            lastCommittedPostId: anchor.postId,
+            lastCommittedPage: input.page,
+          })
+          .where(eq(collectionRuns.id, input.runId))
+          .returning({ id: collectionRuns.id })
+        if (run.length !== 1) throw new Error('board search run does not exist')
+        const state = await tx
+          .update(boardSearchState)
+          .set({
+            lastCommittedPage: input.page,
+            insertedCount: sql`${boardSearchState.insertedCount} + ${written.insertedPostCount}`,
+            totalCount: sql`coalesce(${boardSearchState.totalCount}, ${input.result.pageInfo.totalArticleCount})`,
+            lastRunId: input.runId,
+            updatedAt: input.observedAt,
+          })
+          .where(sameQuery(input.boardId, input.query))
+          .returning({ query: boardSearchState.query })
+        if (state.length !== 1) throw new Error('board search query does not exist')
+        return written
+      })
+    },
+
+    async finishRun(runId, status, stopReason, finishedAt) {
+      await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(collectionRuns)
+          .set({ status, stopReason, finishedAt })
+          .where(and(eq(collectionRuns.id, runId), eq(collectionRuns.status, 'running')))
+          .returning({ boardId: collectionRuns.menuId, query: collectionRuns.searchQuery })
+        const run = updated[0]
+        if (run === undefined) throw new Error('board search run is not running')
+        // Only reaching the empty page past the end finishes a query.
+        if (status !== 'succeeded' || run.query === null) return
+        await tx.update(boardSearchState).set({ completedAt: finishedAt, updatedAt: finishedAt }).where(sameQuery(run.boardId, run.query))
+      })
+    },
+  }
+}
