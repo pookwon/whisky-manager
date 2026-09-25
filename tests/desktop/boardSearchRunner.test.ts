@@ -161,6 +161,14 @@ describe('boardSearchRunner', () => {
     expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'finish failed BOARD_SEARCH_OUT_OF_ORDER: 2'])
   })
 
+  it('accepts a page whose newest post is as old as the oldest post of the page before it', async () => {
+    const first = { ...page([3, 2], 3), items: [postAt(3, januaryNoon(5)), postAt(2, januaryNoon(3))] }
+    const h = harness([query('글렌', 1)], { 글렌: [first, page([1], 3)] })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'store 글렌 p2', 'read 글렌 p3', 'finish succeeded'])
+  })
+
   it('ends the block at a stop and does not go on to the next query', async () => {
     // The stop is pressed while page 1 is being read: that page is kept, and
     // the wait before page 2 is where it lands.
@@ -215,6 +223,15 @@ describe('boardSearchRunner', () => {
       ])
       expect(h.requests.slice(-3)).toEqual([`구매 20250101-20250829 p${CAP}`, '구매 20250101-20250105 p1', '구매 20250101-20250105 p2'])
       expect(h.requests).not.toContain(`구매 20250101-20250829 p${CAP + 1}`)
+    })
+
+    it('walks on when page 1 of the narrowed window starts later in the day than the cap page\'s oldest post', async () => {
+      // The live case: "구매" narrowed to 01-10, and its page 1 began late on 01-10.
+      const lateOnJanuary10 = { ...page([7], 1), items: [postAt(7, Date.UTC(2025, 0, 10, 14))] }
+      const h = harness([query('구매', 1)], { 구매: pagesToTheCap(10), '구매@20250110': [lateOnJanuary10] })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-5)).toEqual(['narrow 구매 20250101-20250829 to 20250110', 'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded'])
     })
 
     it('steps one day earlier when the oldest day is already the end of the window', async () => {
