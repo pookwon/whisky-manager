@@ -9,6 +9,7 @@ import {
   boardSearchQueryStateText,
   boardSearchStartLabel,
   boardSearchSummaryLine,
+  boardSearchTotalLabel,
   dayKeyLabel,
   dayKeyOfDateInput,
 } from './boardSearchLines.js'
@@ -198,7 +199,7 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                           <td className={state === 'failed' ? 'tone-warn' : undefined}>{boardSearchQueryStateText(query, state)}</td>
                           <td className="text-right">{query.lastCommittedPage ?? '—'}</td>
                           <td className="text-right">{query.insertedCount.toLocaleString('ko-KR')}</td>
-                          <td className="text-right">{query.totalCount === null ? '—' : query.totalCount.toLocaleString('ko-KR')}</td>
+                          <td className="text-right">{boardSearchTotalLabel(query.totalCount)}</td>
                         </tr>
                       )
                     })}

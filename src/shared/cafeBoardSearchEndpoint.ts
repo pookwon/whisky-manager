@@ -13,6 +13,11 @@ export const CAFE_BOARD_SEARCH = {
   searchBy: '1',
   views: 'MEMBER_LEVEL,COUNT,SALE_INFO,CAFE_MENU',
   headers: { 'x-cafe-product': 'pc' },
+  /**
+   * `totalArticleCount` stops here: "글렌" reported 2,000 while its pages held
+   * 3,369 posts (2026-09-25). The pages go on past it; only the count does not.
+   */
+  totalCountCap: 2000,
 } as const
 
 const API_ORIGIN = 'https://apis.cafe.naver.com'
