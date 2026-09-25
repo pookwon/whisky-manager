@@ -734,6 +734,7 @@ export const TEXT = {
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,
+    totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
     refused: {
       NO_STORAGE: '수집 DB에 연결되어 있지 않습니다.',
       NO_POSTS: '이 게시판에 저장된 글이 없어 검색어를 고를 수 없습니다.',

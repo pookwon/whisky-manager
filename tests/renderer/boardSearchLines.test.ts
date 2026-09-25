@@ -6,6 +6,7 @@ import {
   boardSearchQueryStateText,
   boardSearchStartLabel,
   boardSearchSummaryLine,
+  boardSearchTotalLabel,
   dayKeyLabel,
   dayKeyOfDateInput,
 } from '../../src/renderer/views/collection/boardSearchLines.js'
@@ -89,5 +90,13 @@ describe('board search wording', () => {
     expect(boardSearchQueryStateText(query('글렌', false, { status: 'failed', stopReason: null }), 'failed')).toBe(TEXT.boardSearch.states.failed)
     // A partial run's reason is the budget, not a fault; the row does not repeat it.
     expect(boardSearchQueryStateText(query('글렌', false, { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' }), 'waiting')).toBe(TEXT.boardSearch.states.waiting)
+  })
+
+  it('shows the search total as a floor once it reaches the cap the search reports', () => {
+    // "글렌" reported 2,000 while its pages held 3,369 posts (2026-09-25).
+    expect(boardSearchTotalLabel(null)).toBe('—')
+    expect(boardSearchTotalLabel(578)).toBe('578')
+    expect(boardSearchTotalLabel(1999)).toBe('1,999')
+    expect(boardSearchTotalLabel(2000)).toBe(TEXT.boardSearch.totalAtLeast(2000))
   })
 })

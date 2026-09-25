@@ -1,3 +1,4 @@
+import { CAFE_BOARD_SEARCH } from '../../../shared/cafeBoardSearchEndpoint.js'
 import { TEXT } from '../../../shared/text.js'
 import type { BoardSearchCoverage } from '../../../desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchJobView, BoardSearchQueryView } from '../../../desktop/boardSearchView.js'
@@ -58,4 +59,10 @@ export function boardSearchQueryState(query: BoardSearchQueryView, running: bool
 export function boardSearchQueryStateText(query: BoardSearchQueryView, state: BoardSearchQueryStateKind): string {
   const reason = state === 'failed' ? (query.lastRun?.stopReason ?? null) : null
   return reason === null ? TEXT.boardSearch.states[state] : TEXT.boardSearch.failedWith(reason)
+}
+
+/** The search's own total, read as "at least" once it reaches the count it stops at. */
+export function boardSearchTotalLabel(total: number | null): string {
+  if (total === null) return '—'
+  return total >= CAFE_BOARD_SEARCH.totalCountCap ? TEXT.boardSearch.totalAtLeast(total) : total.toLocaleString('ko-KR')
 }

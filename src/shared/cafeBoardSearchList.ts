@@ -8,6 +8,7 @@ import {
   type CollectedArticlePage,
   type CollectedPostMetadata,
 } from './cafeArticleList.js'
+import { decodeHtmlEntities } from './htmlEntities.js'
 import { kstLocalDateTimeToEpochMs } from './kst.js'
 
 /**
@@ -26,6 +27,19 @@ function postedAtOf(item: Record<string, unknown>, path: string): number {
   return postedAt
 }
 
+const SEARCH_HIGHLIGHT = /<\/?b>/g
+
+/**
+ * The search answers `subject` as HTML: the matched word wrapped in `<b>`, and
+ * `&`, `<`, `>` escaped. The list answers plain text, and a title is one thing
+ * whichever feed read it, so the search's is brought back to the plain form.
+ * The highlight goes first: a `<b>` the writer typed arrives escaped, and only
+ * decoding turns it back into text.
+ */
+function plainTitle(subject: string | null): string | null {
+  return subject === null ? null : decodeHtmlEntities(subject.replace(SEARCH_HIGHLIGHT, ''))
+}
+
 function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadata {
   const path = `result.articleList[${index}]`
   const rawEntry = record(entry, path, 'INVALID_ARTICLE')
@@ -39,7 +53,7 @@ function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadat
     boardId: String(safeInteger(item, 'menuId', itemPath, 0, 'INVALID_ARTICLE')),
     // The search is scoped to one board and names none; the board is known.
     boardName: null,
-    title: nullableString(item, 'subject', itemPath, 'INVALID_ARTICLE'),
+    title: plainTitle(nullableString(item, 'subject', itemPath, 'INVALID_ARTICLE')),
     prefix: prefixOf(item, itemPath),
     authorId: nullableString(writerInfo, 'memberKey', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
     authorNickname: nullableString(writerInfo, 'nickname', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
