@@ -140,6 +140,13 @@ describe('KST day keys', () => {
     expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05.183')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5, 183))
     expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5))
     expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05.1')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5, 100))
+    // Post 672653 on board 137, captured 2026-09-26: addDate written on the
+    // minute omits the seconds entirely (Java LocalDateTime.toString style).
+    expect(kstLocalDateTimeToEpochMs('2025-02-06T16:00')).toBe(Date.UTC(2025, 1, 6, 7, 0))
+    // A sub-second fraction longer than three digits: only the first three
+    // digits are milliseconds; the rest are discarded.
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05.183456')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5, 183))
+    expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05.183456789')).toBe(Date.UTC(2025, 0, 16, 3, 13, 5, 183))
   })
 
   it('refuses a time it cannot read rather than guessing', () => {
@@ -147,5 +154,9 @@ describe('KST day keys', () => {
     expect(kstLocalDateTimeToEpochMs('2025-01-16T12:13:05+09:00')).toBeNull()
     expect(kstLocalDateTimeToEpochMs('2025-02-30T00:00:00')).toBeNull()
     expect(kstLocalDateTimeToEpochMs('2025-01-16T24:00:00')).toBeNull()
+    // Hour only (no minutes) is not a valid spelling.
+    expect(kstLocalDateTimeToEpochMs('2025-02-06T16')).toBeNull()
+    // A fraction directly after minutes (no seconds) is not a valid spelling.
+    expect(kstLocalDateTimeToEpochMs('2025-02-06T16:00.5')).toBeNull()
   })
 })
