@@ -18,7 +18,8 @@ export interface CollectedPostMetadata {
   /** Exact UTC epoch milliseconds from `writeDateTimestamp`. */
   readonly postedAt: number
   readonly viewCount: number
-  readonly commentCount: number
+  /** Null when the feed did not know the count (the search index can report -1). */
+  readonly commentCount: number | null
   readonly replyCount: number
   /** `notices` is a separate endpoint, so an `ARTICLE` row is never a notice. */
   readonly isNotice: false

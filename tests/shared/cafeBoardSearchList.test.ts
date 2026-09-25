@@ -111,4 +111,19 @@ describe('parseCafeBoardSearchList', () => {
     value.result.articleList[1]!.item.articleId = 667901
     expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('DUPLICATE_POST_ID')
   })
+
+  it('reads commentCount -1 as null (search does not know the count)', () => {
+    // Captured 2026-09-26: board 137 "홈플" page 2, articleId 753801 — the
+    // search index reported commentCount: -1 for a post missing from our DB.
+    const value = parsed()
+    value.result.articleList[0]!.item.commentCount = -1
+    expect(parseCafeBoardSearchList(value).items[0]!.commentCount).toBeNull()
+  })
+
+  it('refuses commentCount -2 (only -1 is a known unknown sentinel)', () => {
+    const value = parsed()
+    value.result.articleList[0]!.item.commentCount = -2
+    expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('INVALID_ARTICLE')
+  })
+
 })
