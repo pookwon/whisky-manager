@@ -63,6 +63,22 @@ describe('parseCafeBoardSearchList', () => {
     expect(page.pageIdentity).toMatch(/^fnv1a64:/)
   })
 
+  it('reads the empty page past a capped search, whose page info is all zero, as an empty page', () => {
+    // Captured 2026-09-25: page 81 of board 137 "구매", after 80 full pages.
+    const value = parsed()
+    value.result.articleList = []
+    value.result.pageInfo = { totalArticleCount: 0, lastNavigationPageNumber: 0, visibleNextButton: false }
+    const page = parseCafeBoardSearchList(value)
+    expect(page.items).toEqual([])
+    expect(page.pageInfo).toEqual({ totalArticleCount: 0, lastNavigationPageNumber: 0, visibleNextButton: false })
+  })
+
+  it('refuses a page with posts whose page info is all zero', () => {
+    const value = parsed()
+    value.result.pageInfo = { totalArticleCount: 0, lastNavigationPageNumber: 0, visibleNextButton: false }
+    expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('INVALID_PAGE_INFO')
+  })
+
   it('refuses a post time it cannot read as KST', () => {
     const value = parsed()
     value.result.articleList[0]!.item.addDate = '2025-01-31T23:59:26+09:00'

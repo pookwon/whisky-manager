@@ -5,7 +5,7 @@ import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/b
 import type { BoardSearchLastRun, BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 
 const row = (query: string, order: number, complete: boolean, inserted: number): BoardSearchQueryState => ({
-  boardId: '137', query, fromDay: '20250101', toDay: '20250829', queueOrder: order, expectedGain: 1, lastCommittedPage: complete ? 3 : null, insertedCount: inserted, totalCount: null, complete, lastRunId: null,
+  boardId: '137', query, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: order, expectedGain: 1, lastCommittedPage: complete ? 3 : null, insertedCount: inserted, totalCount: null, complete, lastRunId: null,
 })
 const coverage = { span: 10, missing: 4, baselineMissingRatio: 0.1, estimatedRemaining: 3 }
 

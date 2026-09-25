@@ -17,6 +17,11 @@ export function dayKeyLabel(key: string): string {
   return key.replace(DAY_KEY, '$1-$2-$3')
 }
 
+/** `20250105` → `01-05`: a day within the job's window, whose year the window already says. */
+function dayKeyMonthDay(key: string): string {
+  return key.replace(DAY_KEY, '$2-$3')
+}
+
 /** A date input's `2025-01-01` → the search's `20250101`. The input already speaks the KST calendar. */
 export function dayKeyOfDateInput(value: string): string {
   return value.replaceAll('-', '')
@@ -37,9 +42,9 @@ export function boardSearchPlanOutcome(plan: BoardSearchPlanView, fromDay: strin
     : { kind: 'refusal', text: TEXT.boardSearch.refused[plan.reason] }
 }
 
-/** Resume once any query has a stored page; until then the job has not started. */
+/** Resume once any query has a stored page or a narrowed window; until then the job has not started. */
 export function boardSearchStartLabel(job: BoardSearchJobView): string {
-  return job.queries.some((query) => query.lastCommittedPage !== null) ? TEXT.boardSearch.resume : TEXT.boardSearch.start
+  return job.queries.some((query) => query.lastCommittedPage !== null || query.segmentToDay !== null) ? TEXT.boardSearch.resume : TEXT.boardSearch.start
 }
 
 export type BoardSearchQueryStateKind = 'done' | 'walking' | 'waiting' | 'failed'
@@ -65,4 +70,10 @@ export function boardSearchQueryStateText(query: BoardSearchQueryView, state: Bo
 export function boardSearchTotalLabel(total: number | null): string {
   if (total === null) return '—'
   return total >= CAFE_BOARD_SEARCH.totalCountCap ? TEXT.boardSearch.totalAtLeast(total) : total.toLocaleString('ko-KR')
+}
+
+/** The stored page, with the end of the narrower window once the query walks one. */
+export function boardSearchPageLabel(query: BoardSearchQueryView): string {
+  const page = query.lastCommittedPage === null ? '—' : String(query.lastCommittedPage)
+  return query.segmentToDay === null ? page : TEXT.boardSearch.pageInSegment(page, dayKeyMonthDay(query.segmentToDay))
 }

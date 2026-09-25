@@ -181,14 +181,15 @@ function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
   }
 }
 
-export function parsePageInfo(value: unknown): CafeArticlePageInfo {
+/** `lastPageMinimum` is the smallest `lastNavigationPageNumber` a page may report. */
+export function parsePageInfo(value: unknown, lastPageMinimum = 1): CafeArticlePageInfo {
   const pageInfo = record(value, 'result.pageInfo', 'INVALID_PAGE_INFO')
   const visibleNextButton = pageInfo.visibleNextButton
   if (typeof visibleNextButton !== 'boolean') {
     fail('INVALID_PAGE_INFO', 'result.pageInfo.visibleNextButton must be a boolean')
   }
   return {
-    lastNavigationPageNumber: safeInteger(pageInfo, 'lastNavigationPageNumber', 'result.pageInfo', 1, 'INVALID_PAGE_INFO'),
+    lastNavigationPageNumber: safeInteger(pageInfo, 'lastNavigationPageNumber', 'result.pageInfo', lastPageMinimum, 'INVALID_PAGE_INFO'),
     visibleNextButton,
     totalArticleCount: pageInfo.totalArticleCount === undefined ? null : safeInteger(pageInfo, 'totalArticleCount', 'result.pageInfo', 0, 'INVALID_PAGE_INFO'),
   }
@@ -213,13 +214,13 @@ export function cafeArticlePageIdentity(postIds: readonly string[]): string {
 }
 
 /** A parsed page from its items: no post twice, its page info read, its identity stamped. */
-export function collectedArticlePage(items: readonly CollectedPostMetadata[], rawPageInfo: unknown): CollectedArticlePage {
+export function collectedArticlePage(items: readonly CollectedPostMetadata[], rawPageInfo: unknown, lastPageMinimum = 1): CollectedArticlePage {
   const postIds = new Set<string>()
   for (const item of items) {
     if (postIds.has(item.postId)) fail('DUPLICATE_POST_ID', `result.articleList has duplicate articleId ${item.postId}`)
     postIds.add(item.postId)
   }
-  return { items, pageInfo: parsePageInfo(rawPageInfo), pageIdentity: cafeArticlePageIdentity(items.map((item) => item.postId)) }
+  return { items, pageInfo: parsePageInfo(rawPageInfo, lastPageMinimum), pageIdentity: cafeArticlePageIdentity(items.map((item) => item.postId)) }
 }
 
 /** Parses a decoded JSON value from the exact list endpoint. */

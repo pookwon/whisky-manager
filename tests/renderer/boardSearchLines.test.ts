@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   boardSearchCoverageLine,
+  boardSearchPageLabel,
   boardSearchPlanOutcome,
   boardSearchQueryState,
   boardSearchQueryStateText,
@@ -15,7 +16,7 @@ import type { BoardSearchLastRun } from '../../src/desktop/collection-db/boardSe
 import { TEXT } from '../../src/shared/text.js'
 
 const query = (q: string, complete: boolean, lastRun: BoardSearchLastRun | null = null): BoardSearchQueryView => ({
-  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
+  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
 })
 
 const job = (queries: readonly BoardSearchQueryView[]): BoardSearchJobView => ({
@@ -63,6 +64,8 @@ describe('board search wording', () => {
     expect(boardSearchStartLabel(job([query('글렌', false), query('구매', false)]))).toBe(TEXT.boardSearch.start)
     expect(boardSearchStartLabel(job([query('글렌', true), query('구매', false)]))).toBe(TEXT.boardSearch.start)
     expect(boardSearchStartLabel(job([{ ...query('글렌', false), lastCommittedPage: 3 }, query('구매', false)]))).toBe(TEXT.boardSearch.resume)
+    // Just narrowed: the narrower window has no stored page yet, but the query has been walked.
+    expect(boardSearchStartLabel(job([{ ...query('글렌', false), segmentToDay: '20250105' }, query('구매', false)]))).toBe(TEXT.boardSearch.resume)
   })
 
   it('tells a finished, walking and waiting query apart', () => {
@@ -98,5 +101,14 @@ describe('board search wording', () => {
     expect(boardSearchTotalLabel(578)).toBe('578')
     expect(boardSearchTotalLabel(1999)).toBe('1,999')
     expect(boardSearchTotalLabel(2000)).toBe(TEXT.boardSearch.totalAtLeast(2000))
+  })
+
+  it('shows a narrowed query\'s page with the end of the window it is walking', () => {
+    expect(boardSearchPageLabel(query('글렌', false))).toBe('—')
+    expect(boardSearchPageLabel({ ...query('글렌', false), lastCommittedPage: 12 })).toBe('12')
+    expect(boardSearchPageLabel({ ...query('구매', false), lastCommittedPage: 12, segmentToDay: '20250105' })).toBe(TEXT.boardSearch.pageInSegment('12', '01-05'))
+    expect(TEXT.boardSearch.pageInSegment('12', '01-05')).toBe('12 · ~01-05')
+    // Just narrowed: the narrower window has no stored page yet.
+    expect(boardSearchPageLabel({ ...query('구매', false), segmentToDay: '20250105' })).toBe(TEXT.boardSearch.pageInSegment('—', '01-05'))
   })
 })

@@ -4,7 +4,7 @@ import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/des
 import type { BoardSearchRunner } from '../../src/desktop/boardSearchRunner.js'
 
 const row = (complete: boolean): BoardSearchQueryState => ({
-  boardId: '137', query: 'q', fromDay: '20250101', toDay: '20250829', queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null,
+  boardId: '137', query: 'q', fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null,
 })
 
 function job(rows: BoardSearchQueryState[] | null) {

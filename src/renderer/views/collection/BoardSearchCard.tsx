@@ -4,6 +4,7 @@ import type { BoardSearchPlanView, BoardSearchStatusView, StartCollectionResult 
 import { api } from '../../api.js'
 import {
   boardSearchCoverageLine,
+  boardSearchPageLabel,
   boardSearchPlanOutcome,
   boardSearchQueryState,
   boardSearchQueryStateText,
@@ -197,7 +198,7 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                           <td>{query.queueOrder}</td>
                           <td>{query.query}</td>
                           <td className={state === 'failed' ? 'tone-warn' : undefined}>{boardSearchQueryStateText(query, state)}</td>
-                          <td className="text-right">{query.lastCommittedPage ?? '—'}</td>
+                          <td className="text-right">{boardSearchPageLabel(query)}</td>
                           <td className="text-right">{query.insertedCount.toLocaleString('ko-KR')}</td>
                           <td className="text-right">{boardSearchTotalLabel(query.totalCount)}</td>
                         </tr>

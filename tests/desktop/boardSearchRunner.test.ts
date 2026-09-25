@@ -5,6 +5,7 @@ import { CollectionPageError } from '../../src/desktop/collectionPageError.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from '../../src/desktop/boardSearchPageFetcher.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
+import { BOARD_SEARCH_CAP_PAGE, CAFE_BOARD_SEARCH } from '../../src/shared/cafeBoardSearchEndpoint.js'
 import type { CollectionPacing } from '../../src/shared/collectionPacing.js'
 
 const NO_WAIT: CollectionPacing = {
@@ -13,19 +14,33 @@ const NO_WAIT: CollectionPacing = {
   everyHundredPages: { minSeconds: 0, maxSeconds: 0 },
 }
 
-const postAt = (id: number): CollectedPostMetadata => ({
+/** Noon KST of a January 2025 day. */
+const januaryNoon = (day: number) => Date.UTC(2025, 0, day, 3)
+const postAt = (id: number, postedAt = januaryNoon(3)): CollectedPostMetadata => ({
   cafeId: '14538121', postId: String(id), boardId: '137', boardName: null, title: 't', prefix: null, authorId: null, authorNickname: null,
-  postedAt: Date.UTC(2025, 0, 10), viewCount: 0, commentCount: 0, replyCount: 0, isNotice: false,
+  postedAt, viewCount: 0, commentCount: 0, replyCount: 0, isNotice: false,
 })
 const page = (ids: number[], total: number): CollectedArticlePage => ({
-  items: ids.map(postAt), pageInfo: { totalArticleCount: total, lastNavigationPageNumber: 1, visibleNextButton: false }, pageIdentity: ids.join(','),
+  items: ids.map((id) => postAt(id)), pageInfo: { totalArticleCount: total, lastNavigationPageNumber: 1, visibleNextButton: false }, pageIdentity: ids.join(','),
 })
 const EMPTY = page([], 0)
+/**
+ * Pages 1 to the cap, each holding `perPage` posts from `newestDay`, except
+ * that the first post of the cap page — first, so the oldest is not simply the
+ * last — is from `oldestDay`.
+ */
+function pagesToTheCap(oldestDay: number, newestDay = 20): CollectedArticlePage[] {
+  return Array.from({ length: BOARD_SEARCH_CAP_PAGE }, (_, index) => {
+    const ids = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) => 1_000_000 - index * CAFE_BOARD_SEARCH.perPage - item)
+    const items = ids.map((id, item) => postAt(id, index === BOARD_SEARCH_CAP_PAGE - 1 && item === 0 ? januaryNoon(oldestDay) : januaryNoon(newestDay)))
+    return { items, pageInfo: { totalArticleCount: 2000, lastNavigationPageNumber: 10, visibleNextButton: true }, pageIdentity: `cap-${index}` }
+  })
+}
 /** One post from another board: the query's own results are wrong, not the request. */
 const STRAY = { ...page([9], 1), items: [{ ...postAt(9), boardId: '188' }] }
 
-function query(q: string, order: number, lastCommittedPage: number | null = null, complete = false): BoardSearchQueryState {
-  return { boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', queueOrder: order, expectedGain: 1, lastCommittedPage, insertedCount: 0, totalCount: null, complete, lastRunId: null }
+function query(q: string, order: number, lastCommittedPage: number | null = null, complete = false, segmentToDay: string | null = null): BoardSearchQueryState {
+  return { boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay, queueOrder: order, expectedGain: 1, lastCommittedPage, insertedCount: 0, totalCount: null, complete, lastRunId: null }
 }
 
 function harness(
@@ -37,6 +52,8 @@ function harness(
 ) {
   const events: string[] = []
   const windows: string[] = []
+  /** Every request as `query fromDay-toDay pN`. */
+  const requests: string[] = []
   const queryOfRun = new Map<string, string>()
   const repository: BoardSearchRepository = {
     listQueries: async () => queries,
@@ -46,6 +63,7 @@ function harness(
     replaceJob: async () => undefined,
     startRun: async (input) => { queryOfRun.set(input.id, input.query); events.push(`start ${input.query}`) },
     recordPageRequest: async () => undefined,
+    narrowSegment: async (input) => { events.push(`narrow ${input.query} ${input.fromDay}-${input.toDay} to ${input.segmentToDay}`) },
     persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); windows.push(`${input.fromDay}-${input.toDay}`); return { insertedPostCount: input.result.items.length, updatedPostCount: 0 } },
     finishRun: async (id, status, reason) => {
       events.push(`finish ${status}${reason === null ? '' : ' ' + reason}`)
@@ -53,11 +71,13 @@ function harness(
     },
   }
   const fetcher: BoardSearchPageFetcher = {
-    read: async ({ query: q, page: p }) => {
+    // A query's pages are keyed by the query, or by `query@toDay` for a narrower window.
+    read: async ({ query: q, fromDay, toDay, page: p }) => {
       events.push(`read ${q} p${p}`)
+      requests.push(`${q} ${fromDay}-${toDay} p${p}`)
       onRead(q, p)
       if (fail[q] !== undefined) throw new CollectionPageError(fail[q])
-      return pages[q]?.[p - 1] ?? EMPTY
+      return (pages[`${q}@${toDay}`] ?? (toDay === '20250829' ? pages[q] : undefined))?.[p - 1] ?? EMPTY
     },
   }
   let id = 0
@@ -66,7 +86,7 @@ function harness(
     pacing: () => NO_WAIT, sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
-  return { runner, events, windows, settle }
+  return { runner, events, windows, requests, settle }
 }
 
 describe('boardSearchRunner', () => {
@@ -163,5 +183,78 @@ describe('boardSearchRunner', () => {
     ])
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })
     await h.settle()
+  })
+
+  describe('at the search\'s result cap', () => {
+    const CAP = BOARD_SEARCH_CAP_PAGE
+
+    it('narrows to the oldest day of a full cap page and walks on from page 1 in the same run', async () => {
+      const h = harness([query('구매', 1)], { 구매: pagesToTheCap(5), '구매@20250105': [page([7], 1)] })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.filter((event) => event.startsWith('start'))).toEqual(['start 구매'])
+      expect(h.events.slice(-6)).toEqual([
+        `store 구매 p${CAP}`, 'narrow 구매 20250101-20250829 to 20250105',
+        'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded',
+      ])
+      expect(h.requests.slice(-3)).toEqual([`구매 20250101-20250829 p${CAP}`, '구매 20250101-20250105 p1', '구매 20250101-20250105 p2'])
+      expect(h.requests).not.toContain(`구매 20250101-20250829 p${CAP + 1}`)
+    })
+
+    it('steps one day earlier when the oldest day is already the end of the window', async () => {
+      const h = harness([query('구매', 1, null, false, '20250105')], { '구매@20250105': pagesToTheCap(5, 5), '구매@20250104': [page([7], 1)] })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events).toContain('narrow 구매 20250101-20250829 to 20250104')
+      expect(h.requests.slice(-2)).toEqual(['구매 20250101-20250104 p1', '구매 20250101-20250104 p2'])
+    })
+
+    it('completes the query when narrowing would fall before the window', async () => {
+      const h = harness([query('구매', 1, null, false, '20250101')], { '구매@20250101': pagesToTheCap(1, 1) })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-2)).toEqual([`store 구매 p${CAP}`, 'finish succeeded'])
+      expect(h.events.some((event) => event.startsWith('narrow'))).toBe(false)
+      expect(h.requests).toHaveLength(CAP)
+    })
+
+    it('resumes a narrowed query in its narrower window from its last stored page', async () => {
+      const h = harness([query('구매', 1, 3, false, '20250105')], { '구매@20250105': [page([1], 9), page([2], 9), page([3], 9)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.requests).toEqual(['구매 20250101-20250105 p3', '구매 20250101-20250105 p4'])
+    })
+
+    const ON_JANUARY_2 = { ...page([7], 1), items: [postAt(7, januaryNoon(2))] }
+
+    it('narrows a query that resumes on its stored cap page', async () => {
+      // The live case: "구매" stored page 80 and failed on the empty page after it.
+      const h = harness([query('구매', 1, CAP)], { 구매: pagesToTheCap(2), '구매@20250102': [ON_JANUARY_2] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.requests).toEqual([`구매 20250101-20250829 p${CAP}`, '구매 20250101-20250102 p1', '구매 20250101-20250102 p2'])
+      expect(h.events.at(-1)).toBe('finish succeeded')
+    })
+
+    it('leaves a narrowed query for the next block when the budget runs out at the narrowing', async () => {
+      const h = harness([query('구매', 1, CAP)], { 구매: pagesToTheCap(2), '구매@20250102': [ON_JANUARY_2] })
+      h.runner.start({ maxPages: 1 })
+      await h.settle()
+      expect(h.events).toEqual([
+        'start 구매', `read 구매 p${CAP}`, `store 구매 p${CAP}`, 'narrow 구매 20250101-20250829 to 20250102', 'finish partial PAGE_BUDGET_SPENT',
+      ])
+      expect(h.requests).toEqual([`구매 20250101-20250829 p${CAP}`])
+    })
+
+    it('does not narrow at a full page before the cap, nor at a cap page that is not full', async () => {
+      const full = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) => item + 1)
+      const short = pagesToTheCap(5).map((each, index) => (index === CAP - 1 ? { ...each, items: each.items.slice(1) } : each))
+      const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [page(full, 50)], 구매: short })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.some((event) => event.startsWith('narrow'))).toBe(false)
+      expect(h.requests.slice(0, 2)).toEqual(['글렌 20250101-20250829 p1', '글렌 20250101-20250829 p2'])
+      expect(h.requests.at(-1)).toBe(`구매 20250101-20250829 p${CAP + 1}`)
+    })
   })
 })

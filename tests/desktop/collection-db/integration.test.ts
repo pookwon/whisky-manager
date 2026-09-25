@@ -723,4 +723,29 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     const run = await pool.query<{ collection_pages: number }>('select collection_pages from runs where id = $1', [runId])
     expect(run.rows[0]?.collection_pages).toBe(0)
   })
+
+  it('narrows a query\'s segment in its own window and walks it from the first page', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-09-26T03:00:00.000Z')
+    const window = { boardId: '137', query: '구매', fromDay: '20250101', toDay: '20250829' }
+    await search.replaceJob({ boardId: window.boardId, fromDay: window.fromDay, toDay: window.toDay, at, queries: [{ query: window.query, expectedGain: 1 }] })
+    expect((await search.listQueries())[0]).toMatchObject({ segmentToDay: null })
+
+    const runId = randomUUID()
+    await search.startRun({ id: runId, ...window, startedAt: at })
+    const searchPage = parseCafeBoardSearchListText(
+      readFileSync(fileURLToPath(new URL('../../fixtures/cafe-board-search-sample.json', import.meta.url)), 'utf8'),
+    )
+    await search.persistPage({ runId, ...window, page: 80, observedAt: at, result: searchPage })
+    await search.narrowSegment({ ...window, segmentToDay: '20250430', at })
+    expect((await search.listQueries())[0]).toMatchObject({ segmentToDay: '20250430', lastCommittedPage: null, complete: false })
+    // The segment stays inside the job's window.
+    await expect(search.narrowSegment({ ...window, segmentToDay: '20241231', at })).rejects.toThrow()
+    await search.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', at)
+
+    await search.replaceJob({ boardId: window.boardId, fromDay: '20250201', toDay: window.toDay, at, queries: [{ query: window.query, expectedGain: 1 }] })
+    await expect(search.narrowSegment({ ...window, segmentToDay: '20250430', at })).rejects.toThrow('board search query does not exist')
+    expect((await search.listQueries())[0]).toMatchObject({ fromDay: '20250201', segmentToDay: null })
+  })
 })
