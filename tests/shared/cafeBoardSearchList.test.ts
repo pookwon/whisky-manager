@@ -38,6 +38,15 @@ describe('parseCafeBoardSearchList', () => {
     expect(page.items[1]).toMatchObject({ postId: '667850', prefix: null, replyCount: 2 })
   })
 
+  it('stores the title as the cafe shows it, without the search highlight or HTML escaping', () => {
+    // The search answers `subject` as HTML: the matched word in <b>, and `&`,
+    // `<`, `>` escaped (seen 2026-09-25: `글렌터렛 12년 &amp; 아벨라워12년 <b>구매</b>`).
+    const value = parsed()
+    value.result.articleList[0]!.item.subject = '&lt;트레이더스&gt; <b>글렌</b>터렛 12년 &amp; 아벨라워 <b>구매</b>'
+    expect(parseCafeBoardSearchList(value).items[0]!.title).toBe('<트레이더스> 글렌터렛 12년 & 아벨라워 구매')
+    expect(parseCafeBoardSearchListText(sample).items.map((item) => item.title)).toEqual(['글렌알라키 12 이마트 구매', '글렌 두 병'])
+  })
+
   it('reads the total the search reports', () => {
     expect(parseCafeBoardSearchListText(sample).pageInfo).toEqual({
       totalArticleCount: 578,
