@@ -64,6 +64,8 @@ describe('board search wording', () => {
     expect(boardSearchStartLabel(job([query('글렌', false), query('구매', false)]))).toBe(TEXT.boardSearch.start)
     expect(boardSearchStartLabel(job([query('글렌', true), query('구매', false)]))).toBe(TEXT.boardSearch.start)
     expect(boardSearchStartLabel(job([{ ...query('글렌', false), lastCommittedPage: 3 }, query('구매', false)]))).toBe(TEXT.boardSearch.resume)
+    // Just narrowed: the narrower window has no stored page yet, but the query has been walked.
+    expect(boardSearchStartLabel(job([{ ...query('글렌', false), segmentToDay: '20250105' }, query('구매', false)]))).toBe(TEXT.boardSearch.resume)
   })
 
   it('tells a finished, walking and waiting query apart', () => {

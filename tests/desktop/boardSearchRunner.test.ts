@@ -225,6 +225,27 @@ describe('boardSearchRunner', () => {
       expect(h.requests).toEqual(['구매 20250101-20250105 p3', '구매 20250101-20250105 p4'])
     })
 
+    const ON_JANUARY_2 = { ...page([7], 1), items: [postAt(7, januaryNoon(2))] }
+
+    it('narrows a query that resumes on its stored cap page', async () => {
+      // The live case: "구매" stored page 80 and failed on the empty page after it.
+      const h = harness([query('구매', 1, CAP)], { 구매: pagesToTheCap(2), '구매@20250102': [ON_JANUARY_2] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.requests).toEqual([`구매 20250101-20250829 p${CAP}`, '구매 20250101-20250102 p1', '구매 20250101-20250102 p2'])
+      expect(h.events.at(-1)).toBe('finish succeeded')
+    })
+
+    it('leaves a narrowed query for the next block when the budget runs out at the narrowing', async () => {
+      const h = harness([query('구매', 1, CAP)], { 구매: pagesToTheCap(2), '구매@20250102': [ON_JANUARY_2] })
+      h.runner.start({ maxPages: 1 })
+      await h.settle()
+      expect(h.events).toEqual([
+        'start 구매', `read 구매 p${CAP}`, `store 구매 p${CAP}`, 'narrow 구매 20250101-20250829 to 20250102', 'finish partial PAGE_BUDGET_SPENT',
+      ])
+      expect(h.requests).toEqual([`구매 20250101-20250829 p${CAP}`])
+    })
+
     it('does not narrow at a full page before the cap, nor at a cap page that is not full', async () => {
       const full = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) => item + 1)
       const short = pagesToTheCap(5).map((each, index) => (index === CAP - 1 ? { ...each, items: each.items.slice(1) } : each))

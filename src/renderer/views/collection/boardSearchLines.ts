@@ -42,9 +42,9 @@ export function boardSearchPlanOutcome(plan: BoardSearchPlanView, fromDay: strin
     : { kind: 'refusal', text: TEXT.boardSearch.refused[plan.reason] }
 }
 
-/** Resume once any query has a stored page; until then the job has not started. */
+/** Resume once any query has a stored page or a narrowed window; until then the job has not started. */
 export function boardSearchStartLabel(job: BoardSearchJobView): string {
-  return job.queries.some((query) => query.lastCommittedPage !== null) ? TEXT.boardSearch.resume : TEXT.boardSearch.start
+  return job.queries.some((query) => query.lastCommittedPage !== null || query.segmentToDay !== null) ? TEXT.boardSearch.resume : TEXT.boardSearch.start
 }
 
 export type BoardSearchQueryStateKind = 'done' | 'walking' | 'waiting' | 'failed'
