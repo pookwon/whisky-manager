@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WELCOME_AUTOMATION_ID } from '../../src/desktop/bootstrap.js'
 import { PREFIX_REMINDER_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
@@ -16,6 +16,8 @@ import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
+import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
+import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
 import type { MemberResyncLastRun, MemberResyncRepository, MemberResyncState } from '../../src/desktop/collection-db/memberResyncRepository.js'
@@ -75,6 +77,8 @@ interface CollectionOverrides {
   readonly memberResyncLastRun?: MemberResyncLastRun | null
   /** Rows replaceJob returns; defaults to a single all_articles row matching the request period. */
   readonly replaceJobRows?: readonly StoredFeedState[]
+  /** Whether a board search block is in flight. */
+  readonly boardSearchBusy?: boolean
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
@@ -95,6 +99,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
   const forcedCalls: (Date | null)[] = []
   /** Counts re-lays, since forcing is pointless if the beat is not moved. */
   const refreshes = { count: 0 }
+  /** Stands in for the search job write, so a refusal can be shown to leave it alone. */
+  const boardSearchReplaceJob = vi.fn()
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -226,6 +232,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
               readResyncState: () => Promise.resolve(collection.memberResyncState ?? null),
               readLastRun: () => Promise.resolve(collection.memberResyncLastRun ?? null),
             } as unknown as MemberResyncRepository,
+            // Only the write is stubbed: any other touch fails the test.
+            boardSearchRepository: { replaceJob: boardSearchReplaceJob } as unknown as BoardSearchRepository,
+            boardSearchCoverage: {} as unknown as BoardSearchCoverageQuery,
             memberStatus: {
               read: () =>
                 Promise.resolve({
@@ -273,6 +282,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       },
       isRunning: () => false,
     },
+    boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false },
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1
@@ -332,7 +342,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob }
 }
 
 async function seedAwaiting(
@@ -1357,5 +1367,20 @@ describe('setMemberCollectionForced', () => {
   it('refuses with NO_STORAGE when the database is absent', async () => {
     const { api } = build()
     expect(await api.setMemberCollectionForced(true)).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+})
+
+describe('getBoardSearchStatus', () => {
+  it('reports disabled when there is no collection database', async () => {
+    const { api } = build()
+    expect(await api.getBoardSearchStatus()).toEqual({ kind: 'disabled' })
+  })
+})
+
+describe('createBoardSearchJob', () => {
+  it('refuses while a search block is running and leaves the job alone', async () => {
+    const { api, boardSearchReplaceJob } = build(MON_10_00, {}, { job: null, boardSearchBusy: true })
+    expect(await api.createBoardSearchJob({ boardId: '137', fromDay: '20250101' })).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
+    expect(boardSearchReplaceJob).not.toHaveBeenCalled()
   })
 })

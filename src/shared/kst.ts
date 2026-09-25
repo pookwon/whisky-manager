@@ -76,3 +76,50 @@ export function kstMonthRange(year: number, month: number): KstDay {
   const endMs = Date.UTC(year, month, 1) - KST_OFFSET_MS
   return { startMs, endMs }
 }
+
+const DAY_KEY = /^(\d{4})(\d{2})(\d{2})$/
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/
+
+function two(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/** The UTC instant of a KST wall-clock reading, or null when no such reading exists. */
+function kstWallClockMs(year: number, month: number, day: number, hour = 0, minute = 0, second = 0, ms = 0): number | null {
+  if (hour > 23 || minute > 59 || second > 59) return null
+  const asUtc = Date.UTC(year, month - 1, day, hour, minute, second, ms)
+  const check = new Date(asUtc)
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null
+  return asUtc - KST_OFFSET_MS
+}
+
+/** The KST calendar day of an instant as `yyyymmdd`, the spelling the cafe's search takes. */
+export function kstDayKey(epochMs: number): string {
+  const shifted = new Date(kstDayStartMs(epochMs) + KST_OFFSET_MS)
+  return `${shifted.getUTCFullYear()}${two(shifted.getUTCMonth() + 1)}${two(shifted.getUTCDate())}`
+}
+
+export function isKstDayKey(value: string): boolean {
+  const match = DAY_KEY.exec(value)
+  return match !== null && kstWallClockMs(Number(match[1]), Number(match[2]), Number(match[3])) !== null
+}
+
+/** The KST day a `yyyymmdd` key names, as a half-open range. */
+export function kstDayKeyRange(key: string): KstDay {
+  const match = DAY_KEY.exec(key)
+  const startMs = match === null ? null : kstWallClockMs(Number(match[1]), Number(match[2]), Number(match[3]))
+  if (startMs === null) throw new Error(`not a KST day key: ${key}`)
+  return { startMs, endMs: startMs + MS_PER_DAY }
+}
+
+/**
+ * An offset-less wall-clock time such as `2025-01-31T23:59:26.667`, read as
+ * KST. The cafe's search spells post times this way; handing the string to
+ * `Date.parse` would read it in the machine's own zone.
+ */
+export function kstLocalDateTimeToEpochMs(value: string): number | null {
+  const match = LOCAL_DATE_TIME.exec(value)
+  if (match === null) return null
+  const fraction = match[7] === undefined ? 0 : Number(match[7].padEnd(3, '0'))
+  return kstWallClockMs(Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]), fraction)
+}

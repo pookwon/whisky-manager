@@ -2,6 +2,7 @@ import type { CollectionJob, CollectionStatus } from './collection-db/statusQuer
 import type { LogEntry } from './recentLog.js'
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { MemberResyncView } from './memberResyncView.js'
+import type { BoardSearchView } from './boardSearchView.js'
 import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
@@ -25,6 +26,7 @@ import type { WarmCheck } from './sessionWarmer.js'
 export type { ApproveResult } from './approvals.js'
 export type { LogEntry, LogSource } from './recentLog.js'
 export type { MemberResyncView } from './memberResyncView.js'
+export type { BoardSearchView } from './boardSearchView.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -45,6 +47,11 @@ export const IPC_CHANNELS = {
   setMemberCollectionForced: 'wm:setMemberCollectionForced',
   startMemberResync: 'wm:startMemberResync',
   setMemberResyncInterval: 'wm:setMemberResyncInterval',
+  getBoardSearchStatus: 'wm:getBoardSearchStatus',
+  previewBoardSearchJob: 'wm:previewBoardSearchJob',
+  createBoardSearchJob: 'wm:createBoardSearchJob',
+  startBoardSearch: 'wm:startBoardSearch',
+  stopBoardSearch: 'wm:stopBoardSearch',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -163,6 +170,20 @@ export type MemberCollectionStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
   | { readonly kind: 'ready'; readonly status: MemberCollectionStatus; readonly resync: MemberResyncView }
+
+/** The search backfill follows the same three-state shape as the other collection screens. */
+export type BoardSearchStatusView =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
+  | { readonly kind: 'ready'; readonly view: BoardSearchView }
+
+/** Why a search job could not be made or previewed. */
+export type BoardSearchPlanRefusal = 'NO_STORAGE' | 'NO_POSTS' | 'NOTHING_BEFORE' | 'NO_QUERIES' | 'BAD_DAY' | 'STOP_RUNNING_FIRST'
+
+/** What a search job would be, or why there is none. */
+export type BoardSearchPlanView =
+  | { readonly kind: 'ready'; readonly toDay: string; readonly queryCount: number }
+  | { readonly kind: 'refused'; readonly reason: BoardSearchPlanRefusal }
 
 /**
  * Collection storage is optional, so its screen has three answers rather than
@@ -317,6 +338,16 @@ export interface RendererApi {
   startMemberResync(): Promise<StartCollectionResult>
   /** Sets how many days after a complete pass the next re-walk is due; 0 turns it off. */
   setMemberResyncInterval(days: number): Promise<MemberResyncIntervalDays>
+  /** Where the search backfill stands; `disabled` without a collection database. */
+  getBoardSearchStatus(): Promise<BoardSearchStatusView>
+  /** What a search job for this board and start day would be, without making it. */
+  previewBoardSearchJob(request: { boardId: string; fromDay: string }): Promise<BoardSearchPlanView>
+  /** Makes the search job anew, replacing any other; refused while a search block runs. */
+  createBoardSearchJob(request: { boardId: string; fromDay: string }): Promise<BoardSearchPlanView>
+  /** Starts a block of the search backfill now. */
+  startBoardSearch(): Promise<StartCollectionResult>
+  /** Asks a search block in flight to end at its next page boundary. */
+  stopBoardSearch(): Promise<void>
   getCollectionSchedule(): Promise<CollectionScheduleView>
   /** The log screen's timeline, newest first, already capped. */
   getRecentLog(): Promise<readonly LogEntry[]>

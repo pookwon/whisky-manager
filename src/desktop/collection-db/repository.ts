@@ -1,7 +1,8 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../shared/cafeArticleList.js'
 import { CAFE_ARTICLE_LIST } from '../../shared/cafeArticleFixture.js'
 import type { CollectionDatabase } from './client.js'
+import { writePostRows } from './postPageWrite.js'
 import { boards, collectionRuns, feedState, posts } from './schema.js'
 
 export type CollectionFeedKind = 'all_articles' | 'board'
@@ -166,25 +167,6 @@ function assertPersistablePage(input: PersistCollectedPageInput): readonly Colle
     postIds.add(item.postId)
   }
   return input.page.items
-}
-
-/**
- * Only items that name their board can teach the boards table anything. A
- * board's own list never names it, and that board is already known: the job
- * was made from the boards table in the first place.
- */
-function boardRows(items: readonly CollectedPostMetadata[], observedAt: Date) {
-  const rows = new Map<string, { boardId: string; name: string; firstSeenAt: Date; lastSeenAt: Date }>()
-  for (const item of items) {
-    if (item.boardName === null) continue
-    rows.set(item.boardId, {
-      boardId: item.boardId,
-      name: item.boardName,
-      firstSeenAt: observedAt,
-      lastSeenAt: observedAt,
-    })
-  }
-  return [...rows.values()]
 }
 
 export function createCollectionRepository(db: CollectionDatabase): CollectionRepository {
@@ -364,60 +346,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
 
       try {
         return await db.transaction(async (tx) => {
-          const existingRows = await tx
-            .select({ postId: posts.postId })
-            .from(posts)
-            .where(inArray(posts.postId, items.map((item) => item.postId)))
-          const existingPostIds = new Set(existingRows.map((row) => row.postId))
-          const insertedPostCount = items.filter((item) => !existingPostIds.has(item.postId)).length
-          const updatedPostCount = items.length - insertedPostCount
-
-          const namedBoards = boardRows(items, input.observedAt)
-          if (namedBoards.length > 0) {
-            await tx
-              .insert(boards)
-              .values(namedBoards)
-              .onConflictDoUpdate({
-                target: boards.boardId,
-                set: { name: sql`excluded.name`, lastSeenAt: input.observedAt },
-              })
-          }
-
-          // The post and its reading are one row, so a re-read updates in
-          // place: the counters move, and `firstSeenAt` stays what it was.
-          await tx
-            .insert(posts)
-            .values(
-              items.map((item) => ({
-                postId: item.postId,
-                boardId: item.boardId,
-                title: item.title,
-                prefix: item.prefix,
-                authorNickname: item.authorNickname,
-                authorId: item.authorId,
-                postedAt: new Date(item.postedAt),
-                viewCount: item.viewCount,
-                commentCount: item.commentCount,
-                snapshotAt: input.observedAt,
-                firstSeenAt: input.observedAt,
-                lastRunId: input.runId,
-              })),
-            )
-            .onConflictDoUpdate({
-              target: posts.postId,
-              set: {
-                boardId: sql`excluded.board_id`,
-                title: sql`excluded.title`,
-                prefix: sql`excluded.prefix`,
-                authorNickname: sql`excluded.author_nickname`,
-                authorId: sql`excluded.author_id`,
-                postedAt: sql`excluded.posted_at`,
-                viewCount: sql`excluded.view_count`,
-                commentCount: sql`excluded.comment_count`,
-                snapshotAt: input.observedAt,
-                lastRunId: input.runId,
-              },
-            })
+          const { insertedPostCount, updatedPostCount } = await writePostRows(tx, items, input.observedAt, input.runId)
 
           const updatedRun = await tx
             .update(collectionRuns)

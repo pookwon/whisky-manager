@@ -17,6 +17,9 @@ import { readCollectionSchedule, writeCollectionSchedule } from './collectionSet
 import { readCollectionPacing, writeCollectionPacing } from './collectionPacingSettings.js'
 import { readMemberResyncInterval, writeMemberResyncInterval } from './memberResyncSettings.js'
 import { readMemberResyncView } from './memberResyncView.js'
+import { readBoardSearchView } from './boardSearchView.js'
+import { planBoardSearchJob } from './boardSearchPlan.js'
+import type { BoardSearchRunner } from './boardSearchRunner.js'
 import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import { pagesPerWorkBlock } from '../shared/collectionPacing.js'
 import { describeJob } from './collectionScope.js'
@@ -37,6 +40,8 @@ import type { MemberCollectionRunner } from './memberCollectionRunner.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
+  BoardSearchPlanView,
+  BoardSearchStatusView,
   MemberCollectionStatusView,
   SetCollectionForcedResult,
   BridgeStatus,
@@ -96,6 +101,8 @@ export interface RendererApiDeps {
   readonly memberCollectionRunner: MemberCollectionRunner
   /** The same walk bound to the re-walk's own cursor. */
   readonly memberResyncRunner: MemberCollectionRunner
+  /** Starts and stops a block of the board search backfill. */
+  readonly boardSearchRunner: BoardSearchRunner
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
@@ -396,6 +403,49 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     setMemberResyncInterval(days): Promise<MemberResyncIntervalDays> {
       // The loop asks the job whether it is due on every beat; nothing to re-lay.
       return Promise.resolve(writeMemberResyncInterval(settings, days))
+    },
+
+    async getBoardSearchStatus(): Promise<BoardSearchStatusView> {
+      const collection = deps.collection()
+      if (collection.kind === 'disabled') return { kind: 'disabled' }
+      if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
+      return {
+        kind: 'ready',
+        view: await readBoardSearchView({ repository: collection.boardSearchRepository, coverage: collection.boardSearchCoverage, running: deps.boardSearchRunner.isRunning() }),
+      }
+    },
+
+    async previewBoardSearchJob(request): Promise<BoardSearchPlanView> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const plan = await planBoardSearchJob(collection.boardSearchRepository, request)
+      return plan.kind === 'ready' ? { kind: 'ready', toDay: plan.toDay, queryCount: plan.queries.length } : plan
+    },
+
+    async createBoardSearchJob(request): Promise<BoardSearchPlanView> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      if (deps.boardSearchRunner.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
+      const plan = await planBoardSearchJob(collection.boardSearchRepository, request)
+      if (plan.kind !== 'ready') return plan
+      await collection.boardSearchRepository.replaceJob({ ...plan, at: new Date(deps.clock.now()) })
+      return { kind: 'ready', toDay: plan.toDay, queryCount: plan.queries.length }
+    },
+
+    async startBoardSearch(): Promise<StartCollectionResult> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const queries = await collection.boardSearchRepository.listQueries()
+      if (queries.length === 0) return { kind: 'refused', reason: 'NO_JOB' }
+      if (queries.every((query) => query.complete)) return { kind: 'refused', reason: 'JOB_FINISHED' }
+      const schedule = readCollectionSchedule(settings)
+      const started = deps.boardSearchRunner.start({ maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)) })
+      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
+    },
+
+    stopBoardSearch(): Promise<void> {
+      deps.boardSearchRunner.stop()
+      return Promise.resolve()
     },
 
     async setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {

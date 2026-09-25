@@ -5,9 +5,12 @@ import type { Random } from '../shared/ports.js'
 import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
-import { describeFailure } from './collectionFailure.js'
+import { CollectionPageError } from './collectionPageError.js'
+import { failedRunStopReason } from './failedRunStopReason.js'
 import { pauseUnlessStopped } from './collectionPause.js'
 import type { ExtensionTransport } from './ws/server.js'
+
+export { CollectionPageError } from './collectionPageError.js'
 
 export interface CollectionClock { now(): number }
 export interface BoardPageFetcher { read(page: number): Promise<CollectedArticlePage> }
@@ -29,23 +32,6 @@ export type CollectionRunResult =
  */
 export const FEED_HORIZON_PAGE = 1000
 export interface CollectionOrchestratorDeps { readonly repository: CollectionRepository; readonly fetcher: BoardPageFetcher; readonly clock: CollectionClock; readonly random: Random; readonly pacing: CollectionPacing; readonly sleep: (ms: number) => Promise<void>; readonly isSessionBusy: () => boolean; readonly isAbortRequested: () => boolean; readonly onYieldToSession?: () => void }
-/**
- * `code` is the stable name a screen and a query can match on. `detail` is what
- * a person needs to see when the code alone does not say what to do — it is
- * carried into the run's stop reason, so the answer sits in the app's own run
- * list rather than in a log file nobody opens. It must never carry post titles
- * or response bodies: identifiers and times only.
- */
-export class CollectionPageError extends Error {
-  constructor(
-    readonly code: string,
-    readonly detail?: string,
-  ) {
-    super(detail === undefined ? code : `${code}: ${detail}`)
-    this.name = 'CollectionPageError'
-  }
-}
-
 export function createBoardPageFetcher(transport: ExtensionTransport, newRequestId: () => string, menuId: string): BoardPageFetcher {
   return { async read(page) {
     const message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }> = { type: 'COLLECT_BOARD_PAGE', requestId: newRequestId(), cafeId: CAFE_ARTICLE_LIST.cafeId, menuId, page, pageSize: CAFE_ARTICLE_LIST.pageSize, sortBy: CAFE_ARTICLE_LIST.sortBy, viewType: CAFE_ARTICLE_LIST.viewType }
@@ -315,13 +301,9 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
     } catch (error) {
       if (error instanceof CollectionPageError && error.code === 'ABORTED') { await deps.repository.finishRun(options.run.id, 'interrupted', 'ABORTED', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'interrupted', pagesStored, requests: reader?.reads ?? 0, reason: 'ABORTED' } }
       if (error instanceof CollectionPageError && error.code === 'MAX_PAGE_LIMIT') { await deps.repository.finishRun(options.run.id, 'partial', 'PAGE_BUDGET_SPENT', new Date(deps.clock.now())).catch(() => undefined); return { kind: 'partial', pagesStored, requests: reader?.reads ?? 0, reason: 'PAGE_BUDGET_SPENT' } }
-      const code = error instanceof CollectionPageError ? error.code : 'COLLECTION_FAILURE'
       // The stop reason carries the detail so the run list itself explains the
       // failure; the returned code stays bare for callers that match on it.
-      const stopReason =
-        error instanceof CollectionPageError
-          ? error.detail === undefined ? code : `${code}: ${error.detail}`
-          : `${code}: ${describeFailure(error)}`
+      const { code, stopReason } = failedRunStopReason(error)
       await deps.repository.finishRun(options.run.id, 'failed', stopReason, new Date(deps.clock.now())).catch(() => undefined); return { kind: 'failed', pagesStored, requests: reader?.reads ?? 0, code }
     }
   } }

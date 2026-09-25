@@ -2,12 +2,14 @@ import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../shared/
 import type {
   AppMessage,
   CollectBoardPageRequest,
+  CollectBoardSearchPageRequest,
   CollectMemberPageRequest,
   ExtensionMessage,
   SourceRef,
 } from '../shared/protocol.js'
 import type { CommentAuthor } from '../shared/types.js'
 import type { BoardPageReadResult } from './boardPageReader.js'
+import type { BoardSearchPageReadResult } from './boardSearchPageReader.js'
 import type { Reply } from './bridgeClient.js'
 import type { CafeClient, ExecuteResult } from './cafeClient.js'
 import type { MemberPageReadResult } from './memberPageReader.js'
@@ -24,6 +26,7 @@ export interface DispatcherDeps {
   readonly cafe: CafeClient
   readonly articleCafe: CommentClient
   readonly boardPageReader: { read(request: CollectBoardPageRequest): Promise<BoardPageReadResult> }
+  readonly boardSearchPageReader: { read(request: CollectBoardSearchPageRequest): Promise<BoardSearchPageReadResult> }
   readonly memberPageReader: { read(request: CollectMemberPageRequest): Promise<MemberPageReadResult> }
   readonly probe: (requestId: string, url: string, reply: Reply) => Promise<void>
   /** The socket belongs to the assembly, so closing it does too. */
@@ -95,6 +98,17 @@ export function createDispatcher(deps: DispatcherDeps) {
         if (!result.ok) {
           // Codes are deliberately stable and body-free: a list response can
           // contain account-linked data and must never be echoed to the bridge.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          return
+        }
+        reply({ type: 'BOARD_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
+        return
+      }
+
+      case 'COLLECT_BOARD_SEARCH_PAGE': {
+        const result = await deps.boardSearchPageReader.read(message)
+        if (!result.ok) {
+          // Stable and body-free, like the list: a search response names members.
           reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
           return
         }

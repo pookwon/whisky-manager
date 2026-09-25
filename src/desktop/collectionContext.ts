@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
+import { createBoardSearchCoverageQuery, type BoardSearchCoverageQuery } from './collection-db/boardSearchCoverageQuery.js'
+import { createBoardSearchRepository, type BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
 import { createMemberCollectionStatusQuery, type MemberCollectionStatusQuery } from './collection-db/memberStatusQuery.js'
@@ -25,6 +27,10 @@ export type OptionalCollectionContext =
       readonly memberStatus: MemberCollectionStatusQuery
       /** The periodic re-walk, on its own cursor. */
       readonly memberResyncRepository: MemberResyncRepository
+      /** The search backfill past a board's list horizon. */
+      readonly boardSearchRepository: BoardSearchRepository
+      /** Residual estimate from article-id holes in the search window. */
+      readonly boardSearchCoverage: BoardSearchCoverageQuery
       close(): Promise<void>
     }
   | {
@@ -127,6 +133,8 @@ export async function openOptionalCollectionContext(
       memberRepository,
       memberStatus: createMemberCollectionStatusQuery(connection.db),
       memberResyncRepository: createMemberResyncRepository(connection.db, memberRepository),
+      boardSearchRepository: createBoardSearchRepository(connection.db, repository),
+      boardSearchCoverage: createBoardSearchCoverageQuery(connection.db),
       close: connection.close,
     }
   } catch (error) {

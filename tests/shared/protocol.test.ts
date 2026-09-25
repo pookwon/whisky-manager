@@ -4,6 +4,7 @@ import {
   TIMEOUTS,
   isAppMessage,
   isCollectBoardPageRequest,
+  isCollectBoardSearchPageRequest,
   isExtensionMessage,
   isInterimMessage,
 } from '../../src/shared/protocol.js'
@@ -193,6 +194,43 @@ describe('collection progress messages', () => {
   })
 })
 
+
+describe('COLLECT_BOARD_SEARCH_PAGE', () => {
+  const request = {
+    type: 'COLLECT_BOARD_SEARCH_PAGE',
+    requestId: 'search-1',
+    cafeId: '14538121',
+    menuId: '137',
+    query: '글렌',
+    fromDay: '20250101',
+    toDay: '20250828',
+    page: 1,
+    pageSize: 50,
+  } as const
+
+  it('accepts one board, one query, one window, one page', () => {
+    expect(isCollectBoardSearchPageRequest(request)).toBe(true)
+    expect(isAppMessage(request)).toBe(true)
+  })
+
+  it.each([
+    ['the whole cafe', { menuId: '0' }],
+    ['a non-digit board', { menuId: '13a' }],
+    ['a one-letter query', { query: '글' }],
+    ['a padded query', { query: '글렌 ' }],
+    ['a bad day', { fromDay: '20250230' }],
+    ['a window that ends before it starts', { fromDay: '20250901' }],
+    ['page zero', { page: 0 }],
+    ['another page size', { pageSize: 20 }],
+    ['another cafe', { cafeId: '1' }],
+  ])('refuses %s', (_label, change) => {
+    expect(isCollectBoardSearchPageRequest({ ...request, ...change })).toBe(false)
+  })
+
+  it('bumps the protocol, since an older extension cannot answer it', () => {
+    expect(PROTOCOL_VERSION).toBe(12)
+  })
+})
 
 describe('isInterimMessage', () => {
   it('knows the reply that reports on a request still running', () => {

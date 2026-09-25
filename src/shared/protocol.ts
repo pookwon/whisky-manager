@@ -3,8 +3,9 @@ import type { CollectedArticlePage } from './cafeArticleList.js'
 import { CAFE_ARTICLE_LIST, isMenuId } from './cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from './cafeMemberFixture.js'
 import type { CollectedMemberPage } from './cafeMemberList.js'
+import { CAFE_BOARD_SEARCH, isBoardSearchPage } from './cafeBoardSearchEndpoint.js'
 
-export const PROTOCOL_VERSION = 11
+export const PROTOCOL_VERSION = 12
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -41,6 +42,19 @@ export interface CollectBoardPageRequest {
   readonly pageSize: typeof CAFE_ARTICLE_LIST.pageSize
   readonly sortBy: typeof CAFE_ARTICLE_LIST.sortBy
   readonly viewType: typeof CAFE_ARTICLE_LIST.viewType
+}
+
+/** One page of one board's title search, over one KST window. */
+export interface CollectBoardSearchPageRequest {
+  readonly type: 'COLLECT_BOARD_SEARCH_PAGE'
+  readonly requestId: string
+  readonly cafeId: typeof CAFE_ARTICLE_LIST.cafeId
+  readonly menuId: string
+  readonly query: string
+  readonly fromDay: string
+  readonly toDay: string
+  readonly page: number
+  readonly pageSize: typeof CAFE_BOARD_SEARCH.perPage
 }
 
 export interface SourceRef {
@@ -92,6 +106,8 @@ export type AppMessage =
   | CollectBoardPageRequest
   /** One exact member-list page; the extension must not follow pagination itself. */
   | CollectMemberPageRequest
+  /** One board's title search page; answered with BOARD_PAGE_COLLECTED. */
+  | CollectBoardSearchPageRequest
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -164,6 +180,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'EXECUTE',
   'COLLECT_BOARD_PAGE',
   'COLLECT_MEMBER_PAGE',
+  'COLLECT_BOARD_SEARCH_PAGE',
   'PROBE',
   'ABORT',
 ])
@@ -191,6 +208,7 @@ export function isAppMessage(value: unknown): value is AppMessage {
   const type = messageType(value)
   if (type === 'COLLECT_BOARD_PAGE') return isCollectBoardPageRequest(value)
   if (type === 'COLLECT_MEMBER_PAGE') return isCollectMemberPageRequest(value)
+  if (type === 'COLLECT_BOARD_SEARCH_PAGE') return isCollectBoardSearchPageRequest(value)
   return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
@@ -216,6 +234,24 @@ export function isCollectBoardPageRequest(value: unknown): value is CollectBoard
     message.pageSize === CAFE_ARTICLE_LIST.pageSize &&
     message.sortBy === CAFE_ARTICLE_LIST.sortBy &&
     message.viewType === CAFE_ARTICLE_LIST.viewType
+  )
+}
+
+/** Runtime guard for one cafe, one board, one query and window, one page. */
+export function isCollectBoardSearchPageRequest(value: unknown): value is CollectBoardSearchPageRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<CollectBoardSearchPageRequest>
+  return (
+    message.type === 'COLLECT_BOARD_SEARCH_PAGE' &&
+    typeof message.requestId === 'string' &&
+    message.cafeId === CAFE_ARTICLE_LIST.cafeId &&
+    message.pageSize === CAFE_BOARD_SEARCH.perPage &&
+    typeof message.menuId === 'string' &&
+    typeof message.query === 'string' &&
+    typeof message.fromDay === 'string' &&
+    typeof message.toDay === 'string' &&
+    typeof message.page === 'number' &&
+    isBoardSearchPage({ menuId: message.menuId, query: message.query, fromDay: message.fromDay, toDay: message.toDay, page: message.page })
   )
 }
 

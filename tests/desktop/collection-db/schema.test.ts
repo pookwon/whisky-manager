@@ -47,3 +47,20 @@ describe('collection PostgreSQL schema migration', () => {
     expect(packageJson.build.files).toContain('drizzle-collection/**/*')
   })
 })
+
+describe('board search migration', () => {
+  const latest = readdirSync(migrationsDirectory).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort().at(-1) ?? 'missing.sql'
+  const sqlText = readFileSync(`${migrationsDirectory}/${latest}`, 'utf8')
+
+  it('adds the search state table keyed by board and query', () => {
+    expect(sqlText).toContain('CREATE TABLE "board_search_state"')
+    expect(sqlText).toContain('"board_search_state_pkey" PRIMARY KEY("board_id","query")')
+    expect(sqlText).toContain('REFERENCES "public"."boards"')
+    expect(sqlText).toContain('REFERENCES "public"."runs"')
+  })
+
+  it('lets a run name the search it walked', () => {
+    expect(sqlText).toContain("ADD VALUE 'board_search'")
+    expect(sqlText).toContain('ADD COLUMN "search_query" text')
+  })
+})

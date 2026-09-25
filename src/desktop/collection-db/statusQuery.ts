@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, ne, sql } from 'drizzle-orm'
 import type { CollectionDatabase } from './client.js'
 import type { CollectionFeedKind, StoredFeedState } from './repository.js'
 import { toStoredFeedState } from './repository.js'
@@ -172,6 +172,9 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
           .from(collectionRuns)
           .leftJoin(posts, eq(posts.postId, collectionRuns.lastCommittedPostId))
           .leftJoin(boards, and(eq(collectionRuns.feedKind, 'board'), eq(boards.boardId, collectionRuns.menuId)))
+          // A search run walks one query, not a period of the list: shown here it
+          // would read as a whole-cafe run and push the list walk's blocks off.
+          .where(ne(collectionRuns.feedKind, 'board_search'))
           .orderBy(desc(collectionRuns.startedAt))
           .limit(RECENT_RUN_LIMIT),
       ])

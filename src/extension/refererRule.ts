@@ -50,6 +50,13 @@ const ENDPOINTS: readonly RefererEndpoint[] = [
     urlFilter: '||article.cafe.naver.com/gw/v4/',
     requestDomain: 'article.cafe.naver.com',
   },
+  // The board title search. The search screen sends it from the board's own
+  // page, and the worker's request is made to look the same.
+  {
+    ruleId: 4,
+    urlFilter: '||apis.cafe.naver.com/search/v2/cafes/14538121/search/articles',
+    requestDomain: 'apis.cafe.naver.com',
+  },
 ]
 
 export const REFERER_RULE_IDS: readonly number[] = ENDPOINTS.map((endpoint) => endpoint.ruleId)
