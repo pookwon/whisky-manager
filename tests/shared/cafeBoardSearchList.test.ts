@@ -79,6 +79,14 @@ describe('parseCafeBoardSearchList', () => {
     expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('INVALID_PAGE_INFO')
   })
 
+  it('parses a post time written on the minute with no seconds', () => {
+    // Post 672653 on board 137, captured 2026-09-26: addDate "2025-02-06T16:00"
+    // (Java LocalDateTime.toString omits ":ss" when seconds are zero).
+    const value = parsed()
+    value.result.articleList[0]!.item.addDate = '2025-02-06T16:00'
+    expect(parseCafeBoardSearchList(value).items[0]!.postedAt).toBe(Date.UTC(2025, 1, 6, 7, 0))
+  })
+
   it('refuses a post time it cannot read as KST', () => {
     const value = parsed()
     value.result.articleList[0]!.item.addDate = '2025-01-31T23:59:26+09:00'

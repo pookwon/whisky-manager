@@ -78,7 +78,11 @@ export function kstMonthRange(year: number, month: number): KstDay {
 }
 
 const DAY_KEY = /^(\d{4})(\d{2})(\d{2})$/
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/
+// Matches Java LocalDateTime.toString spellings:
+//   yyyy-mm-ddTHH:MM
+//   yyyy-mm-ddTHH:MM:SS
+//   yyyy-mm-ddTHH:MM:SS.f  (1–9 fraction digits; only after seconds)
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?$/
 
 function two(value: number): string {
   return String(value).padStart(2, '0')
@@ -113,13 +117,22 @@ export function kstDayKeyRange(key: string): KstDay {
 }
 
 /**
- * An offset-less wall-clock time such as `2025-01-31T23:59:26.667`, read as
- * KST. The cafe's search spells post times this way; handing the string to
- * `Date.parse` would read it in the machine's own zone.
+ * An offset-less wall-clock time read as KST. Accepted spellings (Java
+ * LocalDateTime.toString style):
+ *   `2025-02-06T16:00`           — seconds omitted when zero
+ *   `2025-01-31T23:59:26`        — seconds present, no fraction
+ *   `2025-01-31T23:59:26.667`    — 1–3 fraction digits (milliseconds)
+ *   `2025-01-31T23:59:26.667183` — 4–9 fraction digits; first three used
+ *
+ * Rejects anything with an offset, a space separator, or a fraction without
+ * seconds. Handing the string to `Date.parse` would read it in the machine's
+ * own zone.
  */
 export function kstLocalDateTimeToEpochMs(value: string): number | null {
   const match = LOCAL_DATE_TIME.exec(value)
   if (match === null) return null
-  const fraction = match[7] === undefined ? 0 : Number(match[7].padEnd(3, '0'))
-  return kstWallClockMs(Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]), fraction)
+  const second = match[6] === undefined ? 0 : Number(match[6])
+  const fractionRaw = match[7]
+  const fraction = fractionRaw === undefined ? 0 : Number(fractionRaw.slice(0, 3).padEnd(3, '0'))
+  return kstWallClockMs(Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4]), Number(match[5]), second, fraction)
 }
