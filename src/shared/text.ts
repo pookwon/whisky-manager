@@ -735,6 +735,8 @@ export const TEXT = {
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,
     totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
+    /** A query walked on in a narrower window: its page there, and the day that window ends (`MM-DD`). */
+    pageInSegment: (page: string, monthDay: string) => `${page} · ~${monthDay}`,
     refused: {
       NO_STORAGE: '수집 DB에 연결되어 있지 않습니다.',
       NO_POSTS: '이 게시판에 저장된 글이 없어 검색어를 고를 수 없습니다.',

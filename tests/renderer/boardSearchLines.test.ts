@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   boardSearchCoverageLine,
+  boardSearchPageLabel,
   boardSearchPlanOutcome,
   boardSearchQueryState,
   boardSearchQueryStateText,
@@ -98,5 +99,14 @@ describe('board search wording', () => {
     expect(boardSearchTotalLabel(578)).toBe('578')
     expect(boardSearchTotalLabel(1999)).toBe('1,999')
     expect(boardSearchTotalLabel(2000)).toBe(TEXT.boardSearch.totalAtLeast(2000))
+  })
+
+  it('shows a narrowed query\'s page with the end of the window it is walking', () => {
+    expect(boardSearchPageLabel(query('글렌', false))).toBe('—')
+    expect(boardSearchPageLabel({ ...query('글렌', false), lastCommittedPage: 12 })).toBe('12')
+    expect(boardSearchPageLabel({ ...query('구매', false), lastCommittedPage: 12, segmentToDay: '20250105' })).toBe(TEXT.boardSearch.pageInSegment('12', '01-05'))
+    expect(TEXT.boardSearch.pageInSegment('12', '01-05')).toBe('12 · ~01-05')
+    // Just narrowed: the narrower window has no stored page yet.
+    expect(boardSearchPageLabel({ ...query('구매', false), segmentToDay: '20250105' })).toBe(TEXT.boardSearch.pageInSegment('—', '01-05'))
   })
 })
