@@ -26,16 +26,24 @@ const page = (ids: number[], total: number): CollectedArticlePage => ({
 const EMPTY = page([], 0)
 /**
  * Pages 1 to the cap, each holding `perPage` posts from `newestDay`, except
- * that the first post of the cap page — first, so the oldest is not simply the
- * last — is from `oldestDay`.
+ * that the last post of the cap page — the results come newest first — is from
+ * `oldestDay`.
  */
 function pagesToTheCap(oldestDay: number, newestDay = 20): CollectedArticlePage[] {
   return Array.from({ length: BOARD_SEARCH_CAP_PAGE }, (_, index) => {
     const ids = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) => 1_000_000 - index * CAFE_BOARD_SEARCH.perPage - item)
-    const items = ids.map((id, item) => postAt(id, index === BOARD_SEARCH_CAP_PAGE - 1 && item === 0 ? januaryNoon(oldestDay) : januaryNoon(newestDay)))
+    const items = ids.map((id, item) => postAt(id, index === BOARD_SEARCH_CAP_PAGE - 1 && item === CAFE_BOARD_SEARCH.perPage - 1 ? januaryNoon(oldestDay) : januaryNoon(newestDay)))
     return { items, pageInfo: { totalArticleCount: 2000, lastNavigationPageNumber: 10, visibleNextButton: true }, pageIdentity: `cap-${index}` }
   })
 }
+/** A page of `perPage` posts from `newestDay` whose last post is from `oldestDay`. */
+function fullPage(firstId: number, oldestDay: number, newestDay = 20): CollectedArticlePage {
+  const items = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) =>
+    postAt(firstId - item, item === CAFE_BOARD_SEARCH.perPage - 1 ? januaryNoon(oldestDay) : januaryNoon(newestDay)))
+  return { items, pageInfo: { totalArticleCount: 2000, lastNavigationPageNumber: 10, visibleNextButton: true }, pageIdentity: `full-${firstId}` }
+}
+/** The empty page the search serves once it stops serving a window: its pageInfo is all zeros. */
+const ZEROS: CollectedArticlePage = { items: [], pageInfo: { totalArticleCount: 0, lastNavigationPageNumber: 0, visibleNextButton: false }, pageIdentity: '' }
 /** One post from another board: the query's own results are wrong, not the request. */
 const STRAY = { ...page([9], 1), items: [{ ...postAt(9), boardId: '188' }] }
 
@@ -145,6 +153,22 @@ describe('boardSearchRunner', () => {
     expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD: 9 on 188'])
   })
 
+  it('ends the block, storing nothing, when a page is newer than the page before it', async () => {
+    const newer = { ...page([2], 9), items: [postAt(2, januaryNoon(5))] }
+    const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [page([1], 9), newer], 구매: [page([4], 1)] })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'finish failed BOARD_SEARCH_OUT_OF_ORDER: 2'])
+  })
+
+  it('accepts a page whose newest post is as old as the oldest post of the page before it', async () => {
+    const first = { ...page([3, 2], 3), items: [postAt(3, januaryNoon(5)), postAt(2, januaryNoon(3))] }
+    const h = harness([query('글렌', 1)], { 글렌: [first, page([1], 3)] })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'store 글렌 p2', 'read 글렌 p3', 'finish succeeded'])
+  })
+
   it('ends the block at a stop and does not go on to the next query', async () => {
     // The stop is pressed while page 1 is being read: that page is kept, and
     // the wait before page 2 is where it lands.
@@ -201,6 +225,15 @@ describe('boardSearchRunner', () => {
       expect(h.requests).not.toContain(`구매 20250101-20250829 p${CAP + 1}`)
     })
 
+    it('walks on when page 1 of the narrowed window starts later in the day than the cap page\'s oldest post', async () => {
+      // The live case: "구매" narrowed to 01-10, and its page 1 began late on 01-10.
+      const lateOnJanuary10 = { ...page([7], 1), items: [postAt(7, Date.UTC(2025, 0, 10, 14))] }
+      const h = harness([query('구매', 1)], { 구매: pagesToTheCap(10), '구매@20250110': [lateOnJanuary10] })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-5)).toEqual(['narrow 구매 20250101-20250829 to 20250110', 'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded'])
+    })
+
     it('steps one day earlier when the oldest day is already the end of the window', async () => {
       const h = harness([query('구매', 1, null, false, '20250105')], { '구매@20250105': pagesToTheCap(5, 5), '구매@20250104': [page([7], 1)] })
       h.runner.start({ maxPages: CAP + 10 })
@@ -244,6 +277,77 @@ describe('boardSearchRunner', () => {
         'start 구매', `read 구매 p${CAP}`, `store 구매 p${CAP}`, 'narrow 구매 20250101-20250829 to 20250102', 'finish partial PAGE_BUDGET_SPENT',
       ])
       expect(h.requests).toEqual([`구매 20250101-20250829 p${CAP}`])
+    })
+
+    it('narrows at the empty zero page after a full page, before the cap page', async () => {
+      const h = harness([query('구매', 1)], { 구매: [fullPage(900, 20), fullPage(800, 20), fullPage(700, 5), ZEROS], '구매@20250105': [page([7], 1)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events.slice(-7)).toEqual([
+        'store 구매 p3', 'read 구매 p4', 'narrow 구매 20250101-20250829 to 20250105',
+        'read 구매 p1', 'store 구매 p1', 'read 구매 p2', 'finish succeeded',
+      ])
+      expect(h.requests.slice(-3)).toEqual(['구매 20250101-20250829 p4', '구매 20250101-20250105 p1', '구매 20250101-20250105 p2'])
+    })
+
+    it('ends the query at the empty zero page after a page that was not full', async () => {
+      const h = harness([query('글렌', 1)], { 글렌: [page([1, 2], 2), ZEROS] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'finish succeeded'])
+    })
+
+    it('ends the query at an empty page with its pageInfo after a full page', async () => {
+      const h = harness([query('글렌', 1)], { 글렌: [fullPage(900, 5)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'finish succeeded'])
+    })
+
+    it('ends a query with no results at its empty zero first page', async () => {
+      const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [ZEROS], 구매: [page([4], 1)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events.slice(0, 3)).toEqual(['start 글렌', 'read 글렌 p1', 'finish succeeded'])
+    })
+
+    it('fails, ending the block, when a resumed query first reads the empty zero page', async () => {
+      const h = harness([query('구매', 1, 4), query('글렌', 2)], { 구매: [fullPage(900, 20), fullPage(800, 20), fullPage(700, 5), ZEROS], 글렌: [page([4], 1)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 구매', 'read 구매 p4', 'finish failed BOARD_SEARCH_CAP_UNCLEAR: page 4'])
+    })
+
+    it('fails, ending the block, when the first page of the window it narrowed to is empty', async () => {
+      const h = harness([query('구매', 1), query('글렌', 2)], { 구매: pagesToTheCap(5), 글렌: [page([4], 1)] })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-4)).toEqual([
+        `store 구매 p${CAP}`, 'narrow 구매 20250101-20250829 to 20250105', 'read 구매 p1', 'finish failed BOARD_SEARCH_SEGMENT_EMPTY: segment to 20250105',
+      ])
+      expect(h.events.some((event) => event.startsWith('start 글렌'))).toBe(false)
+    })
+
+    it('ends the query when the window it stepped back a day to is empty from page 1', async () => {
+      // Nothing on 01-04 was seen before the step back: an empty window is an end.
+      const h = harness([query('구매', 1, null, false, '20250105')], { '구매@20250105': pagesToTheCap(5, 5) })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-3)).toEqual(['narrow 구매 20250101-20250829 to 20250104', 'read 구매 p1', 'finish succeeded'])
+    })
+
+    it('fails when a resumed narrowed query finds its stored first page empty', async () => {
+      const h = harness([query('구매', 1, 1, false, '20250105'), query('글렌', 2)], { 글렌: [page([4], 1)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 구매', 'read 구매 p1', 'finish failed BOARD_SEARCH_SEGMENT_EMPTY: segment to 20250105'])
+    })
+
+    it('ends a resumed narrowed query whose first page was never stored and is empty', async () => {
+      const h = harness([query('구매', 1, null, false, '20250105')], {})
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 구매', 'read 구매 p1', 'finish succeeded'])
     })
 
     it('does not narrow at a full page before the cap, nor at a cap page that is not full', async () => {

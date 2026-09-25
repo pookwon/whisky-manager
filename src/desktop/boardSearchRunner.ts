@@ -6,7 +6,7 @@ import { kstDayKey, kstDayKeyRange, MS_PER_DAY } from '../shared/kst.js'
 import type { Random } from '../shared/ports.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from './boardSearchPageFetcher.js'
-import { assertBoardSearchPage } from './boardSearchPageCheck.js'
+import { assertBoardSearchPage, assertBoardSearchPageFollows } from './boardSearchPageCheck.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
@@ -45,22 +45,61 @@ const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOA
 
 type QueryOutcome = { readonly requests: number; readonly endsBlock: boolean }
 
-/** What a stored page says about the window the query walks. */
-type SegmentStep = { readonly kind: 'next_page' } | { readonly kind: 'narrow'; readonly segmentToDay: string } | { readonly kind: 'complete' }
+/** What a page says about the window the query walks. */
+type SegmentStep =
+  | { readonly kind: 'next_page' }
+  /** `steppedBack`: the new end is a day before the post narrowed from, so no post on it has been seen. */
+  | { readonly kind: 'narrow'; readonly segmentToDay: string; readonly steppedBack: boolean }
+  | { readonly kind: 'complete' }
+
+/** The page read last in this window in this run: what an empty page after it means. */
+type PreviousPage = { readonly oldestPostedAt: number; readonly isFull: boolean }
+
+type SegmentWindow = { readonly fromDay: string; readonly toDay: string }
+
+function oldestPostedAt(result: CollectedArticlePage): number {
+  return Math.min(...result.items.map((item) => item.postedAt))
+}
+
+function isFullPage(result: CollectedArticlePage): boolean {
+  return result.items.length === CAFE_BOARD_SEARCH.perPage
+}
 
 /**
- * A full cap page means the search cut the window's results off there, not
- * that they ended. The rest is older than its oldest post, so the walk goes on
- * in a window ending on that post's day, overlapping it. When that day already
- * ends the window, one day holds more than the cap: the walk steps a day
- * earlier and the rest of that day is not reached.
+ * Where the search cut the window's results off, the rest is older than the
+ * last post it served, so the walk goes on in a window ending on that post's
+ * day, overlapping it. When that day already ends the window, one day holds
+ * more than the cap: the walk steps a day earlier and the rest of that day is
+ * not reached.
  */
-function segmentStepAfter(page: number, result: CollectedArticlePage, window: { readonly fromDay: string; readonly toDay: string }): SegmentStep {
-  if (page !== BOARD_SEARCH_CAP_PAGE || result.items.length !== CAFE_BOARD_SEARCH.perPage) return { kind: 'next_page' }
-  const oldestMs = Math.min(...result.items.map((item) => item.postedAt))
+function segmentStepBefore(oldestMs: number, window: SegmentWindow): SegmentStep {
   const oldestDay = kstDayKey(oldestMs)
-  const segmentToDay = oldestDay === window.toDay ? kstDayKey(kstDayKeyRange(oldestDay).startMs - MS_PER_DAY) : oldestDay
-  return segmentToDay < window.fromDay ? { kind: 'complete' } : { kind: 'narrow', segmentToDay }
+  const steppedBack = oldestDay === window.toDay
+  const segmentToDay = steppedBack ? kstDayKey(kstDayKeyRange(oldestDay).startMs - MS_PER_DAY) : oldestDay
+  return segmentToDay < window.fromDay ? { kind: 'complete' } : { kind: 'narrow', segmentToDay, steppedBack }
+}
+
+/** A full cap page means the search cut the results off there, not that they ended. */
+function segmentStepAfter(page: number, result: CollectedArticlePage, window: SegmentWindow): SegmentStep {
+  if (page !== BOARD_SEARCH_CAP_PAGE || !isFullPage(result)) return { kind: 'next_page' }
+  return segmentStepBefore(oldestPostedAt(result), window)
+}
+
+/**
+ * An empty page ends the results, unless it is the one the search serves once
+ * it stops serving a window — its pageInfo all zeros — right after a full page:
+ * then the cap was reached there, whatever the page number. With no page read
+ * before it in this run, there is nothing to narrow from and no telling whether
+ * the results ended; only a first page, with nothing before it, is plainly the
+ * end.
+ */
+function segmentStepAtEmptyPage(page: number, result: CollectedArticlePage, previous: PreviousPage | null, window: SegmentWindow): SegmentStep {
+  if (result.pageInfo.lastNavigationPageNumber !== 0) return { kind: 'complete' }
+  if (previous === null) {
+    if (page === 1) return { kind: 'complete' }
+    throw new CollectionPageError('BOARD_SEARCH_CAP_UNCLEAR', `page ${page}`)
+  }
+  return previous.isFull ? segmentStepBefore(previous.oldestPostedAt, window) : { kind: 'complete' }
 }
 
 export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearchRunner {
@@ -94,6 +133,15 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     let requests = 0
     let pageNumber = query.lastCommittedPage ?? 1
     let window = { boardId: query.boardId, fromDay: query.fromDay, toDay: query.segmentToDay ?? query.toDay }
+    let previousPage: PreviousPage | null = null
+    /**
+     * Whether page 1 of the window must hold posts: its end is a day the walk
+     * has seen posts on. So after a narrowing onto the oldest post's day, and
+     * on a resumed segment whose page 1 was stored before. A resumed segment
+     * with no stored page may have been stepped back onto a day nothing was
+     * seen on — nothing records which — so its empty page 1 is an end.
+     */
+    let firstPageHoldsPosts = query.segmentToDay !== null && query.lastCommittedPage === 1
     const now = () => new Date(deps.clock.now())
     try {
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
@@ -107,13 +155,20 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         requests += 1
         const observedAt = new Date(deps.clock.now())
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: window.fromDay, toDay: window.toDay, page: pageNumber })
+        let step: SegmentStep
         if (result.items.length === 0) {
-          await repository.finishRun(runId, 'succeeded', null, now())
-          return { requests, endsBlock: false }
+          if (firstPageHoldsPosts) {
+            throw new CollectionPageError('BOARD_SEARCH_SEGMENT_EMPTY', `segment to ${window.toDay}`)
+          }
+          step = segmentStepAtEmptyPage(pageNumber, result, previousPage, window)
+        } else {
+          assertBoardSearchPage(result, window)
+          if (previousPage !== null) assertBoardSearchPageFollows(result, previousPage.oldestPostedAt)
+          await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
+          step = segmentStepAfter(pageNumber, result, window)
+          previousPage = { oldestPostedAt: oldestPostedAt(result), isFull: isFullPage(result) }
+          firstPageHoldsPosts = false
         }
-        assertBoardSearchPage(result, window)
-        await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
-        const step = segmentStepAfter(pageNumber, result, window)
         if (step.kind === 'complete') {
           await repository.finishRun(runId, 'succeeded', null, now())
           return { requests, endsBlock: false }
@@ -121,6 +176,8 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         if (step.kind === 'narrow') {
           await repository.narrowSegment({ boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, segmentToDay: step.segmentToDay, at: now() })
           window = { ...window, toDay: step.segmentToDay }
+          previousPage = null
+          firstPageHoldsPosts = !step.steppedBack
           pageNumber = 1
           continue
         }

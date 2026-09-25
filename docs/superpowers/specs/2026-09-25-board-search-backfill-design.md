@@ -235,11 +235,18 @@ x-cafe-product: pc
 - 중지 요청은 쪽 경계에서 지금 검색어를 `interrupted`로 끝내고 다음으로 가지 않는다.
 - 잠금(`collectionLock`), 세션 양보(`isSessionBusy`), 페이싱 대기, 시계는 기존 러너와 같은 의존성을 주입받는다.
 - 쪽 하나의 저장은 한 트랜잭션이다: `posts` upsert, `board_search_state.last_committed_page`·`inserted_count`, `runs` 카운터.
+- 결과는 최신 글부터 온다(실측 9쪽, 역전 0). 좁히기가 이 순서에 기대므로 확인한다: 한 쪽 안에서 `postedAt`이 앞 글보다 늦으면(같으면 괜찮다), 또는 같은 실행·같은 기간에서 새 쪽의 가장 새 글이 앞 쪽의 가장 오래된 글보다 늦으면 `failed` · `BOARD_SEARCH_OUT_OF_ORDER`다. 그 쪽은 저장하지 않고 블록을 끝낸다 — 순서가 무너진 검색은 어느 검색어에서도 믿을 수 없다.
 - 요청 기간은 `from_day` ~ `segment_to_day ?? to_day`다. 기간 검사(`BOARD_SEARCH_OUT_OF_WINDOW`)도 이 기간으로 한다. 저장·완료는 작업 기간(`from_day`, `to_day`)으로 행을 찾는다.
-- **항목 0건이면 `pageInfo`가 무엇이든 끝이다.** 결과 한계 뒤의 쪽은 `pageInfo`가 모두 0으로 온다(§1). 파서는 항목이 없을 때만 `lastNavigationPageNumber: 0`을 받는다. 항목이 있는데 0이면 형식 오류다.
+- **항목 0건은 대개 끝이지만, `pageInfo`가 모두 0인 빈 쪽이 꽉 찬 쪽 뒤에 오면 한계다.** 끝을 넘긴 쪽은 평소의 `pageInfo`(예: `lastNavigationPageNumber` 12, `totalArticleCount` 578)로 오고, 결과 한계 뒤의 쪽은 모두 0으로 온다(§1). 파서는 항목이 없을 때만 `lastNavigationPageNumber: 0`을 받는다. 항목이 있는데 0이면 형식 오류다.
+  - 같은 실행·같은 기간에서 바로 앞에 읽은 쪽이 50건으로 꽉 찼고 이어 0인 빈 쪽이 오면, 검색이 거기서 내주기를 멈춘 것이다. 80쪽 규칙과 같이 앞 쪽의 가장 이른 글 날짜로 좁혀 1쪽부터 잇는다. 한계가 80쪽보다 일찍 와도 숫자 80에 기대지 않고 잡는다.
+  - 앞 쪽이 꽉 차지 않았으면 0인 빈 쪽도 끝이다(`succeeded`).
+  - 이 실행에서 앞에 읽은 쪽이 없는데 0인 빈 쪽이 오면(재개한 검색어가 다시 읽은 첫 쪽이 이것) 좁힐 기준도, 끝인지도 알 수 없다. `failed` · `BOARD_SEARCH_CAP_UNCLEAR`, 블록을 끝낸다. 1쪽은 예외다 — 앞에 결과가 없으니 한계일 수 없고, 결과가 없는 검색어다(`succeeded`).
 - **80쪽(`resultCap / perPage`)이 50건으로 꽉 차면** 한계에 닿은 것이다. 81쪽을 요청하지 않는다. 그 쪽에서 `postedAt`이 가장 이른 글의 KST 날짜를 새 `segment_to_day`로 적고 `last_committed_page`를 비운 뒤, 같은 실행·같은 예산으로 좁힌 기간의 1쪽부터 잇는다. 그날은 겹쳐 읽는다(upsert).
   - 그 날짜가 지금 기간의 끝과 같으면 하루에 4,000건이 넘는 것이다. 하루 앞으로 당긴다. 그날의 나머지는 닿지 못한다.
   - 좁힌 끝이 `from_day`보다 앞이면 그 검색어는 끝이다(`succeeded`).
+  - 좁힌 끝 날이 가장 이른 글의 날이면(하루 당기지 않았으면) 그날 글을 방금 봤으니 좁힌 기간의 1쪽은 비어 있을 수 없다. 같은 실행에서 그렇게 좁힌 뒤 1쪽이 0건이면 `failed` · `BOARD_SEARCH_SEGMENT_EMPTY`, 블록을 끝낸다. `segment_to_day`는 그대로, `last_committed_page`는 비어 있으니 다음 블록이 그 기간의 1쪽부터 다시 시도한다.
+  - 하루 당겨 좁혔으면 그날 글은 본 적이 없다. 1쪽이 0건이면 끝이다(`succeeded`).
+  - 재개한 좁힌 기간(`segment_to_day`가 있는 검색어)은 `last_committed_page`가 1일 때만, 곧 전에 저장한 1쪽이 이제 0건일 때만 `BOARD_SEARCH_SEGMENT_EMPTY`다. `last_committed_page`가 비어 있으면 하루 당겨 좁힌 기간인지 알 수 없으므로(따로 적어 두지 않는다) 1쪽 0건은 끝이다(`succeeded`).
 
 ### 끝 판정
 
@@ -247,13 +254,19 @@ x-cafe-product: pc
 
 | 관찰 | 판정 |
 |---|---|
-| 항목 0건 (`pageInfo`가 모두 0이어도) | 끝 → `succeeded`, `completed_at` |
+| 좁힌 기간의 1쪽이 0건 — 이 실행에서 하루 당기지 않고 좁혔거나, 재개한 기간의 저장된 1쪽(`last_committed_page` 1)이다 | `failed` · `BOARD_SEARCH_SEGMENT_EMPTY`, 블록을 끝낸다. 기간은 그대로 |
+| 좁힌 기간의 1쪽이 0건 — 하루 당겨 좁혔거나, 재개한 기간의 `last_committed_page`가 비어 있다 | 끝 → `succeeded`, `completed_at` |
+| 항목 0건, 평소의 `pageInfo` | 끝 → `succeeded`, `completed_at` |
+| 항목 0건, `pageInfo`가 모두 0, 앞 쪽(같은 실행·같은 기간)이 꽉 차지 않았거나 1쪽이다 | 끝 → `succeeded`, `completed_at` |
+| 항목 0건, `pageInfo`가 모두 0, 앞 쪽이 50건으로 꽉 찼다 | 앞 쪽의 가장 오래된 날로 기간을 좁혀 1쪽부터. 좁힐 수 없으면 끝 |
+| 항목 0건, `pageInfo`가 모두 0, 이 실행에서 앞에 읽은 쪽이 없다(1쪽 아님) | `failed` · `BOARD_SEARCH_CAP_UNCLEAR`, 블록을 끝낸다 |
 | 항목이 있다 | 저장하고 다음 쪽 |
 | 80쪽이 50건으로 꽉 찼다 | 저장하고, 가장 오래된 날로 기간을 좁혀 1쪽부터. 좁힐 수 없으면 끝 |
 | 항목의 `boardId` ≠ 대상 게시판 | `failed` · `BOARD_SEARCH_WRONG_BOARD`, 그 쪽은 저장하지 않는다 |
 | 항목의 `postedAt`이 KST로 [`from_day`, `segment_to_day ?? to_day`] 밖 | `failed` · `BOARD_SEARCH_OUT_OF_WINDOW`, 그 쪽은 저장하지 않는다 |
+| 한 쪽 안에서, 또는 앞 쪽보다 새 글이 뒤에 온다 | `failed` · `BOARD_SEARCH_OUT_OF_ORDER`, 그 쪽은 저장하지 않고 블록을 끝낸다 |
 
-마지막 두 줄은 검색 필터가 조용히 풀렸을 때 다른 게시판 글이나 기간 밖 글이 보충으로 섞이지 않게 한다. 실패해도 커서는 움직이지 않는다.
+`WRONG_BOARD`·`OUT_OF_WINDOW` 두 줄은 검색 필터가 조용히 풀렸을 때 다른 게시판 글이나 기간 밖 글이 보충으로 섞이지 않게 한다. `OUT_OF_ORDER`는 좁히기가 건너뛸 글을 조용히 만들지 않게 한다. 실패해도 커서는 움직이지 않는다.
 
 `total_count`는 검색어마다의 규모다. 화면은 검색어별로 결과 수와 새로 넣은 글 수를 나란히 보인다. 둘의 차이는 이미 가진 글이므로 실패가 아니다. 게시판 전체의 남은 양은 §7의 잔여 추정이 말한다.
 
