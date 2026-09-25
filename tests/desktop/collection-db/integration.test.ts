@@ -11,6 +11,7 @@ import { parseCafeBoardSearchListText } from '../../../src/shared/cafeBoardSearc
 import { openCollectionDatabase, type CollectionDatabaseConnection } from '../../../src/desktop/collection-db/client.js'
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
 import { createBoardSearchCoverageQuery } from '../../../src/desktop/collection-db/boardSearchCoverageQuery.js'
+import { createBoardSearchLastRunQuery } from '../../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 import { createBoardSearchRepository } from '../../../src/desktop/collection-db/boardSearchRepository.js'
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { createMemberResyncRepository } from '../../../src/desktop/collection-db/memberResyncRepository.js'
@@ -674,6 +675,28 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(read.running).toEqual(before.running)
 
     await search.finishRun(runningId, 'interrupted', 'ABORTED', new Date('2026-09-26T01:10:00.000Z'))
+  })
+
+  it('reads the newest search run of each query in the job\'s board and window', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const window = { boardId: '137', fromDay: '20240101', toDay: '20240630' }
+    const run = async (query: string, startedAt: string, status: 'succeeded' | 'failed', stopReason: string | null, fromDay = window.fromDay) => {
+      const id = randomUUID()
+      await search.startRun({ id, boardId: window.boardId, query, fromDay, toDay: window.toDay, startedAt: new Date(startedAt) })
+      await search.finishRun(id, status, stopReason, new Date(startedAt))
+    }
+    await run('발베니', '2026-09-27T00:00:00.000Z', 'failed', 'BOARD_SEARCH_HTTP_ERROR')
+    await run('발베니', '2026-09-27T01:00:00.000Z', 'succeeded', null)
+    await run('라프로익', '2026-09-27T00:30:00.000Z', 'failed', 'BOARD_SEARCH_HTTP_ERROR')
+    // Another window's run is newer, but it is not this job's.
+    await run('라프로익', '2026-09-27T02:00:00.000Z', 'succeeded', null, '20240201')
+
+    const lastRuns = await createBoardSearchLastRunQuery(connection.db).read(window)
+    expect(Object.fromEntries(lastRuns)).toEqual({
+      발베니: { status: 'succeeded', stopReason: null },
+      라프로익: { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR' },
+    })
   })
 
   it('ties a search run\'s page and completion to the window it was started on', async () => {

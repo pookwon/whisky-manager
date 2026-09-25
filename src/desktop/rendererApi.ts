@@ -411,7 +411,12 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
       return {
         kind: 'ready',
-        view: await readBoardSearchView({ repository: collection.boardSearchRepository, coverage: collection.boardSearchCoverage, running: deps.boardSearchRunner.isRunning() }),
+        view: await readBoardSearchView({
+          repository: collection.boardSearchRepository,
+          coverage: collection.boardSearchCoverage,
+          lastRuns: collection.boardSearchLastRuns,
+          running: deps.boardSearchRunner.isRunning(),
+        }),
       }
     },
 

@@ -3,20 +3,21 @@ import {
   boardSearchCoverageLine,
   boardSearchPlanOutcome,
   boardSearchQueryState,
+  boardSearchQueryStateText,
   boardSearchStartLabel,
   boardSearchSummaryLine,
   dayKeyLabel,
   dayKeyOfDateInput,
 } from '../../src/renderer/views/collection/boardSearchLines.js'
-import type { BoardSearchQueryState } from '../../src/desktop/collection-db/boardSearchRepository.js'
-import type { BoardSearchJobView } from '../../src/desktop/boardSearchView.js'
+import type { BoardSearchJobView, BoardSearchQueryView } from '../../src/desktop/boardSearchView.js'
+import type { BoardSearchLastRun } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 import { TEXT } from '../../src/shared/text.js'
 
-const query = (q: string, complete: boolean): BoardSearchQueryState => ({
-  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null,
+const query = (q: string, complete: boolean, lastRun: BoardSearchLastRun | null = null): BoardSearchQueryView => ({
+  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
 })
 
-const job = (queries: readonly BoardSearchQueryState[]): BoardSearchJobView => ({
+const job = (queries: readonly BoardSearchQueryView[]): BoardSearchJobView => ({
   boardId: '137', boardName: '국내구입기 & 정보', fromDay: '20250101', toDay: '20250829',
   queries, completedCount: 0, insertedTotal: 0, current: queries[0]?.query ?? null,
   coverage: { span: 0, missing: 0, baselineMissingRatio: null, estimatedRemaining: null },
@@ -64,9 +65,29 @@ describe('board search wording', () => {
   })
 
   it('tells a finished, walking and waiting query apart', () => {
-    expect(boardSearchQueryState(query('글렌', true), '구매', true)).toBe('done')
-    expect(boardSearchQueryState(query('구매', false), '구매', true)).toBe('walking')
-    expect(boardSearchQueryState(query('구매', false), '구매', false)).toBe('waiting')
-    expect(boardSearchQueryState(query('이마트', false), '구매', true)).toBe('waiting')
+    const walking = { status: 'running', stopReason: null } as const
+    expect(boardSearchQueryState(query('글렌', true), true)).toBe('done')
+    expect(boardSearchQueryState(query('구매', false, walking), true)).toBe('walking')
+    expect(boardSearchQueryState(query('구매', false), false)).toBe('waiting')
+    expect(boardSearchQueryState(query('이마트', false), true)).toBe('waiting')
+  })
+
+  it('marks a query whose last run failed, until it is walked again', () => {
+    const failed = { status: 'failed', stopReason: 'BOARD_SEARCH_OUT_OF_WINDOW' } as const
+    // A query's own failure moves the block on while the failed query is still
+    // the first unfinished one: the row stays failed while the next one walks.
+    expect(boardSearchQueryState(query('글렌', false, failed), true)).toBe('failed')
+    expect(boardSearchQueryState(query('글렌', false, failed), false)).toBe('failed')
+    expect(boardSearchQueryState(query('글렌', true, failed), false)).toBe('done')
+    expect(boardSearchQueryState(query('글렌', false, { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' }), false)).toBe('waiting')
+  })
+
+  it('says why a failed query stopped', () => {
+    const failed = query('글렌', false, { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR' })
+    expect(boardSearchQueryStateText(failed, 'failed')).toBe(TEXT.boardSearch.failedWith('BOARD_SEARCH_HTTP_ERROR'))
+    expect(TEXT.boardSearch.failedWith('BOARD_SEARCH_HTTP_ERROR')).toContain('BOARD_SEARCH_HTTP_ERROR')
+    expect(boardSearchQueryStateText(query('글렌', false, { status: 'failed', stopReason: null }), 'failed')).toBe(TEXT.boardSearch.states.failed)
+    // A partial run's reason is the budget, not a fault; the row does not repeat it.
+    expect(boardSearchQueryStateText(query('글렌', false, { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' }), 'waiting')).toBe(TEXT.boardSearch.states.waiting)
   })
 })

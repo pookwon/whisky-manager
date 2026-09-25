@@ -1,7 +1,6 @@
 import { TEXT } from '../../../shared/text.js'
-import type { BoardSearchQueryState } from '../../../desktop/collection-db/boardSearchRepository.js'
 import type { BoardSearchCoverage } from '../../../desktop/collection-db/boardSearchCoverageQuery.js'
-import type { BoardSearchJobView } from '../../../desktop/boardSearchView.js'
+import type { BoardSearchJobView, BoardSearchQueryView } from '../../../desktop/boardSearchView.js'
 import type { BoardSearchPlanView } from '../../../desktop/ipc.js'
 
 /** What a preview or create press answered: a plan to read, or a refusal to fix. */
@@ -42,7 +41,21 @@ export function boardSearchStartLabel(job: BoardSearchJobView): string {
   return job.queries.some((query) => query.lastCommittedPage !== null) ? TEXT.boardSearch.resume : TEXT.boardSearch.start
 }
 
-export function boardSearchQueryState(query: BoardSearchQueryState, current: string | null, running: boolean): 'done' | 'walking' | 'waiting' {
+export type BoardSearchQueryStateKind = 'done' | 'walking' | 'waiting' | 'failed'
+
+/**
+ * Read from the query's own newest run, not from the job's first unfinished
+ * query: a query's own failure moves the block on to the next one, and the
+ * failed query stays first until a later block walks it again.
+ */
+export function boardSearchQueryState(query: BoardSearchQueryView, running: boolean): BoardSearchQueryStateKind {
   if (query.complete) return 'done'
-  return running && query.query === current ? 'walking' : 'waiting'
+  if (running && query.lastRun?.status === 'running') return 'walking'
+  return query.lastRun?.status === 'failed' ? 'failed' : 'waiting'
+}
+
+/** A failed row carries its stop reason, so why it failed is on the screen and not only in the database. */
+export function boardSearchQueryStateText(query: BoardSearchQueryView, state: BoardSearchQueryStateKind): string {
+  const reason = state === 'failed' ? (query.lastRun?.stopReason ?? null) : null
+  return reason === null ? TEXT.boardSearch.states[state] : TEXT.boardSearch.failedWith(reason)
 }
