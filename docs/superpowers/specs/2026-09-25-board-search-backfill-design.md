@@ -37,7 +37,7 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 | `글렌` | `글렌알라키`까지 잡는다 |
 | 결과가 많은 검색어의 쪽 한계 | 쪽 번호 한계는 없지만 **한 기간에 4,000건(80쪽)까지만** 나온다(아래) |
 
-즉 **어절이 검색어로 시작하면 걸린다.**
+즉 **어절이 검색어로 시작하면 걸린다.** 검색어 하나로는 게시판 전체를 덮지 못하지만, 이미 가진 제목에서 많이 쓰인 어절을 골라 합집합을 쌓으면 대부분을 덮는다.
 
 ### 결과 4,000건 한계 (2026-09-25 실측)
 
@@ -49,7 +49,7 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 | 81쪽 | `200`, `articleList: []`, `pageInfo`가 모두 0(`totalArticleCount: 0`, `lastNavigationPageNumber: 0`, `visibleNextButton: false`) |
 | 기간을 나눠서 | 20250101 ~ 20250430 2,264건(46쪽), 20250501 ~ 20250829 1,768건(36쪽). 합 4,032건 |
 
-한 기간의 결과는 **4,000건(80쪽 × 50)에서 끊긴다.** 가장 오래된 32건은 나오지 않았다. 기간을 좁히면 나온다. `totalArticleCount`는 2,000 아래에서 정확하고 그 위에서는 2,000에 머문다(`CAFE_BOARD_SEARCH.totalCountCap`). 검색어 하나로는 게시판 전체를 덮지 못하지만, 이미 가진 제목에서 많이 쓰인 어절을 골라 합집합을 쌓으면 대부분을 덮는다.
+한 기간의 결과는 **4,000건(80쪽 × 50)에서 끊긴다.** 가장 오래된 32건은 나오지 않았다. 기간을 좁히면 나온다. `totalArticleCount`는 2,000 아래에서 정확하고 그 위에서는 2,000에 머문다(`CAFE_BOARD_SEARCH.totalCountCap`).
 
 ## 2. 무엇이 바뀌지 않는가
 
@@ -251,7 +251,7 @@ x-cafe-product: pc
 | 항목이 있다 | 저장하고 다음 쪽 |
 | 80쪽이 50건으로 꽉 찼다 | 저장하고, 가장 오래된 날로 기간을 좁혀 1쪽부터. 좁힐 수 없으면 끝 |
 | 항목의 `boardId` ≠ 대상 게시판 | `failed` · `BOARD_SEARCH_WRONG_BOARD`, 그 쪽은 저장하지 않는다 |
-| 항목의 `postedAt`이 KST로 [`from_day`, `to_day`] 밖 | `failed` · `BOARD_SEARCH_OUT_OF_WINDOW`, 그 쪽은 저장하지 않는다 |
+| 항목의 `postedAt`이 KST로 [`from_day`, `segment_to_day ?? to_day`] 밖 | `failed` · `BOARD_SEARCH_OUT_OF_WINDOW`, 그 쪽은 저장하지 않는다 |
 
 마지막 두 줄은 검색 필터가 조용히 풀렸을 때 다른 게시판 글이나 기간 밖 글이 보충으로 섞이지 않게 한다. 실패해도 커서는 움직이지 않는다.
 
