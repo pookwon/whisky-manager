@@ -15,7 +15,7 @@ import type { BoardSearchLastRun } from '../../src/desktop/collection-db/boardSe
 import { TEXT } from '../../src/shared/text.js'
 
 const query = (q: string, complete: boolean, lastRun: BoardSearchLastRun | null = null): BoardSearchQueryView => ({
-  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
+  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
 })
 
 const job = (queries: readonly BoardSearchQueryView[]): BoardSearchJobView => ({

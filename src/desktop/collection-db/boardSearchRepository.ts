@@ -13,6 +13,8 @@ export interface BoardSearchQueryState {
   readonly query: string
   readonly fromDay: string
   readonly toDay: string
+  /** KST `yyyymmdd`: the end of the narrower window the query walks now; null is `toDay`. */
+  readonly segmentToDay: string | null
   readonly queueOrder: number
   readonly expectedGain: number
   readonly lastCommittedPage: number | null
@@ -50,6 +52,15 @@ export interface PersistBoardSearchPageInput {
   readonly result: CollectedArticlePage
 }
 
+export interface NarrowBoardSearchSegmentInput {
+  readonly boardId: string
+  readonly query: string
+  readonly fromDay: string
+  readonly toDay: string
+  readonly segmentToDay: string
+  readonly at: Date
+}
+
 export interface CollectableBoard { readonly boardId: string; readonly name: string }
 
 export interface BoardSearchRepository {
@@ -60,6 +71,8 @@ export interface BoardSearchRepository {
   replaceJob(input: ReplaceBoardSearchJobInput): Promise<void>
   startRun(input: BoardSearchRunInput): Promise<void>
   recordPageRequest(runId: string): Promise<void>
+  /** Walks the query on in a window ending at `segmentToDay`, from its first page. */
+  narrowSegment(input: NarrowBoardSearchSegmentInput): Promise<void>
   persistPage(input: PersistBoardSearchPageInput): Promise<{ readonly insertedPostCount: number; readonly updatedPostCount: number }>
   finishRun(runId: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
 }
@@ -72,6 +85,7 @@ function toQueryState(row: StateRow): BoardSearchQueryState {
     query: row.query,
     fromDay: row.fromDay,
     toDay: row.toDay,
+    segmentToDay: row.segmentToDay,
     queueOrder: row.queueOrder,
     expectedGain: row.expectedGain,
     lastCommittedPage: row.lastCommittedPage,
@@ -161,6 +175,15 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
 
     recordPageRequest(runId) {
       return collection.recordPageRequest(runId, 'collection')
+    },
+
+    async narrowSegment(input) {
+      const state = await db
+        .update(boardSearchState)
+        .set({ segmentToDay: input.segmentToDay, lastCommittedPage: null, updatedAt: input.at })
+        .where(sameQueryWindow(input.boardId, input.query, input.fromDay, input.toDay))
+        .returning({ query: boardSearchState.query })
+      if (state.length !== 1) throw new Error('board search query does not exist')
     },
 
     async persistPage(input) {

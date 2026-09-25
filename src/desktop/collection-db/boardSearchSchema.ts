@@ -23,6 +23,12 @@ export const boardSearchState = pgTable(
     queueOrder: integer('queue_order').notNull(),
     /** Stored titles the dictionary expected this query to add. */
     expectedGain: integer('expected_gain').notNull(),
+    /**
+     * KST `yyyymmdd`, inclusive: the end of the window the query is walking now;
+     * null means `to_day`. The search serves at most its result cap per window,
+     * so a query that fills it walks on in a window ending at its oldest day.
+     */
+    segmentToDay: text('segment_to_day'),
     lastCommittedPage: integer('last_committed_page'),
     insertedCount: integer('inserted_count').notNull().default(0),
     /** The search's own `totalArticleCount`, written with the first page. */
@@ -37,5 +43,6 @@ export const boardSearchState = pgTable(
     check('board_search_state_queue_order', sql`${table.queueOrder} >= 1`),
     check('board_search_state_counts', sql`${table.expectedGain} >= 0 and ${table.insertedCount} >= 0 and (${table.totalCount} is null or ${table.totalCount} >= 0)`),
     check('board_search_state_page', sql`${table.lastCommittedPage} is null or ${table.lastCommittedPage} >= 1`),
+    check('board_search_state_segment', sql`${table.segmentToDay} is null or (${table.fromDay} <= ${table.segmentToDay} and ${table.segmentToDay} <= ${table.toDay})`),
   ],
 )

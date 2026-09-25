@@ -1,0 +1,2 @@
+ALTER TABLE "board_search_state" ADD COLUMN "segment_to_day" text;--> statement-breakpoint
+ALTER TABLE "board_search_state" ADD CONSTRAINT "board_search_state_segment" CHECK ("board_search_state"."segment_to_day" is null or ("board_search_state"."from_day" <= "board_search_state"."segment_to_day" and "board_search_state"."segment_to_day" <= "board_search_state"."to_day"));

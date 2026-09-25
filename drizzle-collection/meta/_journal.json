@@ -57,6 +57,13 @@
       "when": 1790271110523,
       "tag": "0007_glamorous_surge",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790347338601,
+      "tag": "0008_sleepy_sister_grimm",
+      "breakpoints": true
     }
   ]
 }

@@ -48,9 +48,11 @@ describe('collection PostgreSQL schema migration', () => {
   })
 })
 
+const migrationNumbered = (number: string) =>
+  readFileSync(`${migrationsDirectory}/${readdirSync(migrationsDirectory).find((name) => name.startsWith(`${number}_`) && name.endsWith('.sql')) ?? 'missing.sql'}`, 'utf8')
+
 describe('board search migration', () => {
-  const latest = readdirSync(migrationsDirectory).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort().at(-1) ?? 'missing.sql'
-  const sqlText = readFileSync(`${migrationsDirectory}/${latest}`, 'utf8')
+  const sqlText = migrationNumbered('0007')
 
   it('adds the search state table keyed by board and query', () => {
     expect(sqlText).toContain('CREATE TABLE "board_search_state"')
@@ -62,5 +64,19 @@ describe('board search migration', () => {
   it('lets a run name the search it walked', () => {
     expect(sqlText).toContain("ADD VALUE 'board_search'")
     expect(sqlText).toContain('ADD COLUMN "search_query" text')
+  })
+})
+
+describe('board search segment migration', () => {
+  const sqlText = migrationNumbered('0008')
+
+  it('adds the end of the window a query is walking, inside the job window', () => {
+    expect(sqlText).toContain('ALTER TABLE "board_search_state" ADD COLUMN "segment_to_day" text;')
+    expect(sqlText).toContain('ADD CONSTRAINT "board_search_state_segment" CHECK')
+    expect(sqlText).toContain('"board_search_state"."segment_to_day" is null or')
+  })
+
+  it('only adds: an operator migrates a live database by hand', () => {
+    expect(sqlText).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER COLUMN/)
   })
 })

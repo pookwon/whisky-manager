@@ -35,9 +35,21 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 | 한 글자 검색어 | 그 글자가 들어간 글이 빠진다. 부분 문자열 일치가 아니다 |
 | `구매` | `구매했습니다`까지 잡는다. `이마트 구매`는 `이마트` + `구매` 두 어절이다 |
 | `글렌` | `글렌알라키`까지 잡는다 |
-| 결과가 많은 검색어의 쪽 한계 | 없다. 끝까지 다 나온다 |
+| 결과가 많은 검색어의 쪽 한계 | 쪽 번호 한계는 없지만 **한 기간에 4,000건(80쪽)까지만** 나온다(아래) |
 
-즉 **어절이 검색어로 시작하면 걸린다.** 검색어 하나로는 게시판 전체를 덮지 못하지만, 이미 가진 제목에서 많이 쓰인 어절을 골라 합집합을 쌓으면 대부분을 덮는다.
+즉 **어절이 검색어로 시작하면 걸린다.**
+
+### 결과 4,000건 한계 (2026-09-25 실측)
+
+137 `구매`, 20250101 ~ 20250829를 걸었다.
+
+| 확인 | 결과 |
+|---|---|
+| 1 ~ 80쪽 | 쪽마다 50건. 80쪽의 가장 오래된 글이 2025-01-02 |
+| 81쪽 | `200`, `articleList: []`, `pageInfo`가 모두 0(`totalArticleCount: 0`, `lastNavigationPageNumber: 0`, `visibleNextButton: false`) |
+| 기간을 나눠서 | 20250101 ~ 20250430 2,264건(46쪽), 20250501 ~ 20250829 1,768건(36쪽). 합 4,032건 |
+
+한 기간의 결과는 **4,000건(80쪽 × 50)에서 끊긴다.** 가장 오래된 32건은 나오지 않았다. 기간을 좁히면 나온다. `totalArticleCount`는 2,000 아래에서 정확하고 그 위에서는 2,000에 머문다(`CAFE_BOARD_SEARCH.totalCountCap`). 검색어 하나로는 게시판 전체를 덮지 못하지만, 이미 가진 제목에서 많이 쓰인 어절을 골라 합집합을 쌓으면 대부분을 덮는다.
 
 ## 2. 무엇이 바뀌지 않는가
 
@@ -66,14 +78,15 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 | `to_day` | text `yyyymmdd` | 빈 구간 끝, KST, 포함 |
 | `queue_order` | integer ≥ 1 | 사전이 고른 순서. 작업을 만들 때 고정 |
 | `expected_gain` | integer ≥ 0 | 사전이 예측한 신규 몫(원천 기준 글 수) |
-| `last_committed_page` | integer, null | 마지막으로 저장한 쪽 |
+| `segment_to_day` | text `yyyymmdd`, null | 지금 걷는 기간의 끝, KST, 포함. null이면 `to_day`. 결과 한계(§1)에 닿으면 좁힌다(§6) |
+| `last_committed_page` | integer, null | 마지막으로 저장한 쪽. `segment_to_day` 기간 안의 쪽 번호다 |
 | `inserted_count` | integer ≥ 0 | 이 검색어가 새로 넣은 글 수 |
 | `total_count` | integer, null | 검색 응답의 `totalArticleCount`. 첫 쪽을 저장할 때 적는다 |
 | `last_run_id` | uuid, FK `runs` | |
 | `completed_at` | timestamp | 끝까지 걸은 때 |
 | `updated_at` | timestamp | |
 
-- PK `(board_id, query)`. 체크: `from_day <= to_day`, `queue_order >= 1`.
+- PK `(board_id, query)`. 체크: `from_day <= to_day`, `queue_order >= 1`, `segment_to_day`는 null이거나 `from_day <= segment_to_day <= to_day`.
 - 행은 모두 같은 `board_id`, `from_day`, `to_day`를 갖는다. 작업은 하나뿐이며, 새로 만들면 모든 행을 교체한다. running 실행이 있으면 교체를 거절한다(`replaceJob`과 같다).
 - 작업이 **존재**한다 = 행이 있다. **완료**다 = 모든 행에 `completed_at`이 있다.
 
@@ -118,7 +131,7 @@ https://cafe.naver.com/f-e/cafes/14538121/menus/137?ta=SUBJECT&from=20250101&to=
 
 같은 데이터로 만들고 잰 값과 홀드아웃 값이 1%p 안에서 같다. 최근 제목의 사전이 과거 구간에도 통한다. 앞 순서는 `글렌, 구매, 구입, 이마트, gs, 트레이더스, 위스키, 12, 조니, 홈플, 와인, 코스트코, cu, 10, 롯데…`이다.
 
-검색어 하나의 최대 결과는 빈 구간에서 약 4,200건(85쪽)이다. 검색 결과에는 쪽 한계가 없다(§1).
+검색어 하나의 최대 결과는 빈 구간에서 약 4,200건(85쪽)이다. 한 기간은 4,000건에서 끊기므로(§1) 그런 검색어는 기간을 좁혀 이어 걷는다(§6).
 
 블록당 약 150쪽, 하루 3블록이면 K=300은 **4일 남짓**이다.
 
@@ -222,6 +235,11 @@ x-cafe-product: pc
 - 중지 요청은 쪽 경계에서 지금 검색어를 `interrupted`로 끝내고 다음으로 가지 않는다.
 - 잠금(`collectionLock`), 세션 양보(`isSessionBusy`), 페이싱 대기, 시계는 기존 러너와 같은 의존성을 주입받는다.
 - 쪽 하나의 저장은 한 트랜잭션이다: `posts` upsert, `board_search_state.last_committed_page`·`inserted_count`, `runs` 카운터.
+- 요청 기간은 `from_day` ~ `segment_to_day ?? to_day`다. 기간 검사(`BOARD_SEARCH_OUT_OF_WINDOW`)도 이 기간으로 한다. 저장·완료는 작업 기간(`from_day`, `to_day`)으로 행을 찾는다.
+- **항목 0건이면 `pageInfo`가 무엇이든 끝이다.** 결과 한계 뒤의 쪽은 `pageInfo`가 모두 0으로 온다(§1). 파서는 항목이 없을 때만 `lastNavigationPageNumber: 0`을 받는다. 항목이 있는데 0이면 형식 오류다.
+- **80쪽(`resultCap / perPage`)이 50건으로 꽉 차면** 한계에 닿은 것이다. 81쪽을 요청하지 않는다. 그 쪽에서 `postedAt`이 가장 이른 글의 KST 날짜를 새 `segment_to_day`로 적고 `last_committed_page`를 비운 뒤, 같은 실행·같은 예산으로 좁힌 기간의 1쪽부터 잇는다. 그날은 겹쳐 읽는다(upsert).
+  - 그 날짜가 지금 기간의 끝과 같으면 하루에 4,000건이 넘는 것이다. 하루 앞으로 당긴다. 그날의 나머지는 닿지 못한다.
+  - 좁힌 끝이 `from_day`보다 앞이면 그 검색어는 끝이다(`succeeded`).
 
 ### 끝 판정
 
@@ -229,8 +247,9 @@ x-cafe-product: pc
 
 | 관찰 | 판정 |
 |---|---|
-| 항목 0건 | 끝 → `succeeded`, `completed_at` |
+| 항목 0건 (`pageInfo`가 모두 0이어도) | 끝 → `succeeded`, `completed_at` |
 | 항목이 있다 | 저장하고 다음 쪽 |
+| 80쪽이 50건으로 꽉 찼다 | 저장하고, 가장 오래된 날로 기간을 좁혀 1쪽부터. 좁힐 수 없으면 끝 |
 | 항목의 `boardId` ≠ 대상 게시판 | `failed` · `BOARD_SEARCH_WRONG_BOARD`, 그 쪽은 저장하지 않는다 |
 | 항목의 `postedAt`이 KST로 [`from_day`, `to_day`] 밖 | `failed` · `BOARD_SEARCH_OUT_OF_WINDOW`, 그 쪽은 저장하지 않는다 |
 
@@ -256,6 +275,7 @@ x-cafe-product: pc
    COLLECTION_MIGRATION_DATABASE_URL=postgresql://lp2k@127.0.0.1:5432/whisky_manager_collection pnpm db:collection:migrate
    ```
    추가되는 것: `board_search_state` 테이블, `collection_feed_kind`의 `board_search`, `runs.search_query`.
+   0008(결과 한계, 2026-09-25): `board_search_state.segment_to_day`와 체크 `board_search_state_segment`. 열과 제약만 더한다. 기존 행은 null(= `to_day`)이라 그대로 이어 걷는다.
 3. 새 패키지를 띄우고 확장을 다시 불러온다.
 4. 수집 메뉴의 검색 보충 카드에서 137, 2025-01-01로 작업을 만든다.
 5. 예약이 켜져 있으면 다음 블록부터 글 작업·회원 작업과 번갈아 걷는다.

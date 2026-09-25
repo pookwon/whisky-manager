@@ -18,7 +18,17 @@ export const CAFE_BOARD_SEARCH = {
    * 3,369 posts (2026-09-25). The pages go on past it; only the count does not.
    */
   totalCountCap: 2000,
+  /**
+   * The results one window serves at most: 80 pages of 50. "구매" on 137 over
+   * 20250101–20250829 filled pages 1–80 and answered page 81 empty, while the
+   * window's two halves held 2,264 and 1,768 posts — 4,032 (2026-09-25). The
+   * 32 oldest were never served; only a narrower window reaches them.
+   */
+  resultCap: 4000,
 } as const
+
+/** The last page one window serves; a full one means the cap cut the results off. */
+export const BOARD_SEARCH_CAP_PAGE = CAFE_BOARD_SEARCH.resultCap / CAFE_BOARD_SEARCH.perPage
 
 const API_ORIGIN = 'https://apis.cafe.naver.com'
 const SEARCH_PATH = `/search/v2/cafes/${CAFE_ARTICLE_LIST.cafeId}/search/articles`
