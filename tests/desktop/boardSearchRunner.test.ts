@@ -311,11 +311,26 @@ describe('boardSearchRunner', () => {
       expect(h.events.some((event) => event.startsWith('start 글렌'))).toBe(false)
     })
 
-    it('fails when a narrowed query starts its window again from an empty first page', async () => {
-      const h = harness([query('구매', 1, null, false, '20250105'), query('글렌', 2)], { 글렌: [page([4], 1)] })
+    it('ends the query when the window it stepped back a day to is empty from page 1', async () => {
+      // Nothing on 01-04 was seen before the step back: an empty window is an end.
+      const h = harness([query('구매', 1, null, false, '20250105')], { '구매@20250105': pagesToTheCap(5, 5) })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-3)).toEqual(['narrow 구매 20250101-20250829 to 20250104', 'read 구매 p1', 'finish succeeded'])
+    })
+
+    it('fails when a resumed narrowed query finds its stored first page empty', async () => {
+      const h = harness([query('구매', 1, 1, false, '20250105'), query('글렌', 2)], { 글렌: [page([4], 1)] })
       h.runner.start({ maxPages: 10 })
       await h.settle()
       expect(h.events).toEqual(['start 구매', 'read 구매 p1', 'finish failed BOARD_SEARCH_SEGMENT_EMPTY: segment to 20250105'])
+    })
+
+    it('ends a resumed narrowed query whose first page was never stored and is empty', async () => {
+      const h = harness([query('구매', 1, null, false, '20250105')], {})
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 구매', 'read 구매 p1', 'finish succeeded'])
     })
 
     it('does not narrow at a full page before the cap, nor at a cap page that is not full', async () => {

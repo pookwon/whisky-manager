@@ -244,7 +244,9 @@ x-cafe-product: pc
 - **80쪽(`resultCap / perPage`)이 50건으로 꽉 차면** 한계에 닿은 것이다. 81쪽을 요청하지 않는다. 그 쪽에서 `postedAt`이 가장 이른 글의 KST 날짜를 새 `segment_to_day`로 적고 `last_committed_page`를 비운 뒤, 같은 실행·같은 예산으로 좁힌 기간의 1쪽부터 잇는다. 그날은 겹쳐 읽는다(upsert).
   - 그 날짜가 지금 기간의 끝과 같으면 하루에 4,000건이 넘는 것이다. 하루 앞으로 당긴다. 그날의 나머지는 닿지 못한다.
   - 좁힌 끝이 `from_day`보다 앞이면 그 검색어는 끝이다(`succeeded`).
-  - 좁힌 기간의 1쪽은 비어 있을 수 없다. 좁힌 끝 날은 방금 글을 본 날이다. 같은 실행에서 좁힌 뒤, 또는 좁힌 기간(`segment_to_day`가 있는 검색어)을 1쪽부터 다시 읽을 때 그 1쪽이 0건이면 `failed` · `BOARD_SEARCH_SEGMENT_EMPTY`, 블록을 끝낸다. `segment_to_day`는 그대로, `last_committed_page`는 비어 있으니 다음 블록이 그 기간의 1쪽부터 다시 시도한다.
+  - 좁힌 끝 날이 가장 이른 글의 날이면(하루 당기지 않았으면) 그날 글을 방금 봤으니 좁힌 기간의 1쪽은 비어 있을 수 없다. 같은 실행에서 그렇게 좁힌 뒤 1쪽이 0건이면 `failed` · `BOARD_SEARCH_SEGMENT_EMPTY`, 블록을 끝낸다. `segment_to_day`는 그대로, `last_committed_page`는 비어 있으니 다음 블록이 그 기간의 1쪽부터 다시 시도한다.
+  - 하루 당겨 좁혔으면 그날 글은 본 적이 없다. 1쪽이 0건이면 끝이다(`succeeded`).
+  - 재개한 좁힌 기간(`segment_to_day`가 있는 검색어)은 `last_committed_page`가 1일 때만, 곧 전에 저장한 1쪽이 이제 0건일 때만 `BOARD_SEARCH_SEGMENT_EMPTY`다. `last_committed_page`가 비어 있으면 하루 당겨 좁힌 기간인지 알 수 없으므로(따로 적어 두지 않는다) 1쪽 0건은 끝이다(`succeeded`).
 
 ### 끝 판정
 
@@ -252,7 +254,8 @@ x-cafe-product: pc
 
 | 관찰 | 판정 |
 |---|---|
-| 좁힌 기간의 1쪽이 0건 (이 실행에서 앞에 읽은 쪽 없음) | `failed` · `BOARD_SEARCH_SEGMENT_EMPTY`, 블록을 끝낸다. 기간은 그대로 |
+| 좁힌 기간의 1쪽이 0건 — 이 실행에서 하루 당기지 않고 좁혔거나, 재개한 기간의 저장된 1쪽(`last_committed_page` 1)이다 | `failed` · `BOARD_SEARCH_SEGMENT_EMPTY`, 블록을 끝낸다. 기간은 그대로 |
+| 좁힌 기간의 1쪽이 0건 — 하루 당겨 좁혔거나, 재개한 기간의 `last_committed_page`가 비어 있다 | 끝 → `succeeded`, `completed_at` |
 | 항목 0건, 평소의 `pageInfo` | 끝 → `succeeded`, `completed_at` |
 | 항목 0건, `pageInfo`가 모두 0, 앞 쪽(같은 실행·같은 기간)이 꽉 차지 않았거나 1쪽이다 | 끝 → `succeeded`, `completed_at` |
 | 항목 0건, `pageInfo`가 모두 0, 앞 쪽이 50건으로 꽉 찼다 | 앞 쪽의 가장 오래된 날로 기간을 좁혀 1쪽부터. 좁힐 수 없으면 끝 |

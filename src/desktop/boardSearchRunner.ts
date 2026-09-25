@@ -46,7 +46,11 @@ const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOA
 type QueryOutcome = { readonly requests: number; readonly endsBlock: boolean }
 
 /** What a page says about the window the query walks. */
-type SegmentStep = { readonly kind: 'next_page' } | { readonly kind: 'narrow'; readonly segmentToDay: string } | { readonly kind: 'complete' }
+type SegmentStep =
+  | { readonly kind: 'next_page' }
+  /** `steppedBack`: the new end is a day before the post narrowed from, so no post on it has been seen. */
+  | { readonly kind: 'narrow'; readonly segmentToDay: string; readonly steppedBack: boolean }
+  | { readonly kind: 'complete' }
 
 /** The page read last in this window in this run: what an empty page after it means. */
 type PreviousPage = { readonly oldestPostedAt: number; readonly isFull: boolean }
@@ -70,8 +74,9 @@ function isFullPage(result: CollectedArticlePage): boolean {
  */
 function segmentStepBefore(oldestMs: number, window: SegmentWindow): SegmentStep {
   const oldestDay = kstDayKey(oldestMs)
-  const segmentToDay = oldestDay === window.toDay ? kstDayKey(kstDayKeyRange(oldestDay).startMs - MS_PER_DAY) : oldestDay
-  return segmentToDay < window.fromDay ? { kind: 'complete' } : { kind: 'narrow', segmentToDay }
+  const steppedBack = oldestDay === window.toDay
+  const segmentToDay = steppedBack ? kstDayKey(kstDayKeyRange(oldestDay).startMs - MS_PER_DAY) : oldestDay
+  return segmentToDay < window.fromDay ? { kind: 'complete' } : { kind: 'narrow', segmentToDay, steppedBack }
 }
 
 /** A full cap page means the search cut the results off there, not that they ended. */
@@ -129,6 +134,14 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     let pageNumber = query.lastCommittedPage ?? 1
     let window = { boardId: query.boardId, fromDay: query.fromDay, toDay: query.segmentToDay ?? query.toDay }
     let previousPage: PreviousPage | null = null
+    /**
+     * Whether page 1 of the window must hold posts: its end is a day the walk
+     * has seen posts on. So after a narrowing onto the oldest post's day, and
+     * on a resumed segment whose page 1 was stored before. A resumed segment
+     * with no stored page may have been stepped back onto a day nothing was
+     * seen on — nothing records which — so its empty page 1 is an end.
+     */
+    let firstPageHoldsPosts = query.segmentToDay !== null && query.lastCommittedPage === 1
     const now = () => new Date(deps.clock.now())
     try {
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
@@ -144,10 +157,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: window.fromDay, toDay: window.toDay, page: pageNumber })
         let step: SegmentStep
         if (result.items.length === 0) {
-          // A narrower window ends on a day the walk has seen posts on, so its
-          // first page holds at least those. Narrowing always moves the end
-          // before `toDay`, so a window ending earlier is a segment.
-          if (pageNumber === 1 && previousPage === null && window.toDay !== query.toDay) {
+          if (firstPageHoldsPosts) {
             throw new CollectionPageError('BOARD_SEARCH_SEGMENT_EMPTY', `segment to ${window.toDay}`)
           }
           step = segmentStepAtEmptyPage(pageNumber, result, previousPage, window)
@@ -157,6 +167,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
           step = segmentStepAfter(pageNumber, result, window)
           previousPage = { oldestPostedAt: oldestPostedAt(result), isFull: isFullPage(result) }
+          firstPageHoldsPosts = false
         }
         if (step.kind === 'complete') {
           await repository.finishRun(runId, 'succeeded', null, now())
@@ -166,6 +177,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           await repository.narrowSegment({ boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, segmentToDay: step.segmentToDay, at: now() })
           window = { ...window, toDay: step.segmentToDay }
           previousPage = null
+          firstPageHoldsPosts = !step.steppedBack
           pageNumber = 1
           continue
         }
