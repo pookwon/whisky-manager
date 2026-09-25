@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { createBoardSearchCoverageQuery, type BoardSearchCoverageQuery } from './collection-db/boardSearchCoverageQuery.js'
+import { createBoardSearchLastRunQuery, type BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
 import { createBoardSearchRepository, type BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
@@ -31,6 +32,8 @@ export type OptionalCollectionContext =
       readonly boardSearchRepository: BoardSearchRepository
       /** Residual estimate from article-id holes in the search window. */
       readonly boardSearchCoverage: BoardSearchCoverageQuery
+      /** How each search query's newest run ended, since search runs stay off the recent log. */
+      readonly boardSearchLastRuns: BoardSearchLastRunQuery
       close(): Promise<void>
     }
   | {
@@ -135,6 +138,7 @@ export async function openOptionalCollectionContext(
       memberResyncRepository: createMemberResyncRepository(connection.db, memberRepository),
       boardSearchRepository: createBoardSearchRepository(connection.db, repository),
       boardSearchCoverage: createBoardSearchCoverageQuery(connection.db),
+      boardSearchLastRuns: createBoardSearchLastRunQuery(connection.db),
       close: connection.close,
     }
   } catch (error) {

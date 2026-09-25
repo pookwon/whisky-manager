@@ -243,7 +243,7 @@ x-cafe-product: pc
 수집 메뉴에 독립 카드 `src/renderer/views/collection/BoardSearchCard.tsx`를 둔다.
 
 - **만들기**: 게시판(수집 대상 게시판 중 선택)과 시작일. 끝은 "저장된 가장 오래된 글 {날짜}"로 자동 표시한다. 만들기 전에 사전을 계산해 "검색어 {K}개, {from} ~ {to}"를 보인다. 쪽 수는 빈 구간의 크기를 알아야 셀 수 있어 보이지 않는다. 이미 작업이 있으면 교체 확인을 띄운다.
-- **진행**: 요약 한 줄(완료 n / K, 지금 걷는 검색어, 새로 넣은 글 누계) 아래에 검색어 표(순서, 검색어, 상태, 쪽, 새 글 수, 결과 수 `total_count`).
+- **진행**: 요약 한 줄(완료 n / K, 지금 걷는 검색어, 새로 넣은 글 누계) 아래에 검색어 표(순서, 검색어, 상태, 쪽, 새 글 수, 결과 수 `total_count`). 상태는 완료·진행·대기·실패다. 실패는 그 작업 기간의 마지막 실행이 `failed`로 끝난 검색어이고, 중단 사유(`stop_reason`)를 같은 칸에 보인다. 검색 실행은 글 수집 상태와 최근 기록에서 빠지므로 실패 이유를 보는 곳은 이 표다.
 - **잔여 추정**: "빈 구간 id {span}개 중 비어 있는 것 {b}. 기준선 {c}%(삭제·비수집 게시판)를 빼면 아직 못 거둔 글 약 {b − c×span}건". 기준선은 그 게시판이 완전한 직후 3개월(`to_day` 다음날부터)의 빈 id 비율이다. 2026-09-25 137 기준으로 {span} 111,973, {b} 41,545, {c} 6.7%, 잔여 약 34,000이다. `src/desktop/collection-db/boardSearchCoverageQuery.ts`가 계산하고 `idGapQuery`처럼 지문으로 캐시한다.
 
 문구는 모두 `src/shared/text.ts`. 시각·날짜는 KST로만 보인다.
@@ -273,7 +273,7 @@ x-cafe-product: pc
 - `protocol`: §5의 거절 목록, 올바른 요청 통과.
 - `cafeBoardSearchEndpoint`·`boardSearchPageReader`: URL에 게시판·검색어·날짜·쪽이 들어가고, `x-cafe-product`와 referer가 실리며, 실패가 각 코드로 나뉜다.
 - `manifest`·`refererRule`: 새 호스트 권한과 새 규칙.
-- `boardSearchRunner`: 검색어 셋을 예산 안에서 이어 걷기, 예산 소진 시 멈춤, 끝 판정 표 각 줄, 재개 시 마지막 쪽 다시 읽기, 첫 쪽에서 `total_count` 기록, 실패하면 다음으로, 중지하면 멈춤.
+- `boardSearchRunner`: 검색어 셋을 예산 안에서 이어 걷기, 예산 소진 시 멈춤, 끝 판정 표 각 줄, 재개 시 마지막 쪽 다시 읽기, 첫 쪽에서 `total_count` 기록, 한 검색어에만 해당하는 실패(`WRONG_BOARD`, `OUT_OF_WINDOW`, 같은 글 두 번)는 다음 검색어로 넘어가고 그 밖의 실패는 블록을 끝냄(§6), 중지하면 멈춤.
 - 저장소: 작업 생성이 사전 순서대로 행을 만들고 교체가 모든 행을 바꾸며 running 실행이 있으면 거절, 쪽 저장과 카운터의 원자성, `WRONG_BOARD`/`OUT_OF_WINDOW`에서 커서 불변.
 - `boardSearchJob`: 존재·완료가 행들에서 맞게 모이고, 완료된 작업은 `start`하지 않는다.
 - `boardSearchCoverageQuery`: 기준선과 잔여 계산, 지문 캐시.

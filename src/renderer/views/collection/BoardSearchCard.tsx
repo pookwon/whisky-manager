@@ -6,6 +6,7 @@ import {
   boardSearchCoverageLine,
   boardSearchPlanOutcome,
   boardSearchQueryState,
+  boardSearchQueryStateText,
   boardSearchStartLabel,
   boardSearchSummaryLine,
   dayKeyLabel,
@@ -188,16 +189,19 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                     </tr>
                   </thead>
                   <tbody>
-                    {job.queries.map((query) => (
-                      <tr key={query.query}>
-                        <td>{query.queueOrder}</td>
-                        <td>{query.query}</td>
-                        <td>{TEXT.boardSearch.states[boardSearchQueryState(query, job.current, running)]}</td>
-                        <td className="text-right">{query.lastCommittedPage ?? '—'}</td>
-                        <td className="text-right">{query.insertedCount.toLocaleString('ko-KR')}</td>
-                        <td className="text-right">{query.totalCount === null ? '—' : query.totalCount.toLocaleString('ko-KR')}</td>
-                      </tr>
-                    ))}
+                    {job.queries.map((query) => {
+                      const state = boardSearchQueryState(query, running)
+                      return (
+                        <tr key={query.query}>
+                          <td>{query.queueOrder}</td>
+                          <td>{query.query}</td>
+                          <td className={state === 'failed' ? 'tone-warn' : undefined}>{boardSearchQueryStateText(query, state)}</td>
+                          <td className="text-right">{query.lastCommittedPage ?? '—'}</td>
+                          <td className="text-right">{query.insertedCount.toLocaleString('ko-KR')}</td>
+                          <td className="text-right">{query.totalCount === null ? '—' : query.totalCount.toLocaleString('ko-KR')}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
