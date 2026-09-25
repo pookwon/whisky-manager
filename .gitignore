@@ -24,3 +24,6 @@ config/local.json
 
 # member fixture captures — real personal data may survive sanitization
 tests/fixtures/cafe-member-list-page-*.json
+
+# python caches from scripts/member-demotion
+__pycache__/
