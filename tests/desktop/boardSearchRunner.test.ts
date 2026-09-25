@@ -301,6 +301,23 @@ describe('boardSearchRunner', () => {
       expect(h.events).toEqual(['start 구매', 'read 구매 p4', 'finish failed BOARD_SEARCH_CAP_UNCLEAR: page 4'])
     })
 
+    it('fails, ending the block, when the first page of the window it narrowed to is empty', async () => {
+      const h = harness([query('구매', 1), query('글렌', 2)], { 구매: pagesToTheCap(5), 글렌: [page([4], 1)] })
+      h.runner.start({ maxPages: CAP + 10 })
+      await h.settle()
+      expect(h.events.slice(-4)).toEqual([
+        `store 구매 p${CAP}`, 'narrow 구매 20250101-20250829 to 20250105', 'read 구매 p1', 'finish failed BOARD_SEARCH_SEGMENT_EMPTY: segment to 20250105',
+      ])
+      expect(h.events.some((event) => event.startsWith('start 글렌'))).toBe(false)
+    })
+
+    it('fails when a narrowed query starts its window again from an empty first page', async () => {
+      const h = harness([query('구매', 1, null, false, '20250105'), query('글렌', 2)], { 글렌: [page([4], 1)] })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual(['start 구매', 'read 구매 p1', 'finish failed BOARD_SEARCH_SEGMENT_EMPTY: segment to 20250105'])
+    })
+
     it('does not narrow at a full page before the cap, nor at a cap page that is not full', async () => {
       const full = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) => item + 1)
       const short = pagesToTheCap(5).map((each, index) => (index === CAP - 1 ? { ...each, items: each.items.slice(1) } : each))

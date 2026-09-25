@@ -144,6 +144,12 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: window.fromDay, toDay: window.toDay, page: pageNumber })
         let step: SegmentStep
         if (result.items.length === 0) {
+          // A narrower window ends on a day the walk has seen posts on, so its
+          // first page holds at least those. Narrowing always moves the end
+          // before `toDay`, so a window ending earlier is a segment.
+          if (pageNumber === 1 && previousPage === null && window.toDay !== query.toDay) {
+            throw new CollectionPageError('BOARD_SEARCH_SEGMENT_EMPTY', `segment to ${window.toDay}`)
+          }
           step = segmentStepAtEmptyPage(pageNumber, result, previousPage, window)
         } else {
           assertBoardSearchPage(result, window)
