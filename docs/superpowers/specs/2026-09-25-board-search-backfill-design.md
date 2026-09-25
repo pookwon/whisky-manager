@@ -273,7 +273,7 @@ x-cafe-product: pc
 - `protocol`: §5의 거절 목록, 올바른 요청 통과.
 - `cafeBoardSearchEndpoint`·`boardSearchPageReader`: URL에 게시판·검색어·날짜·쪽이 들어가고, `x-cafe-product`와 referer가 실리며, 실패가 각 코드로 나뉜다.
 - `manifest`·`refererRule`: 새 호스트 권한과 새 규칙.
-- `boardSearchRunner`: 검색어 셋을 예산 안에서 이어 걷기, 예산 소진 시 멈춤, 끝 판정 표 각 줄, 재개 시 마지막 쪽 다시 읽기, 첫 쪽에서 `total_count` 기록, 실패하면 다음으로, 중지하면 멈춤.
+- `boardSearchRunner`: 검색어 셋을 예산 안에서 이어 걷기, 예산 소진 시 멈춤, 끝 판정 표 각 줄, 재개 시 마지막 쪽 다시 읽기, 첫 쪽에서 `total_count` 기록, 한 검색어에만 해당하는 실패(`WRONG_BOARD`, `OUT_OF_WINDOW`, 같은 글 두 번)는 다음 검색어로 넘어가고 그 밖의 실패는 블록을 끝냄(§6), 중지하면 멈춤.
 - 저장소: 작업 생성이 사전 순서대로 행을 만들고 교체가 모든 행을 바꾸며 running 실행이 있으면 거절, 쪽 저장과 카운터의 원자성, `WRONG_BOARD`/`OUT_OF_WINDOW`에서 커서 불변.
 - `boardSearchJob`: 존재·완료가 행들에서 맞게 모이고, 완료된 작업은 `start`하지 않는다.
 - `boardSearchCoverageQuery`: 기준선과 잔여 계산, 지문 캐시.
