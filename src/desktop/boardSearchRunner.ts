@@ -6,7 +6,7 @@ import { kstDayKey, kstDayKeyRange, MS_PER_DAY } from '../shared/kst.js'
 import type { Random } from '../shared/ports.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from './boardSearchPageFetcher.js'
-import { assertBoardSearchPage } from './boardSearchPageCheck.js'
+import { assertBoardSearchPage, assertBoardSearchPageFollows } from './boardSearchPageCheck.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
@@ -48,6 +48,10 @@ type QueryOutcome = { readonly requests: number; readonly endsBlock: boolean }
 /** What a stored page says about the window the query walks. */
 type SegmentStep = { readonly kind: 'next_page' } | { readonly kind: 'narrow'; readonly segmentToDay: string } | { readonly kind: 'complete' }
 
+function oldestPostedAt(result: CollectedArticlePage): number {
+  return Math.min(...result.items.map((item) => item.postedAt))
+}
+
 /**
  * A full cap page means the search cut the window's results off there, not
  * that they ended. The rest is older than its oldest post, so the walk goes on
@@ -57,8 +61,7 @@ type SegmentStep = { readonly kind: 'next_page' } | { readonly kind: 'narrow'; r
  */
 function segmentStepAfter(page: number, result: CollectedArticlePage, window: { readonly fromDay: string; readonly toDay: string }): SegmentStep {
   if (page !== BOARD_SEARCH_CAP_PAGE || result.items.length !== CAFE_BOARD_SEARCH.perPage) return { kind: 'next_page' }
-  const oldestMs = Math.min(...result.items.map((item) => item.postedAt))
-  const oldestDay = kstDayKey(oldestMs)
+  const oldestDay = kstDayKey(oldestPostedAt(result))
   const segmentToDay = oldestDay === window.toDay ? kstDayKey(kstDayKeyRange(oldestDay).startMs - MS_PER_DAY) : oldestDay
   return segmentToDay < window.fromDay ? { kind: 'complete' } : { kind: 'narrow', segmentToDay }
 }
@@ -94,6 +97,8 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     let requests = 0
     let pageNumber = query.lastCommittedPage ?? 1
     let window = { boardId: query.boardId, fromDay: query.fromDay, toDay: query.segmentToDay ?? query.toDay }
+    /** The oldest post of the page last read in this window in this run. */
+    let previousOldestPostedAt: number | null = null
     const now = () => new Date(deps.clock.now())
     try {
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
@@ -112,6 +117,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           return { requests, endsBlock: false }
         }
         assertBoardSearchPage(result, window)
+        if (previousOldestPostedAt !== null) assertBoardSearchPageFollows(result, previousOldestPostedAt)
         await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
         const step = segmentStepAfter(pageNumber, result, window)
         if (step.kind === 'complete') {
@@ -121,9 +127,11 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         if (step.kind === 'narrow') {
           await repository.narrowSegment({ boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, segmentToDay: step.segmentToDay, at: now() })
           window = { ...window, toDay: step.segmentToDay }
+          previousOldestPostedAt = null
           pageNumber = 1
           continue
         }
+        previousOldestPostedAt = oldestPostedAt(result)
         pageNumber += 1
       }
     } catch (error) {

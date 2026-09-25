@@ -235,6 +235,7 @@ x-cafe-product: pc
 - 중지 요청은 쪽 경계에서 지금 검색어를 `interrupted`로 끝내고 다음으로 가지 않는다.
 - 잠금(`collectionLock`), 세션 양보(`isSessionBusy`), 페이싱 대기, 시계는 기존 러너와 같은 의존성을 주입받는다.
 - 쪽 하나의 저장은 한 트랜잭션이다: `posts` upsert, `board_search_state.last_committed_page`·`inserted_count`, `runs` 카운터.
+- 결과는 최신 글부터 온다(실측 9쪽, 역전 0). 좁히기가 이 순서에 기대므로 확인한다: 한 쪽 안에서 `postedAt`이 앞 글보다 늦으면(같으면 괜찮다), 또는 같은 실행·같은 기간에서 새 쪽의 가장 새 글이 앞 쪽의 가장 오래된 글보다 늦으면 `failed` · `BOARD_SEARCH_OUT_OF_ORDER`다. 그 쪽은 저장하지 않고 블록을 끝낸다 — 순서가 무너진 검색은 어느 검색어에서도 믿을 수 없다.
 - 요청 기간은 `from_day` ~ `segment_to_day ?? to_day`다. 기간 검사(`BOARD_SEARCH_OUT_OF_WINDOW`)도 이 기간으로 한다. 저장·완료는 작업 기간(`from_day`, `to_day`)으로 행을 찾는다.
 - **항목 0건이면 `pageInfo`가 무엇이든 끝이다.** 결과 한계 뒤의 쪽은 `pageInfo`가 모두 0으로 온다(§1). 파서는 항목이 없을 때만 `lastNavigationPageNumber: 0`을 받는다. 항목이 있는데 0이면 형식 오류다.
 - **80쪽(`resultCap / perPage`)이 50건으로 꽉 차면** 한계에 닿은 것이다. 81쪽을 요청하지 않는다. 그 쪽에서 `postedAt`이 가장 이른 글의 KST 날짜를 새 `segment_to_day`로 적고 `last_committed_page`를 비운 뒤, 같은 실행·같은 예산으로 좁힌 기간의 1쪽부터 잇는다. 그날은 겹쳐 읽는다(upsert).
@@ -252,8 +253,9 @@ x-cafe-product: pc
 | 80쪽이 50건으로 꽉 찼다 | 저장하고, 가장 오래된 날로 기간을 좁혀 1쪽부터. 좁힐 수 없으면 끝 |
 | 항목의 `boardId` ≠ 대상 게시판 | `failed` · `BOARD_SEARCH_WRONG_BOARD`, 그 쪽은 저장하지 않는다 |
 | 항목의 `postedAt`이 KST로 [`from_day`, `segment_to_day ?? to_day`] 밖 | `failed` · `BOARD_SEARCH_OUT_OF_WINDOW`, 그 쪽은 저장하지 않는다 |
+| 한 쪽 안에서, 또는 앞 쪽보다 새 글이 뒤에 온다 | `failed` · `BOARD_SEARCH_OUT_OF_ORDER`, 그 쪽은 저장하지 않고 블록을 끝낸다 |
 
-마지막 두 줄은 검색 필터가 조용히 풀렸을 때 다른 게시판 글이나 기간 밖 글이 보충으로 섞이지 않게 한다. 실패해도 커서는 움직이지 않는다.
+`WRONG_BOARD`·`OUT_OF_WINDOW` 두 줄은 검색 필터가 조용히 풀렸을 때 다른 게시판 글이나 기간 밖 글이 보충으로 섞이지 않게 한다. `OUT_OF_ORDER`는 좁히기가 건너뛸 글을 조용히 만들지 않게 한다. 실패해도 커서는 움직이지 않는다.
 
 `total_count`는 검색어마다의 규모다. 화면은 검색어별로 결과 수와 새로 넣은 글 수를 나란히 보인다. 둘의 차이는 이미 가진 글이므로 실패가 아니다. 게시판 전체의 남은 양은 §7의 잔여 추정이 말한다.
 

@@ -26,13 +26,13 @@ const page = (ids: number[], total: number): CollectedArticlePage => ({
 const EMPTY = page([], 0)
 /**
  * Pages 1 to the cap, each holding `perPage` posts from `newestDay`, except
- * that the first post of the cap page — first, so the oldest is not simply the
- * last — is from `oldestDay`.
+ * that the last post of the cap page — the results come newest first — is from
+ * `oldestDay`.
  */
 function pagesToTheCap(oldestDay: number, newestDay = 20): CollectedArticlePage[] {
   return Array.from({ length: BOARD_SEARCH_CAP_PAGE }, (_, index) => {
     const ids = Array.from({ length: CAFE_BOARD_SEARCH.perPage }, (_, item) => 1_000_000 - index * CAFE_BOARD_SEARCH.perPage - item)
-    const items = ids.map((id, item) => postAt(id, index === BOARD_SEARCH_CAP_PAGE - 1 && item === 0 ? januaryNoon(oldestDay) : januaryNoon(newestDay)))
+    const items = ids.map((id, item) => postAt(id, index === BOARD_SEARCH_CAP_PAGE - 1 && item === CAFE_BOARD_SEARCH.perPage - 1 ? januaryNoon(oldestDay) : januaryNoon(newestDay)))
     return { items, pageInfo: { totalArticleCount: 2000, lastNavigationPageNumber: 10, visibleNextButton: true }, pageIdentity: `cap-${index}` }
   })
 }
@@ -143,6 +143,14 @@ describe('boardSearchRunner', () => {
     h.runner.start({ maxPages: 10 })
     await h.settle()
     expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'finish failed BOARD_SEARCH_WRONG_BOARD: 9 on 188'])
+  })
+
+  it('ends the block, storing nothing, when a page is newer than the page before it', async () => {
+    const newer = { ...page([2], 9), items: [postAt(2, januaryNoon(5))] }
+    const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [page([1], 9), newer], 구매: [page([4], 1)] })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.events).toEqual(['start 글렌', 'read 글렌 p1', 'store 글렌 p1', 'read 글렌 p2', 'finish failed BOARD_SEARCH_OUT_OF_ORDER: 2'])
   })
 
   it('ends the block at a stop and does not go on to the next query', async () => {

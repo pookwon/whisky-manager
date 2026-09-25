@@ -17,7 +17,7 @@ describe('assertBoardSearchPage', () => {
   it('accepts posts of the board inside the KST window, both ends included', () => {
     const firstInstant = Date.UTC(2024, 11, 31, 15) // 2025-01-01 00:00 KST
     const lastInstant = Date.UTC(2025, 0, 31, 14, 59, 59, 999) // 2025-01-31 23:59:59.999 KST
-    expect(code(() => assertBoardSearchPage(pageOf([post('1', '137', firstInstant), post('2', '137', lastInstant)]), window))).toBeNull()
+    expect(code(() => assertBoardSearchPage(pageOf([post('2', '137', lastInstant), post('1', '137', firstInstant)]), window))).toBeNull()
   })
 
   it('refuses a post from another board', () => {
@@ -27,5 +27,12 @@ describe('assertBoardSearchPage', () => {
   it('refuses a post outside the window', () => {
     expect(code(() => assertBoardSearchPage(pageOf([post('1', '137', Date.UTC(2025, 0, 31, 15))]), window))).toBe('BOARD_SEARCH_OUT_OF_WINDOW')
     expect(code(() => assertBoardSearchPage(pageOf([post('1', '137', Date.UTC(2024, 11, 31, 14, 59))]), window))).toBe('BOARD_SEARCH_OUT_OF_WINDOW')
+  })
+
+  it('refuses a page whose posts are not newest first, and accepts posts of the same instant', () => {
+    const inverted = pageOf([post('1', '137', Date.UTC(2025, 0, 10)), post('2', '137', Date.UTC(2025, 0, 11))])
+    expect(code(() => assertBoardSearchPage(inverted, window))).toBe('BOARD_SEARCH_OUT_OF_ORDER')
+    const tied = pageOf([post('1', '137', Date.UTC(2025, 0, 11)), post('2', '137', Date.UTC(2025, 0, 11)), post('3', '137', Date.UTC(2025, 0, 10))])
+    expect(code(() => assertBoardSearchPage(tied, window))).toBeNull()
   })
 })
