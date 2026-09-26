@@ -6,7 +6,15 @@
  * rewritten together for the one request that needs them.
  */
 
-interface RefererEndpoint {
+/**
+ * How Chrome is told which addresses a rule covers — exactly one of the two.
+ * `urlFilter` spelled `||host/path` is a host-anchored prefix of host plus
+ * path; `regexFilter` is for an address that is a prefix of another endpoint's
+ * and can only be told apart by what follows it.
+ */
+type RefererMatch = { readonly urlFilter: string } | { readonly regexFilter: string }
+
+type RefererEndpoint = RefererMatch & {
   /**
    * The rule's own id. One id per endpoint, because the rule is installed for
    * one request and removed when it ends: with a single shared id, a second
@@ -14,10 +22,10 @@ interface RefererEndpoint {
    * goes out with no referer — answered 200, writing nothing.
    */
   readonly ruleId: number
-  /** Chrome's `urlFilter`, spelled `||host/path` so only this address matches. */
-  readonly urlFilter: string
   /** The host the endpoint lives on. Chrome reads it as the host or a sub-domain of it. */
   readonly requestDomain: string
+  /** Above 1 for an endpoint whose addresses another rule's filter also covers; that one must win. */
+  readonly priority?: number
 }
 
 /**
@@ -44,6 +52,18 @@ const ENDPOINTS: readonly RefererEndpoint[] = [
     urlFilter: '||apis.naver.com/cafe-web/cafe-mobile/CommentPost.json',
     requestDomain: 'apis.naver.com',
   },
+  // An article read by id. Rule 3's path covers it too, but that rule belongs to
+  // the comment read, and sharing its id would let one request's teardown strip
+  // the other's referer. The comment path goes on after the id
+  // (`/articles/{id}/comments/...`), so only the query right after the id tells
+  // them apart. Listed first, and above rule 3 in priority, so the article read
+  // is always this rule's.
+  {
+    ruleId: 5,
+    regexFilter: '^https://article\\.cafe\\.naver\\.com/gw/v4/cafes/[0-9]+/articles/[0-9]+\\?',
+    requestDomain: 'article.cafe.naver.com',
+    priority: 2,
+  },
   // An ordinary article's comment read, which proves both the login and the write.
   {
     ruleId: 3,
@@ -61,10 +81,13 @@ const ENDPOINTS: readonly RefererEndpoint[] = [
 
 export const REFERER_RULE_IDS: readonly number[] = ENDPOINTS.map((endpoint) => endpoint.ruleId)
 
-/**
- * Which endpoint an address belongs to, read the way Chrome reads the condition
- * we hand it: the host-anchored `urlFilter` as a prefix of host plus path.
- */
+/** Whether an endpoint covers an address, read the way Chrome reads the condition we hand it. */
+function covers(endpoint: RefererEndpoint, parsed: URL): boolean {
+  if ('regexFilter' in endpoint) return new RegExp(endpoint.regexFilter).test(parsed.href)
+  return `${parsed.host}${parsed.pathname}`.startsWith(endpoint.urlFilter.slice(2))
+}
+
+/** Which endpoint an address belongs to: the first that covers it. */
 function endpointFor(url: string): RefererEndpoint | null {
   let parsed: URL
   try {
@@ -72,8 +95,7 @@ function endpointFor(url: string): RefererEndpoint | null {
   } catch {
     return null
   }
-  const address = `${parsed.host}${parsed.pathname}`
-  return ENDPOINTS.find((endpoint) => address.startsWith(endpoint.urlFilter.slice(2))) ?? null
+  return ENDPOINTS.find((endpoint) => covers(endpoint, parsed)) ?? null
 }
 
 /**
@@ -86,7 +108,7 @@ export function refererRuleFor(url: string, referer: string): chrome.declarative
 
   return {
     id: endpoint.ruleId,
-    priority: 1,
+    priority: endpoint.priority ?? 1,
     action: {
       type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
       requestHeaders: [
@@ -104,7 +126,7 @@ export function refererRuleFor(url: string, referer: string): chrome.declarative
     },
     condition: {
       requestDomains: [endpoint.requestDomain],
-      urlFilter: endpoint.urlFilter,
+      ...('regexFilter' in endpoint ? { regexFilter: endpoint.regexFilter } : { urlFilter: endpoint.urlFilter }),
       resourceTypes: ['xmlhttprequest' as chrome.declarativeNetRequest.ResourceType],
     },
   }

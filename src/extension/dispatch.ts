@@ -1,6 +1,7 @@
 import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import type {
   AppMessage,
+  CollectArticleRequest,
   CollectBoardPageRequest,
   CollectBoardSearchPageRequest,
   CollectMemberPageRequest,
@@ -10,6 +11,7 @@ import type {
 import type { CommentAuthor } from '../shared/types.js'
 import type { BoardPageReadResult } from './boardPageReader.js'
 import type { BoardSearchPageReadResult } from './boardSearchPageReader.js'
+import type { ArticleReadResult } from './articleReader.js'
 import type { Reply } from './bridgeClient.js'
 import type { CafeClient, ExecuteResult } from './cafeClient.js'
 import type { MemberPageReadResult } from './memberPageReader.js'
@@ -27,6 +29,7 @@ export interface DispatcherDeps {
   readonly articleCafe: CommentClient
   readonly boardPageReader: { read(request: CollectBoardPageRequest): Promise<BoardPageReadResult> }
   readonly boardSearchPageReader: { read(request: CollectBoardSearchPageRequest): Promise<BoardSearchPageReadResult> }
+  readonly articleReader: { read(request: CollectArticleRequest): Promise<ArticleReadResult> }
   readonly memberPageReader: { read(request: CollectMemberPageRequest): Promise<MemberPageReadResult> }
   readonly probe: (requestId: string, url: string, reply: Reply) => Promise<void>
   /** The socket belongs to the assembly, so closing it does too. */
@@ -113,6 +116,17 @@ export function createDispatcher(deps: DispatcherDeps) {
           return
         }
         reply({ type: 'BOARD_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
+        return
+      }
+
+      case 'COLLECT_ARTICLE': {
+        const result = await deps.articleReader.read(message)
+        if (!result.ok) {
+          // Stable and body-free, like the pages: an article names its writer.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          return
+        }
+        reply({ type: 'ARTICLE_COLLECTED', requestId: message.requestId, result: result.result })
         return
       }
 
