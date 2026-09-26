@@ -56,7 +56,14 @@ function harness(
   pages: Record<string, CollectedArticlePage[]>,
   fail: Record<string, string> = {},
   onRead: (query: string, page: number) => void = () => undefined,
-  setup: { readonly storage?: boolean; readonly connected?: boolean; readonly failedFinishRejectsFor?: string } = {},
+  setup: {
+    readonly storage?: boolean
+    readonly connected?: boolean
+    readonly failedFinishRejectsFor?: string
+    /** The query whose run cannot be inserted, as when the board already has a running search run. */
+    readonly startRejectsFor?: string
+    readonly sweepRejects?: boolean
+  } = {},
 ) {
   const events: string[] = []
   /** What the runner handed its onError, by message. */
@@ -73,8 +80,16 @@ function harness(
     readBoardTitles: async () => [],
     oldestPostedAtMs: async () => null,
     replaceJob: async () => undefined,
-    reconcileOrphanedRuns: async () => { sweeps.push(events.length); return 0 },
-    startRun: async (input) => { queryOfRun.set(input.id, input.query); events.push(`start ${input.query}`) },
+    reconcileOrphanedRuns: async () => {
+      if (setup.sweepRejects === true) throw new Error('database went away')
+      sweeps.push(events.length)
+      return 0
+    },
+    startRun: async (input) => {
+      if (input.query === setup.startRejectsFor) throw new Error('duplicate key value violates unique constraint "runs_one_running_feed"')
+      queryOfRun.set(input.id, input.query)
+      events.push(`start ${input.query}`)
+    },
     recordPageRequest: async () => undefined,
     narrowSegment: async (input) => { events.push(`narrow ${input.query} ${input.fromDay}-${input.toDay} to ${input.segmentToDay}`) },
     persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); windows.push(`${input.fromDay}-${input.toDay}`); return { insertedPostCount: input.result.items.length, updatedPostCount: 0 } },
@@ -222,6 +237,45 @@ describe('boardSearchRunner', () => {
     await h.settle()
     expect(h.sweeps).toEqual([0])
     expect(h.events[0]).toBe('start 글렌')
+  })
+
+  describe('a block that fails with no run row to say why', () => {
+    it('keeps the failure when a query\'s run cannot be started, and ends the block', async () => {
+      const h = harness([query('글렌', 1), query('구매', 2)], { 구매: [page([4], 1)] }, {}, undefined, { startRejectsFor: '글렌' })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events).toEqual([])
+      expect(h.runner.blockFailure()).toEqual({
+        code: 'COLLECTION_FAILURE',
+        stopReason: 'COLLECTION_FAILURE: Error: duplicate key value violates unique constraint "runs_one_running_feed"',
+        atMs: 0,
+      })
+    })
+
+    it('keeps the failure, and still reports it, when the walk itself throws', async () => {
+      const h = harness([query('글렌', 1)], {}, {}, undefined, { sweepRejects: true })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.runner.blockFailure()).toEqual({ code: 'COLLECTION_FAILURE', stopReason: 'COLLECTION_FAILURE: Error: database went away', atMs: 0 })
+      expect(h.errors).toEqual(['database went away'])
+    })
+
+    it('leaves it to the run row when the query\'s run was started', async () => {
+      const h = harness([query('글렌', 1)], {}, { 글렌: 'BOARD_SEARCH_HTTP_ERROR' })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.runner.blockFailure()).toBeNull()
+    })
+
+    it('forgets it when the next block starts', async () => {
+      const h = harness([query('글렌', 1)], {}, {}, undefined, { startRejectsFor: '글렌' })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.runner.blockFailure()).not.toBeNull()
+      h.runner.start({ maxPages: 10 })
+      expect(h.runner.blockFailure()).toBeNull()
+      await h.settle()
+    })
   })
 
   it('reports a failed run it could not close rather than dropping it', async () => {

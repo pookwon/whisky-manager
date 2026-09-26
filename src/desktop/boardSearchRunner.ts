@@ -12,7 +12,7 @@ import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
 import { pauseUnlessStopped } from './collectionPause.js'
 import type { CollectionStartResult } from './collectionRunner.js'
-import { failedRunStopReason } from './failedRunStopReason.js'
+import { failedRunStopReason, type FailedRunStopReason } from './failedRunStopReason.js'
 
 export interface BoardSearchRunnerDeps {
   readonly repository: () => BoardSearchRepository | null
@@ -30,10 +30,17 @@ export interface BoardSearchRunnerDeps {
   readonly onError?: (error: unknown) => void
 }
 
+/** Why a block ended with no run row to say it: a run could not be started, or the walk itself threw. */
+export interface BoardSearchBlockFailure extends FailedRunStopReason {
+  readonly atMs: number
+}
+
 export interface BoardSearchRunner {
   start(request: { readonly maxPages: number }): CollectionStartResult
   stop(): void
   isRunning(): boolean
+  /** The last block's failure that no run row records; null again once a block starts. */
+  blockFailure(): BoardSearchBlockFailure | null
 }
 
 /**
@@ -43,7 +50,12 @@ export interface BoardSearchRunner {
  */
 const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOARD', 'BOARD_SEARCH_OUT_OF_WINDOW', 'BOARD_PAGE_DUPLICATE_POST'])
 
-type QueryOutcome = { readonly requests: number; readonly endsBlock: boolean }
+type QueryOutcome = {
+  readonly requests: number
+  readonly endsBlock: boolean
+  /** The failure of a run that could not be started, which no row records. */
+  readonly unrecorded?: FailedRunStopReason
+}
 
 /** What a page says about the window the query walks. */
 type SegmentStep =
@@ -105,6 +117,11 @@ function segmentStepAtEmptyPage(page: number, result: CollectedArticlePage, prev
 export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearchRunner {
   let inFlight: Promise<void> | null = null
   let abortRequested = false
+  let lastBlockFailure: BoardSearchBlockFailure | null = null
+
+  const keepBlockFailure = (failure: FailedRunStopReason): void => {
+    lastBlockFailure = { ...failure, atMs: deps.clock.now() }
+  }
 
   async function waitForTurn(ordinal: number, pacing: CollectionPacing): Promise<void> {
     const yieldToSession = async () => {
@@ -145,6 +162,11 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     const now = () => new Date(deps.clock.now())
     try {
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
+    } catch (error) {
+      // No row to finish. Whatever refused this insert would refuse the next.
+      return { requests, endsBlock: true, unrecorded: failedRunStopReason(error) }
+    }
+    try {
       for (;;) {
         if (requests >= budget) {
           await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
@@ -216,6 +238,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       if (abortRequested || spent >= maxPages) break
       const outcome = await walkQuery(repository, query, maxPages - spent, spent, pacing)
       spent += outcome.requests
+      if (outcome.unrecorded !== undefined) keepBlockFailure(outcome.unrecorded)
       if (outcome.endsBlock) break
     }
   }
@@ -228,8 +251,12 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       if (!deps.isConnected()) return { kind: 'refused', reason: 'BRIDGE_OFFLINE' }
       if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
       abortRequested = false
+      lastBlockFailure = null
       inFlight = walk(repository, request.maxPages)
-        .catch((error: unknown) => { deps.onError?.(error) })
+        .catch((error: unknown) => {
+          deps.onError?.(error)
+          keepBlockFailure(failedRunStopReason(error))
+        })
         .finally(() => { inFlight = null; deps.lock.release() })
       return { kind: 'started' }
     },
@@ -238,6 +265,9 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     },
     isRunning() {
       return inFlight !== null
+    },
+    blockFailure() {
+      return lastBlockFailure
     },
   }
 }

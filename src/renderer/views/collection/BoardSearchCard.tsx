@@ -3,6 +3,7 @@ import { TEXT } from '../../../shared/text.js'
 import type { BoardSearchPlanView, BoardSearchStatusView, StartCollectionResult } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
 import {
+  boardSearchBlockFailureLine,
   boardSearchCoverageLine,
   boardSearchPageLabel,
   boardSearchPlanOutcome,
@@ -44,6 +45,7 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
   const { job, running } = view
   const fromDay = dayKeyOfDateInput(fromDate)
   const coverageLine = job === null ? null : boardSearchCoverageLine(job.coverage)
+  const blockFailureLine = boardSearchBlockFailureLine(view.blockFailure)
   const finished = job !== null && job.current === null
 
   const clear = (): void => {
@@ -99,6 +101,7 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                   {plan}
                 </div>
               )}
+              {blockFailureLine !== null && <div className="mt-1 text-sm tone-warn">{blockFailureLine}</div>}
               {refusal !== null && <div className="mt-1 text-sm tone-warn">{refusal}</div>}
             </div>
             {job !== null &&

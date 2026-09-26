@@ -734,6 +734,8 @@ export const TEXT = {
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,
+    /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
+    blockFailed: (at: string, stopReason: string) => `${at} 블록이 실행을 남기지 못하고 끝났습니다 · ${stopReason}`,
     totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
     /** A query walked on in a narrower window: its page there, and the day that window ends (`MM-DD`). */
     pageInSegment: (page: string, monthDay: string) => `${page} · ~${monthDay}`,

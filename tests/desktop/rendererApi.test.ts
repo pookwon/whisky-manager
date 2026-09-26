@@ -284,7 +284,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       },
       isRunning: () => false,
     },
-    boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false },
+    boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false, blockFailure: () => null },
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1

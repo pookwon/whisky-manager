@@ -20,7 +20,7 @@ function inputs(rows: BoardSearchQueryState[], runs: Record<string, BoardSearchL
   const lastRuns: BoardSearchLastRunQuery = {
     read: async (job) => { windows.push(`${job.boardId} ${job.fromDay}-${job.toDay}`); return new Map(Object.entries(runs)) },
   }
-  return { repository, coverage: query, lastRuns, running: false, seen, windows }
+  return { repository, coverage: query, lastRuns, running: false, blockFailure: null, seen, windows }
 }
 
 describe('readBoardSearchView', () => {
@@ -42,6 +42,12 @@ describe('readBoardSearchView', () => {
       ['구매', null],
     ])
     expect(i.windows).toEqual(['137 20250101-20250829'])
+  })
+
+  it('carries the runner\'s last block failure, with a job or without one', async () => {
+    const blockFailure = { code: 'COLLECTION_FAILURE', stopReason: 'COLLECTION_FAILURE: Error: x', atMs: 5 }
+    await expect(readBoardSearchView({ ...inputs([row('글렌', 1, false, 0)]), blockFailure })).resolves.toMatchObject({ blockFailure })
+    await expect(readBoardSearchView({ ...inputs([]), blockFailure })).resolves.toMatchObject({ blockFailure })
   })
 
   it('has no job without rows', async () => {
