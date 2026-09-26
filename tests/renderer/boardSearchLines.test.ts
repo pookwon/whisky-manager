@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  boardSearchBlockFailureLine,
   boardSearchCoverageLine,
   boardSearchPageLabel,
   boardSearchPlanOutcome,
+  boardSearchProgressLine,
   boardSearchQueryState,
   boardSearchQueryStateText,
   boardSearchStartLabel,
@@ -110,5 +112,19 @@ describe('board search wording', () => {
     expect(TEXT.boardSearch.pageInSegment('12', '01-05')).toBe('12 · ~01-05')
     // Just narrowed: the narrower window has no stored page yet.
     expect(boardSearchPageLabel({ ...query('구매', false), segmentToDay: '20250105' })).toBe(TEXT.boardSearch.pageInSegment('—', '01-05'))
+  })
+
+  it('says when and why the last block failed with no run row to say it, and nothing without one', () => {
+    // 2026-09-26 03:06:32 KST.
+    const atMs = Date.UTC(2026, 8, 25, 18, 6, 32)
+    const stopReason = 'COLLECTION_FAILURE: error: duplicate key value violates unique constraint "runs_one_running_feed"'
+    expect(boardSearchBlockFailureLine({ code: 'COLLECTION_FAILURE', stopReason, atMs })).toBe(TEXT.boardSearch.blockFailed('09-26 03:06', stopReason))
+    expect(boardSearchBlockFailureLine(null)).toBeNull()
+  })
+
+  it('reads a running block\'s progress as pages of its budget and the query in hand, and nothing before it has one', () => {
+    expect(boardSearchProgressLine({ query: '알라키', requestedPages: 12, maxPages: 60 })).toBe(TEXT.boardSearch.progress(12, 60, '알라키'))
+    expect(TEXT.boardSearch.progress(12, 60, '알라키')).toBe("이번 블록 12 / 60쪽 · '알라키'")
+    expect(boardSearchProgressLine(null)).toBeNull()
   })
 })

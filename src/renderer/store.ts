@@ -39,6 +39,22 @@ interface AppState {
   act: (run: () => Promise<unknown>) => Promise<boolean>
 }
 
+/**
+ * The poll and the refresh after a press overlap, and their answers can come
+ * back in either order. An answer is kept only if no refresh started after it
+ * has been kept already: a poll that was in flight when a start was pressed
+ * would otherwise put the block back as not running for a whole poll, with
+ * its start button pressable again.
+ */
+let refreshesStarted = 0
+let newestKept = 0
+
+function isOutrun(ticket: number): boolean {
+  if (ticket < newestKept) return true
+  newestKept = ticket
+  return false
+}
+
 export const useApp = create<AppState>((set, get) => ({
   route: DEFAULT_ROUTE,
   dashboard: null,
@@ -74,6 +90,8 @@ export const useApp = create<AppState>((set, get) => ({
   refresh: async () => {
     const { route } = get()
     const automationId = automationOf(route)
+    refreshesStarted += 1
+    const ticket = refreshesStarted
 
     // The collection status is read on every route, unlike the per-automation
     // data above: it is a local database read rather than cafe traffic, and the
@@ -88,6 +106,7 @@ export const useApp = create<AppState>((set, get) => ({
         api.getBoardSearchStatus(),
         api.getCollectionSchedule(),
       ])
+      if (isOutrun(ticket)) return
       set({ dashboard, commonSettings, collection, memberCollection, boardSearch, collectionSchedule })
       return
     }
@@ -103,6 +122,7 @@ export const useApp = create<AppState>((set, get) => ({
         api.getBoardSearchStatus(),
         api.getCollectionSchedule(),
       ])
+    if (isOutrun(ticket)) return
     set({ dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, collectionSchedule })
   },
 

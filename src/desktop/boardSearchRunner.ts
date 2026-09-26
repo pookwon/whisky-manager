@@ -12,7 +12,7 @@ import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
 import { pauseUnlessStopped } from './collectionPause.js'
 import type { CollectionStartResult } from './collectionRunner.js'
-import { failedRunStopReason } from './failedRunStopReason.js'
+import { failedRunStopReason, type FailedRunStopReason } from './failedRunStopReason.js'
 
 export interface BoardSearchRunnerDeps {
   readonly repository: () => BoardSearchRepository | null
@@ -30,10 +30,28 @@ export interface BoardSearchRunnerDeps {
   readonly onError?: (error: unknown) => void
 }
 
+/** Where a block in flight stands. */
+export interface BoardSearchProgress {
+  /** The query being walked. */
+  readonly query: string
+  /** Page requests this block has made, over every query it walked. */
+  readonly requestedPages: number
+  readonly maxPages: number
+}
+
+/** Why a block ended with no run row to say it: a run could not be started, or the walk itself threw. */
+export interface BoardSearchBlockFailure extends FailedRunStopReason {
+  readonly atMs: number
+}
+
 export interface BoardSearchRunner {
   start(request: { readonly maxPages: number }): CollectionStartResult
   stop(): void
   isRunning(): boolean
+  /** Null between blocks, and while a block has not reached its first query. */
+  progress(): BoardSearchProgress | null
+  /** The last block's failure that no run row records; null again once a block starts. */
+  blockFailure(): BoardSearchBlockFailure | null
 }
 
 /**
@@ -43,7 +61,12 @@ export interface BoardSearchRunner {
  */
 const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOARD', 'BOARD_SEARCH_OUT_OF_WINDOW', 'BOARD_PAGE_DUPLICATE_POST'])
 
-type QueryOutcome = { readonly requests: number; readonly endsBlock: boolean }
+type QueryOutcome = {
+  readonly requests: number
+  readonly endsBlock: boolean
+  /** The failure of a run that could not be started, which no row records. */
+  readonly unrecorded?: FailedRunStopReason
+}
 
 /** What a page says about the window the query walks. */
 type SegmentStep =
@@ -105,6 +128,12 @@ function segmentStepAtEmptyPage(page: number, result: CollectedArticlePage, prev
 export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearchRunner {
   let inFlight: Promise<void> | null = null
   let abortRequested = false
+  let lastBlockFailure: BoardSearchBlockFailure | null = null
+  let blockProgress: BoardSearchProgress | null = null
+
+  const keepBlockFailure = (failure: FailedRunStopReason): void => {
+    lastBlockFailure = { ...failure, atMs: deps.clock.now() }
+  }
 
   async function waitForTurn(ordinal: number, pacing: CollectionPacing): Promise<void> {
     const yieldToSession = async () => {
@@ -145,6 +174,11 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     const now = () => new Date(deps.clock.now())
     try {
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
+    } catch (error) {
+      // No row to finish. Whatever refused this insert would refuse the next.
+      return { requests, endsBlock: true, unrecorded: failedRunStopReason(error) }
+    }
+    try {
       for (;;) {
         if (requests >= budget) {
           await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
@@ -153,6 +187,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         await waitForTurn(spentBefore + requests + 1, pacing)
         await repository.recordPageRequest(runId)
         requests += 1
+        if (blockProgress !== null) blockProgress = { ...blockProgress, requestedPages: spentBefore + requests }
         const observedAt = new Date(deps.clock.now())
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: window.fromDay, toDay: window.toDay, page: pageNumber })
         let step: SegmentStep
@@ -184,14 +219,18 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         pageNumber += 1
       }
     } catch (error) {
-      // A run row left behind as running is the lesser harm here: letting the
-      // write's own failure end the block would strand every query after it.
+      // A run this write cannot close stays `running`, and the one running
+      // search run a board may have blocks every later start until it is
+      // swept. The walk goes on regardless; the failure is reported, since
+      // nothing else would ever say why the row was left.
+      const close = (status: 'failed' | 'interrupted', stopReason: string) =>
+        repository.finishRun(runId, status, stopReason, now()).catch((closeError: unknown) => { deps.onError?.(closeError) })
       if (error instanceof CollectionPageError && error.code === 'ABORTED') {
-        await repository.finishRun(runId, 'interrupted', 'ABORTED', now()).catch(() => undefined)
+        await close('interrupted', 'ABORTED')
         return { requests, endsBlock: true }
       }
       const failure = failedRunStopReason(error)
-      await repository.finishRun(runId, 'failed', failure.stopReason, now()).catch(() => undefined)
+      await close('failed', failure.stopReason)
       return { requests, endsBlock: !QUERY_OWN_FAILURES.has(failure.code) }
     }
   }
@@ -199,15 +238,21 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
   /**
    * A block over the queue: unused budget passes on and a query's own failure
    * moves on; a stop, or a failure every query would share, ends the block.
+   * It first closes any search run an earlier block could not: the lock is
+   * held, so none is being written, and a board's one running search run
+   * would refuse every run this block starts.
    */
   async function walk(repository: BoardSearchRepository, maxPages: number): Promise<void> {
+    await repository.reconcileOrphanedRuns(new Date(deps.clock.now()))
     const pacing = deps.pacing()
     let spent = 0
     for (const query of await repository.listQueries()) {
       if (query.complete) continue
       if (abortRequested || spent >= maxPages) break
+      blockProgress = { query: query.query, requestedPages: spent, maxPages }
       const outcome = await walkQuery(repository, query, maxPages - spent, spent, pacing)
       spent += outcome.requests
+      if (outcome.unrecorded !== undefined) keepBlockFailure(outcome.unrecorded)
       if (outcome.endsBlock) break
     }
   }
@@ -220,9 +265,17 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       if (!deps.isConnected()) return { kind: 'refused', reason: 'BRIDGE_OFFLINE' }
       if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
       abortRequested = false
+      lastBlockFailure = null
       inFlight = walk(repository, request.maxPages)
-        .catch((error: unknown) => { deps.onError?.(error) })
-        .finally(() => { inFlight = null; deps.lock.release() })
+        .catch((error: unknown) => {
+          deps.onError?.(error)
+          keepBlockFailure(failedRunStopReason(error))
+        })
+        .finally(() => {
+          inFlight = null
+          blockProgress = null
+          deps.lock.release()
+        })
       return { kind: 'started' }
     },
     stop() {
@@ -230,6 +283,12 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     },
     isRunning() {
       return inFlight !== null
+    },
+    progress() {
+      return blockProgress
+    },
+    blockFailure() {
+      return lastBlockFailure
     },
   }
 }

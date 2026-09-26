@@ -8,7 +8,7 @@ const row = (complete: boolean): BoardSearchQueryState => ({
 })
 
 function job(rows: BoardSearchQueryState[] | null) {
-  const runner = { start: vi.fn(() => ({ kind: 'started' as const })), stop: vi.fn(), isRunning: () => false } satisfies BoardSearchRunner
+  const runner = { start: vi.fn(() => ({ kind: 'started' as const })), stop: vi.fn(), isRunning: () => false, progress: () => null, blockFailure: () => null } satisfies BoardSearchRunner
   const repository = rows === null ? null : ({ listQueries: async () => rows } as unknown as BoardSearchRepository)
   return { job: createBoardSearchJob({ repository: () => repository, runner }), runner }
 }

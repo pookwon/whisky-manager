@@ -142,6 +142,22 @@ describe('useApp.refresh board search', () => {
   })
 })
 
+describe('useApp.refresh order', () => {
+  it('keeps a newer answer when an older poll answers after it', async () => {
+    // A poll in flight when a start is pressed, answering after the press's own refresh.
+    let answerOlder: (view: unknown) => void = () => undefined
+    wm.getBoardSearchStatus.mockImplementationOnce(() => new Promise((resolve) => { answerOlder = resolve }))
+    wm.getBoardSearchStatus.mockResolvedValueOnce({ kind: 'unavailable', code: 'CONNECTION_FAILED' })
+    const older = useApp.getState().refresh()
+    await useApp.getState().refresh()
+
+    answerOlder({ kind: 'disabled' })
+    await older
+
+    expect(useApp.getState().boardSearch).toEqual({ kind: 'unavailable', code: 'CONNECTION_FAILED' })
+  })
+})
+
 describe('useApp.act', () => {
   it('refreshes and reports success', async () => {
     const ok = await useApp.getState().act(() => Promise.resolve())

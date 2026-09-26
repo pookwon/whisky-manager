@@ -723,6 +723,9 @@ export const TEXT = {
     stop: '멈추기',
     none: '보충 작업이 없습니다',
     running: '보충 중',
+    /** A running block: pages it has asked for of its budget, and the query in hand. */
+    progress: (requested: number, max: number, query: string) =>
+      `이번 블록 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}쪽 · '${query}'`,
     idle: '대기',
     finished: '보충 완료',
     summary: (done: number, total: number, inserted: number, current: string | null) =>
@@ -734,6 +737,8 @@ export const TEXT = {
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,
+    /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
+    blockFailed: (at: string, stopReason: string) => `${at} 블록이 실행을 남기지 못하고 끝났습니다 · ${stopReason}`,
     totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
     /** A query walked on in a narrower window: its page there, and the day that window ends (`MM-DD`). */
     pageInSegment: (page: string, monthDay: string) => `${page} · ~${monthDay}`,

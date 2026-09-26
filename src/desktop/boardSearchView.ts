@@ -1,6 +1,7 @@
 import type { BoardSearchCoverage, BoardSearchCoverageQuery } from './collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRun, BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
 import type { BoardSearchQueryState, BoardSearchRepository, CollectableBoard } from './collection-db/boardSearchRepository.js'
+import type { BoardSearchBlockFailure, BoardSearchProgress } from './boardSearchRunner.js'
 
 /** A query of the job with how its newest run in the job's window ended; null before its first run. */
 export interface BoardSearchQueryView extends BoardSearchQueryState {
@@ -25,6 +26,10 @@ export interface BoardSearchJobView {
 export interface BoardSearchView {
   readonly boards: readonly CollectableBoard[]
   readonly running: boolean
+  /** The block in flight's progress; null when none runs. */
+  readonly progress: BoardSearchProgress | null
+  /** Why the last block ended with no run row saying it; null once a block starts again. */
+  readonly blockFailure: BoardSearchBlockFailure | null
   readonly job: BoardSearchJobView | null
 }
 
@@ -33,15 +38,19 @@ export async function readBoardSearchView(inputs: {
   readonly coverage: BoardSearchCoverageQuery
   readonly lastRuns: BoardSearchLastRunQuery
   readonly running: boolean
+  readonly progress: BoardSearchProgress | null
+  readonly blockFailure: BoardSearchBlockFailure | null
 }): Promise<BoardSearchView> {
   const [boards, queries] = await Promise.all([inputs.repository.listCollectableBoards(), inputs.repository.listQueries()])
   const first = queries[0]
-  if (first === undefined) return { boards, running: inputs.running, job: null }
+  if (first === undefined) return { boards, running: inputs.running, progress: inputs.progress, blockFailure: inputs.blockFailure, job: null }
   const insertedTotal = queries.reduce((sum, query) => sum + query.insertedCount, 0)
   const lastRuns = await inputs.lastRuns.read({ boardId: first.boardId, fromDay: first.fromDay, toDay: first.toDay })
   return {
     boards,
     running: inputs.running,
+    progress: inputs.progress,
+    blockFailure: inputs.blockFailure,
     job: {
       boardId: first.boardId,
       boardName: boards.find((board) => board.boardId === first.boardId)?.name ?? null,

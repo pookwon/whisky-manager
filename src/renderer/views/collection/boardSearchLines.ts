@@ -1,8 +1,10 @@
 import { CAFE_BOARD_SEARCH } from '../../../shared/cafeBoardSearchEndpoint.js'
 import { TEXT } from '../../../shared/text.js'
 import type { BoardSearchCoverage } from '../../../desktop/collection-db/boardSearchCoverageQuery.js'
+import type { BoardSearchBlockFailure, BoardSearchProgress } from '../../../desktop/boardSearchRunner.js'
 import type { BoardSearchJobView, BoardSearchQueryView } from '../../../desktop/boardSearchView.js'
 import type { BoardSearchPlanView } from '../../../desktop/ipc.js'
+import { formatKstDateTime } from '../../format.js'
 
 /** What a preview or create press answered: a plan to read, or a refusal to fix. */
 export interface BoardSearchPlanOutcome {
@@ -64,6 +66,18 @@ export function boardSearchQueryState(query: BoardSearchQueryView, running: bool
 export function boardSearchQueryStateText(query: BoardSearchQueryView, state: BoardSearchQueryStateKind): string {
   const reason = state === 'failed' ? (query.lastRun?.stopReason ?? null) : null
   return reason === null ? TEXT.boardSearch.states[state] : TEXT.boardSearch.failedWith(reason)
+}
+
+export function boardSearchProgressLine(progress: BoardSearchProgress | null): string | null {
+  return progress === null ? null : TEXT.boardSearch.progress(progress.requestedPages, progress.maxPages, progress.query)
+}
+
+/**
+ * A block whose failure no query row shows: without this line the start
+ * button would come back as if nothing had been pressed.
+ */
+export function boardSearchBlockFailureLine(failure: BoardSearchBlockFailure | null): string | null {
+  return failure === null ? null : TEXT.boardSearch.blockFailed(formatKstDateTime(failure.atMs), failure.stopReason)
 }
 
 /** The search's own total, read as "at least" once it reaches the count it stops at. */
