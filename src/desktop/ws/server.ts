@@ -35,6 +35,8 @@ interface Pending {
   timeoutMs: number
   messageType: string
   onInterim: ((message: ExtensionMessage) => void) | undefined
+  /** The socket the request went out on; its close fails the request. */
+  socket: WebSocket
 }
 
 function requestIdOf(message: AppMessage): string | null {
@@ -48,12 +50,13 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
   let bound = options.boundExtensionId
   let expectedToken = options.token
 
-  const rejectPending = (message: string): void => {
-    for (const [, waiting] of pending) {
+  const rejectPending = (message: string, sentOn?: WebSocket): void => {
+    for (const [requestId, waiting] of pending) {
+      if (sentOn !== undefined && waiting.socket !== sentOn) continue
       clearTimeout(waiting.timer)
+      pending.delete(requestId)
       waiting.reject(new Error(message))
     }
-    pending.clear()
   }
 
   await new Promise<void>((resolve) => wss.once('listening', resolve))
@@ -131,8 +134,11 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       waiting.resolve(parsed)
     })
 
+    // A request whose socket is gone can never be answered. Failing it now
+    // spares the caller its whole timeout, and the timer with it.
     socket.on('close', () => {
       if (peer === socket) peer = null
+      rejectPending('extension disconnected', socket)
     })
   })
 
@@ -159,7 +165,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
           reject(new Error(`request ${message.type} timed out after ${timeoutMs}ms`))
         }, timeoutMs)
 
-        pending.set(requestId, { resolve, reject, timer, timeoutMs, messageType: message.type, onInterim })
+        pending.set(requestId, { resolve, reject, timer, timeoutMs, messageType: message.type, onInterim, socket })
         socket.send(JSON.stringify(message))
       })
     },
