@@ -56,6 +56,9 @@ import { createCollectionLock } from './collectionLock.js'
 import { createBoardSearchRunner, type BoardSearchRunner } from './boardSearchRunner.js'
 import { createBoardSearchPageFetcher } from './boardSearchPageFetcher.js'
 import { createBoardSearchJob } from './boardSearchJob.js'
+import { createArticleProbeRunner, type ArticleProbeRunner } from './articleProbeRunner.js'
+import { createArticleFetcher } from './articleFetcher.js'
+import { createArticleProbeJob } from './articleProbeJob.js'
 import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createArticleCollectionJob, createMemberCollectionJob } from './collectionJob.js'
 import { readCollectionSchedule } from './collectionSettings.js'
@@ -146,6 +149,8 @@ export interface AppContext {
   readonly memberResyncRunner: MemberCollectionRunner
   /** The search backfill past each board's list horizon, one block at a time. */
   readonly boardSearchRunner: BoardSearchRunner
+  /** The gap's ids read one by one after the search backfill, one block at a time. */
+  readonly articleProbeRunner: ArticleProbeRunner
   /** Re-read after the schedule is saved, so a change takes effect without a restart. */
   readonly collectionLoop: CollectionLoop
   readonly automation: AutomationControl
@@ -595,6 +600,22 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onError: (error) => diagnostics.error('board-search', error),
   })
 
+  // Reading ids one by one takes the same lock and read gate: one browser
+  // session, one walk at a time.
+  const articleProbeRunner = createArticleProbeRunner({
+    repository: () => (collection.kind === 'ready' ? collection.articleProbeRepository : null),
+    fetcher: createArticleFetcher(transport, () => randomUUID()),
+    isConnected: () => transport.isConnected(),
+    clock: systemClock,
+    random: systemRandom,
+    pacing: () => readCollectionPacing(settings),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    isSessionBusy: isAnySessionInFlight,
+    lock: collectionLock,
+    newId: () => randomUUID(),
+    onError: (error) => diagnostics.error('article-probe', error),
+  })
+
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
     pacing: () => readCollectionPacing(settings),
@@ -617,6 +638,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       createBoardSearchJob({
         repository: () => (collection.kind === 'ready' ? collection.boardSearchRepository : null),
         runner: boardSearchRunner,
+      }),
+      createArticleProbeJob({
+        repository: () => (collection.kind === 'ready' ? collection.articleProbeRepository : null),
+        runner: articleProbeRunner,
       }),
     ],
     clock: systemClock,
@@ -748,6 +773,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     memberCollectionRunner,
     memberResyncRunner,
     boardSearchRunner,
+    articleProbeRunner,
     collectionLoop,
     automation,
     resetExtensionPairing() {
@@ -813,6 +839,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       memberCollectionRunner.stop()
       memberResyncRunner.stop()
       boardSearchRunner.stop()
+      articleProbeRunner.stop()
       warmer.stop()
       await bridge.close()
       await collection.close()

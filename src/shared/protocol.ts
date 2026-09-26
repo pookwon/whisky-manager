@@ -4,8 +4,10 @@ import { CAFE_ARTICLE_LIST, isMenuId } from './cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from './cafeMemberFixture.js'
 import type { CollectedMemberPage } from './cafeMemberList.js'
 import { CAFE_BOARD_SEARCH, isBoardSearchPage } from './cafeBoardSearchEndpoint.js'
+import { isArticleId } from './cafeArticleEndpoint.js'
+import type { CafeArticleRead } from './cafeArticleRead.js'
 
-export const PROTOCOL_VERSION = 12
+export const PROTOCOL_VERSION = 13
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -21,6 +23,7 @@ export const TIMEOUTS = {
   probeMs: 20_000,
   boardPageMs: 20_000,
   memberPageMs: 20_000,
+  articleMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
 
@@ -55,6 +58,14 @@ export interface CollectBoardSearchPageRequest {
   readonly toDay: string
   readonly page: number
   readonly pageSize: typeof CAFE_BOARD_SEARCH.perPage
+}
+
+/** One article of this cafe, by id; answered with ARTICLE_COLLECTED. */
+export interface CollectArticleRequest {
+  readonly type: 'COLLECT_ARTICLE'
+  readonly requestId: string
+  readonly cafeId: typeof CAFE_ARTICLE_LIST.cafeId
+  readonly postId: string
 }
 
 export interface SourceRef {
@@ -108,6 +119,8 @@ export type AppMessage =
   | CollectMemberPageRequest
   /** One board's title search page; answered with BOARD_PAGE_COLLECTED. */
   | CollectBoardSearchPageRequest
+  /** One article by id; the extension reads it and judges nothing. */
+  | CollectArticleRequest
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -129,6 +142,7 @@ export type ExtensionMessage =
   | { type: 'COLLECT_PROGRESS'; requestId: string; pagesRead: number; collected: number }
   | { type: 'BOARD_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedArticlePage }
   | { type: 'MEMBER_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedMemberPage }
+  | { type: 'ARTICLE_COLLECTED'; requestId: string; result: CafeArticleRead }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -181,6 +195,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'COLLECT_BOARD_PAGE',
   'COLLECT_MEMBER_PAGE',
   'COLLECT_BOARD_SEARCH_PAGE',
+  'COLLECT_ARTICLE',
   'PROBE',
   'ABORT',
 ])
@@ -193,6 +208,7 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'COLLECT_PROGRESS',
   'BOARD_PAGE_COLLECTED',
   'MEMBER_PAGE_COLLECTED',
+  'ARTICLE_COLLECTED',
   'EXECUTED',
   'PROBE_RESULT',
   'ERROR',
@@ -209,6 +225,7 @@ export function isAppMessage(value: unknown): value is AppMessage {
   if (type === 'COLLECT_BOARD_PAGE') return isCollectBoardPageRequest(value)
   if (type === 'COLLECT_MEMBER_PAGE') return isCollectMemberPageRequest(value)
   if (type === 'COLLECT_BOARD_SEARCH_PAGE') return isCollectBoardSearchPageRequest(value)
+  if (type === 'COLLECT_ARTICLE') return isCollectArticleRequest(value)
   return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
@@ -216,6 +233,7 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   const type = messageType(value)
   if (type === 'BOARD_PAGE_COLLECTED') return isBoardPageCollected(value)
   if (type === 'MEMBER_PAGE_COLLECTED') return isMemberPageCollected(value)
+  if (type === 'ARTICLE_COLLECTED') return isArticleCollected(value)
   return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
 }
 
@@ -312,4 +330,29 @@ function isMemberPageCollected(value: unknown): value is Extract<ExtensionMessag
   }
   const result = message.result as { items?: unknown; pageIdentity?: unknown }
   return Array.isArray(result.items) && typeof result.pageIdentity === 'string'
+}
+
+/** Runtime guard for one article of this cafe, by an id the endpoint accepts. */
+export function isCollectArticleRequest(value: unknown): value is CollectArticleRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<CollectArticleRequest>
+  return (
+    message.type === 'COLLECT_ARTICLE' &&
+    typeof message.requestId === 'string' &&
+    message.cafeId === CAFE_ARTICLE_LIST.cafeId &&
+    typeof message.postId === 'string' &&
+    isArticleId(message.postId)
+  )
+}
+
+function isArticleCollected(value: unknown): value is Extract<ExtensionMessage, { type: 'ARTICLE_COLLECTED' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as { type?: unknown; requestId?: unknown; result?: unknown }
+  if (message.type !== 'ARTICLE_COLLECTED' || typeof message.requestId !== 'string' || typeof message.result !== 'object' || message.result === null) {
+    return false
+  }
+  const result = message.result as { kind?: unknown; post?: unknown; isNotice?: unknown; status?: unknown; code?: unknown }
+  if (result.kind === 'absent') return typeof result.status === 'number' && typeof result.code === 'string'
+  if (result.kind !== 'article' || typeof result.isNotice !== 'boolean' || typeof result.post !== 'object' || result.post === null) return false
+  return typeof (result.post as { postId?: unknown }).postId === 'string'
 }

@@ -31,7 +31,7 @@ import { collectionRunStatus } from './collectionRunStatus.js'
  * thousand in total. A period older than the whole-cafe list can reach is
  * walked board by board.
  */
-export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended', 'board', 'board_search'])
+export const collectionFeedKind = pgEnum('collection_feed_kind', ['all_articles', 'notices', 'recommended', 'board', 'board_search', 'article_probe'])
 export const collectionRunKind = pgEnum('collection_run_kind', ['development', 'backfill', 'incremental'])
 
 /** Every time this schema records is an instant, stored to the millisecond. */

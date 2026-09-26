@@ -49,6 +49,9 @@ const MEMBER_START_REFUSED = {
   JOB_FINISHED: '전체 회원을 이미 옮겼습니다. 신규는 매일 자동으로 보탭니다.',
 }
 
+/** `at` is `MM-DD HH:MM` KST. Shared by every walk whose block ends with no run row. */
+const BLOCK_FAILED_LINE = (at: string, stopReason: string): string => `${at} 블록이 실행을 남기지 못하고 끝났습니다 · ${stopReason}`
+
 export const TEXT = {
   app: {
     title: '네이버 카페 관리',
@@ -738,7 +741,7 @@ export const TEXT = {
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,
     /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
-    blockFailed: (at: string, stopReason: string) => `${at} 블록이 실행을 남기지 못하고 끝났습니다 · ${stopReason}`,
+    blockFailed: BLOCK_FAILED_LINE,
     totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
     /** A query walked on in a narrower window: its page there, and the day that window ends (`MM-DD`). */
     pageInSegment: (page: string, monthDay: string) => `${page} · ~${monthDay}`,
@@ -755,6 +758,44 @@ export const TEXT = {
       ...MEMBER_START_REFUSED,
       NO_JOB: '보충 작업을 먼저 만드세요.',
       JOB_FINISHED: '이 보충 작업은 끝났습니다.',
+    },
+  },
+  articleProbe: {
+    heading: '빈 id 확인',
+    why: '검색어로도 닿지 않은 글을 id로 하나씩 읽어 거둡니다. 검색어 보충 기간에 저장된 글 사이의 빈 id를 모두 읽고, 살아 있는 글은 저장하고 나머지는 왜 없는지 적습니다. 읽어도 조회수는 오르지 않습니다.',
+    none: '빈 id 확인 작업이 없습니다',
+    running: '확인 중',
+    idle: '대기',
+    finished: '확인 완료',
+    create: '빈 id 목록 만들기',
+    start: '지금 확인',
+    resume: '이어서 확인',
+    stop: '멈추기',
+    /** The gap's first and last day, both `YYYY-MM-DD` KST. */
+    window: (firstDay: string, lastDay: string) => `${firstDay} ~ ${lastDay} 사이의 빈 id`,
+    /** `other`: live posts not stored — on a board this app does not collect, or notices. */
+    summary: (probed: number, total: number, stored: number, deleted: number, unreadable: number, other: number) =>
+      `확인 ${probed.toLocaleString('ko-KR')} / ${total.toLocaleString('ko-KR')} · 저장 ${stored.toLocaleString('ko-KR')} · 삭제 ${deleted.toLocaleString('ko-KR')} · 읽기 불가 ${unreadable.toLocaleString('ko-KR')}${other === 0 ? '' : ` · 기타(다른 게시판·공지) ${other.toLocaleString('ko-KR')}`}`,
+    /** A running block: ids it has asked for of its budget. */
+    progress: (requested: number, max: number) => `이번 블록 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}건`,
+    created: (count: number) => `빈 id ${count.toLocaleString('ko-KR')}개를 목록에 넣었습니다`,
+    /** The newest block's run failed; `at` is `MM-DD HH:MM` KST. */
+    runFailed: (at: string, stopReason: string) => `${at} 블록이 멈췄습니다 · ${stopReason}`,
+    /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
+    blockFailed: BLOCK_FAILED_LINE,
+    refused: {
+      NO_STORAGE: '수집 DB에 연결되어 있지 않습니다.',
+      NO_SEARCH_JOB: '검색어 보충 작업이 없습니다. 빈 id는 그 기간에서 뽑습니다.',
+      SEARCH_NOT_FINISHED: '검색어 보충이 끝난 뒤에 만들 수 있습니다.',
+      JOB_EXISTS: '빈 id 확인 작업이 이미 있습니다. 한 번 답을 얻은 id는 다시 읽지 않습니다.',
+      STOP_RUNNING_FIRST: '확인이 도는 중입니다. 먼저 멈추세요.',
+      NO_GAP: '빈 구간에 비어 있는 id가 없습니다.',
+    },
+    /** The member walk's words, except where "the job" means the probe job. */
+    startRefused: {
+      ...MEMBER_START_REFUSED,
+      NO_JOB: '빈 id 목록을 먼저 만드세요.',
+      JOB_FINISHED: '빈 id를 모두 확인했습니다.',
     },
   },
 } as const

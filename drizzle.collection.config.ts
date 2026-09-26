@@ -6,8 +6,8 @@ import { defineConfig } from 'drizzle-kit'
 const databaseUrl = process.env.COLLECTION_MIGRATION_DATABASE_URL ?? 'postgresql://drizzle-generate-placeholder.invalid/collection'
 
 export default defineConfig({
-  // The board search table imports from schema.ts, so it is listed here rather than re-exported there.
-  schema: ['./src/desktop/collection-db/schema.ts', './src/desktop/collection-db/boardSearchSchema.ts'],
+  // The board search and article probe tables import from schema.ts, so they are listed here rather than re-exported there.
+  schema: ['./src/desktop/collection-db/schema.ts', './src/desktop/collection-db/boardSearchSchema.ts', './src/desktop/collection-db/articleProbeSchema.ts'],
   out: './drizzle-collection',
   dialect: 'postgresql',
   dbCredentials: { url: databaseUrl },

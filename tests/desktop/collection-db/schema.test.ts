@@ -80,3 +80,23 @@ describe('board search segment migration', () => {
     expect(sqlText).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER COLUMN/)
   })
 })
+
+describe('article probe migration', () => {
+  const sqlText = migrationNumbered('0009')
+
+  it('adds one row per id to read, answered once', () => {
+    expect(sqlText).toContain('CREATE TABLE "article_probe"')
+    expect(sqlText).toContain('"post_id" bigint PRIMARY KEY NOT NULL')
+    expect(sqlText).toContain(`CREATE TYPE "public"."article_probe_outcome" AS ENUM('stored', 'deleted', 'unreadable', 'other_board', 'notice')`)
+    expect(sqlText).toContain('REFERENCES "public"."runs"')
+    expect(sqlText).toContain('CONSTRAINT "article_probe_answered" CHECK')
+  })
+
+  it('lets a run be a probe block', () => {
+    expect(sqlText).toContain("ADD VALUE 'article_probe'")
+  })
+
+  it('only adds: an operator migrates a live database by hand', () => {
+    expect(sqlText).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER COLUMN/)
+  })
+})

@@ -13,6 +13,7 @@ import { openCollectionDatabase, type CollectionDatabaseConnection } from '../..
 import { createCollectionRepository } from '../../../src/desktop/collection-db/repository.js'
 import { createBoardSearchCoverageQuery } from '../../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import { createBoardSearchLastRunQuery } from '../../../src/desktop/collection-db/boardSearchLastRunQuery.js'
+import { createArticleProbeRepository } from '../../../src/desktop/collection-db/articleProbeRepository.js'
 import { createBoardSearchRepository } from '../../../src/desktop/collection-db/boardSearchRepository.js'
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { createMemberResyncRepository } from '../../../src/desktop/collection-db/memberResyncRepository.js'
@@ -33,8 +34,8 @@ const memberPage = parseCafeMemberListText(
   readFileSync(fileURLToPath(new URL('../../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
 )
 
-const COLLECTION_TABLES = ['board_search_state', 'member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
-const COLLECTION_TYPES = ['collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
+const COLLECTION_TABLES = ['article_probe', 'board_search_state', 'member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
+const COLLECTION_TYPES = ['article_probe_outcome', 'collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
 
 let pool: Pool
 let connection: CollectionDatabaseConnection
@@ -828,6 +829,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     await expect(search.narrowSegment({ ...window, segmentToDay: '20250430', at })).rejects.toThrow('board search query does not exist')
     expect((await search.listQueries())[0]).toMatchObject({ fromDay: '20250201', segmentToDay: null })
   })
+
   it('cancels a statement that runs past the timeout and keeps the connection usable', async () => {
     const guarded = openCollectionDatabase({ databaseUrl: testDatabaseUrl as string, maxConnections: 1, statementTimeoutMs: 100 })
     try {
@@ -838,5 +840,117 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     } finally {
       await guarded.close()
     }
+  })
+
+  /** A board and posts of their own: ids 5000001, 5000003 and 5000009 in March 2019 KST, 5000010 in April. */
+  async function seedProbeWindow(): Promise<void> {
+    const at = new Date('2026-09-26T00:00:00.000Z')
+    await pool.query(`insert into boards (board_id, name, first_seen_at, last_seen_at) values ('probe-1', '확인 게시판', $1, $1), ('probe-off', '안 모으는 게시판', $1, $1) on conflict do nothing`, [at])
+    await pool.query(`update boards set collect_enabled = false where board_id = 'probe-off'`)
+    for (const [id, postedAt] of [['5000001', '2019-03-02T12:00:00+09:00'], ['5000003', '2019-03-10T12:00:00+09:00'], ['5000009', '2019-03-31T23:59:00+09:00'], ['5000010', '2019-04-01T00:00:00+09:00']] as const) {
+      await pool.query(
+        `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ($1, 'probe-1', $2, $3, $3)`,
+        [id, new Date(postedAt), at],
+      )
+    }
+  }
+
+  const probedPost = (postId: string) => ({
+    cafeId: '14538121', postId, boardId: 'probe-1', boardName: '확인 게시판', title: '월드컵 홈플러스', prefix: null,
+    authorId: 'key-writer', authorNickname: '글쓴이', postedAt: Date.UTC(2019, 2, 10, 3), viewCount: 890, commentCount: 1,
+    replyCount: null, isNotice: false as const,
+  })
+
+  it('makes the probe job once, from the id holes between the window\'s first and last stored post', async () => {
+    await seedProbeWindow()
+    const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
+    expect(await probe.readJob()).toBeNull()
+
+    // [2019-03-01, 2019-04-01) KST holds 5000001..5000009: the holes are 2, 4, 5, 6, 7, 8. 5000010 is after the window.
+    expect(await probe.createJob({ fromDay: '20190301', toDay: '20190401' })).toBe(6)
+    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
+    expect(await probe.nextWaitingId()).toBe('5000002')
+    // Answered ids are never read again, so a second job is refused rather than made over them.
+    await expect(probe.createJob({ fromDay: '20190301', toDay: '20190401' })).rejects.toThrow()
+    expect(await probe.listCollectedBoardIds()).toContain('probe-1')
+    expect(await probe.listCollectedBoardIds()).not.toContain('probe-off')
+  })
+
+  it('records each verdict once, in id order, writing a stored post with it and counting only requested ids', async () => {
+    const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
+    const at = new Date('2026-09-26T08:00:00.000Z')
+    const runId = randomUUID()
+    await probe.startRun({ id: runId, fromDay: '20190301', toDay: '20190401', startedAt: at })
+
+    await probe.recordPageRequest(runId)
+    await probe.recordVerdict({ runId, postId: '5000002', observedAt: at, requested: true, verdict: { outcome: 'stored', boardId: 'probe-1', post: probedPost('5000002') } })
+    expect(await probe.nextWaitingId()).toBe('5000004')
+
+    // Another walk stored 5000004 meanwhile: it is closed as stored without a request.
+    await pool.query(`insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('5000004', 'probe-1', $1, $1, $1)`, [new Date('2019-03-11T00:00:00+09:00')])
+    expect(await probe.storedBoardOf('5000004')).toBe('probe-1')
+    expect(await probe.storedBoardOf('5000005')).toBeNull()
+    await probe.recordVerdict({ runId, postId: '5000004', observedAt: at, requested: false, verdict: { outcome: 'stored', boardId: 'probe-1', post: null } })
+
+    for (const [postId, verdict] of [
+      ['5000005', { outcome: 'deleted' }],
+      ['5000006', { outcome: 'unreadable', errorCode: '0004' }],
+      ['5000007', { outcome: 'other_board', boardId: '999' }],
+      ['5000008', { outcome: 'notice', boardId: 'probe-1' }],
+    ] as const) {
+      await probe.recordPageRequest(runId)
+      await probe.recordVerdict({ runId, postId, observedAt: at, requested: true, verdict })
+    }
+    expect(await probe.nextWaitingId()).toBeNull()
+    await expect(probe.recordVerdict({ runId, postId: '5000005', observedAt: at, requested: true, verdict: { outcome: 'deleted' } })).rejects.toThrow('not waiting')
+    await probe.finishRun(runId, 'succeeded', null, at)
+
+    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 6, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1, notice: 1 })
+    const rows = await pool.query<{ post_id: string; outcome: string; board_id: string | null; error_code: string | null; run_id: string }>(
+      'select post_id::text, outcome, board_id, error_code, run_id from article_probe order by post_id',
+    )
+    expect(rows.rows.map((row) => [row.post_id, row.outcome, row.board_id, row.error_code, row.run_id === runId])).toEqual([
+      ['5000002', 'stored', 'probe-1', null, true],
+      ['5000004', 'stored', 'probe-1', null, true],
+      ['5000005', 'deleted', null, null, true],
+      ['5000006', 'unreadable', null, '0004', true],
+      ['5000007', 'other_board', '999', null, true],
+      ['5000008', 'notice', 'probe-1', null, true],
+    ])
+    // A notice is recorded, never stored.
+    expect((await pool.query(`select 1 from posts where post_id = '5000008'`)).rows).toEqual([])
+    const stored = await pool.query<{ title: string; last_run_id: string }>(`select title, last_run_id from posts where post_id = '5000002'`)
+    expect(stored.rows[0]).toEqual({ title: '월드컵 홈플러스', last_run_id: runId })
+    const run = await pool.query(
+      'select feed_kind, menu_id, status, request_pages, collection_pages, inserted_post_count, observed_post_count, last_committed_post_id, target_start_ms::text, target_end_ms::text from runs where id = $1', [runId],
+    )
+    expect(run.rows[0]).toEqual({
+      feed_kind: 'article_probe', menu_id: '0', status: 'succeeded', request_pages: 5, collection_pages: 5, inserted_post_count: 1, observed_post_count: 1,
+      last_committed_post_id: '5000008', target_start_ms: String(Date.UTC(2019, 1, 28, 15)), target_end_ms: String(Date.UTC(2019, 2, 31, 15)),
+    })
+  })
+
+  it('keeps probe runs off the article collection status, and sweeps only its own orphans', async () => {
+    const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
+    const status = createCollectionStatusQuery(connection.db)
+    const orphan = randomUUID()
+    await probe.startRun({ id: orphan, fromDay: '20190301', toDay: '20190401', startedAt: new Date('2026-09-27T00:00:00.000Z') })
+    const listRun = randomUUID()
+    await pool.query(
+      `insert into runs (id, feed_kind, menu_id, run_kind, target_start_ms, target_end_ms, status, started_at)
+       values ($1, 'board', 'probe-sweep-test', 'backfill', 0, 1, 'running', $2)`,
+      [listRun, new Date('2026-09-27T00:00:00.000Z')],
+    )
+
+    const read = await status.read()
+    // Newer than every other run here, so it would head the list if it were read.
+    expect(read.recentRuns.map((run) => run.id)).not.toContain(orphan)
+    expect(read.recentRuns[0]?.id).toBe(listRun)
+
+    expect(await probe.reconcileOrphanedRuns(new Date('2026-09-27T00:10:00.000Z'))).toBe(1)
+    const rows = await pool.query<{ id: string; status: string }>('select id, status from runs where id = any($1::uuid[])', [[orphan, listRun]])
+    expect(Object.fromEntries(rows.rows.map((row) => [row.id, row.status]))).toEqual({ [orphan]: 'interrupted', [listRun]: 'running' })
+    expect(await probe.readLastRun()).toEqual({ status: 'interrupted', stopReason: 'ORPHANED_RUNNING_RUN', startedAtMs: Date.parse('2026-09-27T00:00:00.000Z') })
+    await pool.query("update runs set status = 'interrupted', finished_at = $2 where id = $1", [listRun, new Date('2026-09-27T00:10:00.000Z')])
   })
 })

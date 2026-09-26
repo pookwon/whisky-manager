@@ -264,6 +264,7 @@ void app.whenReady().then(async () => {
       memberCollectionRunner: appContext.memberCollectionRunner,
       memberResyncRunner: appContext.memberResyncRunner,
       boardSearchRunner: appContext.boardSearchRunner,
+      articleProbeRunner: appContext.articleProbeRunner,
       collectionLoop: appContext.collectionLoop,
       lastOutcome: (automationId) => appContext.lastOutcome(automationId),
       lastOutcomeAt: (automationId) => appContext.lastOutcomeAt(automationId),

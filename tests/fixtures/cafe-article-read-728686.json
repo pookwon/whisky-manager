@@ -1,0 +1,24 @@
+{
+  "result": {
+    "cafeId": 14538121,
+    "articleId": 728686,
+    "menuId": 0,
+    "article": {
+      "id": 728686,
+      "refArticleId": 728686,
+      "menu": { "id": 137, "name": "국내구입기 & 정보", "menuType": "B", "boardType": "L" },
+      "subject": "월드컵 홈플러스",
+      "headId": 390,
+      "head": "대형마트",
+      "writer": { "memberKey": "key-writer", "nick": "글쓴이", "memberLevel": 120 },
+      "writeDate": 1749029333663,
+      "readCount": 890,
+      "commentCount": 1,
+      "isNotice": false,
+      "isReadable": true,
+      "isBlind": false,
+      "isOpen": true
+    },
+    "comments": { "items": [] }
+  }
+}

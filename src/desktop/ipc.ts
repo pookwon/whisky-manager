@@ -3,6 +3,7 @@ import type { LogEntry } from './recentLog.js'
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { MemberResyncView } from './memberResyncView.js'
 import type { BoardSearchView } from './boardSearchView.js'
+import type { ArticleProbeView } from './articleProbeView.js'
 import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
@@ -27,6 +28,7 @@ export type { ApproveResult } from './approvals.js'
 export type { LogEntry, LogSource } from './recentLog.js'
 export type { MemberResyncView } from './memberResyncView.js'
 export type { BoardSearchView } from './boardSearchView.js'
+export type { ArticleProbeView } from './articleProbeView.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -52,6 +54,10 @@ export const IPC_CHANNELS = {
   createBoardSearchJob: 'wm:createBoardSearchJob',
   startBoardSearch: 'wm:startBoardSearch',
   stopBoardSearch: 'wm:stopBoardSearch',
+  getArticleProbeStatus: 'wm:getArticleProbeStatus',
+  createArticleProbeJob: 'wm:createArticleProbeJob',
+  startArticleProbe: 'wm:startArticleProbe',
+  stopArticleProbe: 'wm:stopArticleProbe',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -184,6 +190,20 @@ export type BoardSearchPlanRefusal = 'NO_STORAGE' | 'NO_POSTS' | 'NOTHING_BEFORE
 export type BoardSearchPlanView =
   | { readonly kind: 'ready'; readonly toDay: string; readonly queryCount: number }
   | { readonly kind: 'refused'; readonly reason: BoardSearchPlanRefusal }
+
+/** The article probe follows the same three-state shape as the other collection screens. */
+export type ArticleProbeStatusView =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
+  | { readonly kind: 'ready'; readonly view: ArticleProbeView }
+
+/** Why a probe job could not be made. */
+export type ArticleProbeCreateRefusal = 'NO_STORAGE' | 'NO_SEARCH_JOB' | 'SEARCH_NOT_FINISHED' | 'JOB_EXISTS' | 'STOP_RUNNING_FIRST' | 'NO_GAP'
+
+/** How many ids a new probe job holds, or why none was made. */
+export type ArticleProbeCreateView =
+  | { readonly kind: 'ready'; readonly idCount: number }
+  | { readonly kind: 'refused'; readonly reason: ArticleProbeCreateRefusal }
 
 /**
  * Collection storage is optional, so its screen has three answers rather than
@@ -348,6 +368,14 @@ export interface RendererApi {
   startBoardSearch(): Promise<StartCollectionResult>
   /** Asks a search block in flight to end at its next page boundary. */
   stopBoardSearch(): Promise<void>
+  /** Where reading the gap's ids stands; `disabled` without a collection database. */
+  getArticleProbeStatus(): Promise<ArticleProbeStatusView>
+  /** Makes the probe job from the finished search job's window; refused while one exists. */
+  createArticleProbeJob(): Promise<ArticleProbeCreateView>
+  /** Starts a block of id reads now. */
+  startArticleProbe(): Promise<StartCollectionResult>
+  /** Asks a probe block in flight to end before its next id. */
+  stopArticleProbe(): Promise<void>
   getCollectionSchedule(): Promise<CollectionScheduleView>
   /** The log screen's timeline, newest first, already capped. */
   getRecentLog(): Promise<readonly LogEntry[]>

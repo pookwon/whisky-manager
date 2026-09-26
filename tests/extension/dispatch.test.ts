@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { CAFE_ARTICLE_LIST } from '../../src/shared/cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from '../../src/shared/cafeMemberFixture.js'
-import type { AppMessage, CollectBoardSearchPageRequest, ExtensionMessage, SourceRef } from '../../src/shared/protocol.js'
+import type { AppMessage, CollectArticleRequest, CollectBoardSearchPageRequest, ExtensionMessage, SourceRef } from '../../src/shared/protocol.js'
 import { createDispatcher, type DispatcherDeps } from '../../src/extension/dispatch.js'
 import type { ExecuteResult } from '../../src/extension/cafeClient.js'
 
@@ -40,6 +40,7 @@ function setup(overrides: Partial<DispatcherDeps> = {}) {
     articleCafe,
     boardPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'BOARD_PAGE_HTTP_ERROR' as const }) },
     boardSearchPageReader: { read: async () => ({ ok: false as const, code: 'BOARD_SEARCH_BAD_REQUEST' as const }) },
+    articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_BAD_REQUEST' as const }) },
     memberPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'MEMBER_PAGE_FORBIDDEN' as const }) },
     probe: (requestId, url, reply) => {
       reply({ type: 'PROBE_RESULT', requestId, status: 200, contentType: null, text: url, error: null })
@@ -204,6 +205,18 @@ describe('the rest of the instructions', () => {
     await run(searchRequest)
 
     expect(replies[0]).toMatchObject({ type: 'BOARD_PAGE_COLLECTED', requestId: 'rs1', page: 1 })
+  })
+
+  it('answers an article read with ARTICLE_COLLECTED, and a failed one with its bare code', async () => {
+    const articleRequest: CollectArticleRequest = { type: 'COLLECT_ARTICLE', requestId: 'ra1', cafeId: '14538121', postId: '728686' }
+    const absent = { kind: 'absent' as const, status: 404, code: '4003' }
+    const answered = setup({ articleReader: { read: async () => ({ ok: true as const, result: absent }) } })
+    await answered.run(articleRequest)
+    expect(answered.replies[0]).toEqual({ type: 'ARTICLE_COLLECTED', requestId: 'ra1', result: absent })
+
+    const failed = setup({ articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_HTTP_ERROR' as const }) } })
+    await failed.run(articleRequest)
+    expect(failed.replies[0]).toEqual({ type: 'ERROR', requestId: 'ra1', code: 'ARTICLE_HTTP_ERROR', message: 'ARTICLE_HTTP_ERROR' })
   })
 
   it('hands a probe to the probe itself and ignores an abort', async () => {

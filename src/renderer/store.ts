@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AutomationSettingsView,
   AwaitingItem,
+  ArticleProbeStatusView,
   BoardSearchStatusView,
   CollectionScheduleView,
   CollectionStatusView,
@@ -27,6 +28,8 @@ interface AppState {
   memberCollection: MemberCollectionStatusView | null
   /** Null until the first answer; the view itself carries "no storage". */
   boardSearch: BoardSearchStatusView | null
+  /** Null until the first answer; the view itself carries "no storage". */
+  articleProbe: ArticleProbeStatusView | null
   collectionSchedule: CollectionScheduleView | null
   cafeImage: string | null
   busy: boolean
@@ -65,6 +68,7 @@ export const useApp = create<AppState>((set, get) => ({
   collection: null,
   memberCollection: null,
   boardSearch: null,
+  articleProbe: null,
   collectionSchedule: null,
   cafeImage: null,
   busy: false,
@@ -98,20 +102,21 @@ export const useApp = create<AppState>((set, get) => ({
     // sidebar says whether a collection is running from wherever the operator
     // happens to be standing.
     if (automationId === null) {
-      const [dashboard, commonSettings, collection, memberCollection, boardSearch, collectionSchedule] = await Promise.all([
+      const [dashboard, commonSettings, collection, memberCollection, boardSearch, articleProbe, collectionSchedule] = await Promise.all([
         api.getDashboard(),
         api.getCommonSettings(),
         api.getCollectionStatus(),
         api.getMemberCollectionStatus(),
         api.getBoardSearchStatus(),
+        api.getArticleProbeStatus(),
         api.getCollectionSchedule(),
       ])
       if (isOutrun(ticket)) return
-      set({ dashboard, commonSettings, collection, memberCollection, boardSearch, collectionSchedule })
+      set({ dashboard, commonSettings, collection, memberCollection, boardSearch, articleProbe, collectionSchedule })
       return
     }
 
-    const [dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, collectionSchedule] =
+    const [dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, articleProbe, collectionSchedule] =
       await Promise.all([
         api.getDashboard(),
         api.listAwaiting(automationId),
@@ -120,10 +125,11 @@ export const useApp = create<AppState>((set, get) => ({
         api.getCollectionStatus(),
         api.getMemberCollectionStatus(),
         api.getBoardSearchStatus(),
+        api.getArticleProbeStatus(),
         api.getCollectionSchedule(),
       ])
     if (isOutrun(ticket)) return
-    set({ dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, collectionSchedule })
+    set({ dashboard, awaiting, templates, automationSettings, collection, memberCollection, boardSearch, articleProbe, collectionSchedule })
   },
 
   loadCafeImage: async () => {

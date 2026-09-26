@@ -112,4 +112,24 @@ describe('createNaverReadGate', () => {
     sent[0]!.settle({ type: 'BOARD_PAGE_COLLECTED', requestId: 'board', page: 1, result: { items: [], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 0 }, pageIdentity: 'empty' } })
     await page
   })
+  it('queues a COLLECT_ARTICLE behind an in-flight COLLECT, just like the page reads', async () => {
+    const { transport, sent } = deferredTransport()
+    const gate = createNaverReadGate(createCollectGate(transport))
+
+    const activeCollect = gate.request(collect('collect-1'), TIMEOUT_MS)
+    await settleMicrotasks()
+    const article = gate.request({ type: 'COLLECT_ARTICLE', requestId: 'article-1', cafeId: '14538121', postId: '728686' }, TIMEOUT_MS)
+    await settleMicrotasks()
+    expect(sent).toHaveLength(1)
+
+    sent[0]!.settle({ type: 'COLLECTED', requestId: 'collect-1', candidates: [] })
+    await activeCollect
+    await settleMicrotasks()
+    expect(sent).toHaveLength(2)
+    expect(sent[1]!.message.type).toBe('COLLECT_ARTICLE')
+
+    sent[1]!.settle({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', result: { kind: 'absent', status: 404, code: '4003' } })
+    await article
+  })
+
 })
