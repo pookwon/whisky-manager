@@ -18,8 +18,8 @@ import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
-import type { ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
-import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
+import type { ArticleProbeJob, ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
+import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
 import type { MemberResyncLastRun, MemberResyncRepository, MemberResyncState } from '../../src/desktop/collection-db/memberResyncRepository.js'
@@ -81,6 +81,12 @@ interface CollectionOverrides {
   readonly replaceJobRows?: readonly StoredFeedState[]
   /** Whether a board search block is in flight. */
   readonly boardSearchBusy?: boolean
+  /** The probe job readJob() returns; null or absent when none has been made. */
+  readonly articleProbeJob?: ArticleProbeJob | null
+  /** Whether a probe block is in flight. */
+  readonly articleProbeBusy?: boolean
+  /** The search job's rows, which a probe job takes its window from. */
+  readonly searchQueries?: readonly BoardSearchQueryState[]
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
@@ -103,6 +109,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
   const refreshes = { count: 0 }
   /** Stands in for the search job write, so a refusal can be shown to leave it alone. */
   const boardSearchReplaceJob = vi.fn()
+  /** Stands in for the probe job write, and says how many ids it put in. */
+  const articleProbeCreateJob = vi.fn(async () => 9660)
+  const articleProbeStart = vi.fn(() => ({ kind: 'started' as const }))
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -234,11 +243,15 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
               readResyncState: () => Promise.resolve(collection.memberResyncState ?? null),
               readLastRun: () => Promise.resolve(collection.memberResyncLastRun ?? null),
             } as unknown as MemberResyncRepository,
-            // Only the write is stubbed: any other touch fails the test.
-            boardSearchRepository: { replaceJob: boardSearchReplaceJob } as unknown as BoardSearchRepository,
+            // Only the write and the queue are stubbed: any other touch fails the test.
+            boardSearchRepository: { replaceJob: boardSearchReplaceJob, listQueries: async () => collection.searchQueries ?? [] } as unknown as BoardSearchRepository,
             boardSearchCoverage: {} as unknown as BoardSearchCoverageQuery,
             boardSearchLastRuns: {} as unknown as BoardSearchLastRunQuery,
-            articleProbeRepository: {} as unknown as ArticleProbeRepository,
+            articleProbeRepository: {
+              readJob: async () => collection.articleProbeJob ?? null,
+              readLastRun: async () => null,
+              createJob: articleProbeCreateJob,
+            } as unknown as ArticleProbeRepository,
             memberStatus: {
               read: () =>
                 Promise.resolve({
@@ -287,6 +300,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       isRunning: () => false,
     },
     boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false, progress: () => null, blockFailure: () => null },
+    articleProbeRunner: { start: articleProbeStart, stop: vi.fn(), isRunning: () => collection.articleProbeBusy ?? false, progress: () => null, blockFailure: () => null },
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1
@@ -346,7 +360,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeStart }
 }
 
 async function seedAwaiting(
@@ -1386,5 +1400,65 @@ describe('createBoardSearchJob', () => {
     const { api, boardSearchReplaceJob } = build(MON_10_00, {}, { job: null, boardSearchBusy: true })
     expect(await api.createBoardSearchJob({ boardId: '137', fromDay: '20250101' })).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
     expect(boardSearchReplaceJob).not.toHaveBeenCalled()
+  })
+})
+
+const finishedSearch: BoardSearchQueryState = {
+  boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: 3, insertedCount: 0, totalCount: null, complete: true, lastRunId: null,
+}
+const probeJob = (probed: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
+
+describe('getArticleProbeStatus', () => {
+  it('reports disabled when there is no collection database', async () => {
+    const { api } = build()
+    expect(await api.getArticleProbeStatus()).toEqual({ kind: 'disabled' })
+  })
+
+  it('says which window a job would take while there is none', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
+    expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: null, window: { kind: 'ready', fromDay: '20250101', toDay: '20250829' } } })
+  })
+})
+
+describe('createArticleProbeJob', () => {
+  it('makes the job over the finished search job\'s window', async () => {
+    const { api, articleProbeCreateJob } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
+    expect(await api.createArticleProbeJob()).toEqual({ kind: 'ready', idCount: 9660 })
+    expect(articleProbeCreateJob).toHaveBeenCalledWith({ fromDay: '20250101', toDay: '20250829' })
+  })
+
+  it.each([
+    ['a block is running', { articleProbeBusy: true, searchQueries: [finishedSearch] }, 'STOP_RUNNING_FIRST'],
+    ['a job exists', { articleProbeJob: probeJob(0), searchQueries: [finishedSearch] }, 'JOB_EXISTS'],
+    ['there is no search job', { searchQueries: [] }, 'NO_SEARCH_JOB'],
+    ['the search job is unfinished', { searchQueries: [{ ...finishedSearch, complete: false }] }, 'SEARCH_NOT_FINISHED'],
+  ] as const)('refuses while %s and writes nothing', async (_label, overrides, reason) => {
+    const { api, articleProbeCreateJob } = build(MON_10_00, {}, { job: null, ...overrides })
+    expect(await api.createArticleProbeJob()).toEqual({ kind: 'refused', reason })
+    expect(articleProbeCreateJob).not.toHaveBeenCalled()
+  })
+
+  it('refuses without storage', async () => {
+    const { api } = build()
+    expect(await api.createArticleProbeJob()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+  })
+
+  it('refuses when createJob returns 0 (no id holes in the window)', async () => {
+    const built = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
+    built.articleProbeCreateJob.mockResolvedValueOnce(0)
+    expect(await built.api.createArticleProbeJob()).toEqual({ kind: 'refused', reason: 'NO_GAP' })
+  })
+})
+
+describe('startArticleProbe', () => {
+  it('starts a block with the work block\'s budget', async () => {
+    const { api, articleProbeStart } = build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(3120) })
+    expect(await api.startArticleProbe()).toEqual({ kind: 'started' })
+    expect(articleProbeStart).toHaveBeenCalledWith({ maxPages: expect.any(Number) })
+  })
+
+  it('refuses without a job, and with every id answered', async () => {
+    expect(await build(MON_10_00, {}, { job: null }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(await build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(9660) }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
   })
 })

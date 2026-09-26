@@ -20,6 +20,9 @@ import { readMemberResyncView } from './memberResyncView.js'
 import { readBoardSearchView } from './boardSearchView.js'
 import { planBoardSearchJob } from './boardSearchPlan.js'
 import type { BoardSearchRunner } from './boardSearchRunner.js'
+import { readArticleProbeView } from './articleProbeView.js'
+import { articleProbeWindow } from './articleProbePlan.js'
+import type { ArticleProbeRunner } from './articleProbeRunner.js'
 import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import { pagesPerWorkBlock } from '../shared/collectionPacing.js'
 import { describeJob } from './collectionScope.js'
@@ -40,6 +43,8 @@ import type { MemberCollectionRunner } from './memberCollectionRunner.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
+  ArticleProbeCreateView,
+  ArticleProbeStatusView,
   BoardSearchPlanView,
   BoardSearchStatusView,
   MemberCollectionStatusView,
@@ -103,6 +108,8 @@ export interface RendererApiDeps {
   readonly memberResyncRunner: MemberCollectionRunner
   /** Starts and stops a block of the board search backfill. */
   readonly boardSearchRunner: BoardSearchRunner
+  /** Starts and stops a block of id reads for the probe. */
+  readonly articleProbeRunner: ArticleProbeRunner
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
@@ -452,6 +459,50 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     stopBoardSearch(): Promise<void> {
       deps.boardSearchRunner.stop()
+      return Promise.resolve()
+    },
+
+    async getArticleProbeStatus(): Promise<ArticleProbeStatusView> {
+      const collection = deps.collection()
+      if (collection.kind === 'disabled') return { kind: 'disabled' }
+      if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
+      return {
+        kind: 'ready',
+        view: await readArticleProbeView({
+          repository: collection.articleProbeRepository,
+          search: collection.boardSearchRepository,
+          running: deps.articleProbeRunner.isRunning(),
+          progress: deps.articleProbeRunner.progress(),
+          blockFailure: deps.articleProbeRunner.blockFailure(),
+        }),
+      }
+    },
+
+    async createArticleProbeJob(): Promise<ArticleProbeCreateView> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      if (deps.articleProbeRunner.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
+      if ((await collection.articleProbeRepository.readJob()) !== null) return { kind: 'refused', reason: 'JOB_EXISTS' }
+      const window = articleProbeWindow(await collection.boardSearchRepository.listQueries())
+      if (window.kind !== 'ready') return window
+      const idCount = await collection.articleProbeRepository.createJob({ fromDay: window.fromDay, toDay: window.toDay })
+      if (idCount === 0) return { kind: 'refused', reason: 'NO_GAP' }
+      return { kind: 'ready', idCount }
+    },
+
+    async startArticleProbe(): Promise<StartCollectionResult> {
+      const collection = deps.collection()
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const job = await collection.articleProbeRepository.readJob()
+      if (job === null) return { kind: 'refused', reason: 'NO_JOB' }
+      if (job.probed === job.total) return { kind: 'refused', reason: 'JOB_FINISHED' }
+      const schedule = readCollectionSchedule(settings)
+      const started = deps.articleProbeRunner.start({ maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)) })
+      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
+    },
+
+    stopArticleProbe(): Promise<void> {
+      deps.articleProbeRunner.stop()
       return Promise.resolve()
     },
 
