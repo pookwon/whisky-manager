@@ -52,8 +52,8 @@
 |---|---|
 | `post_id` (PK) | 읽을 id |
 | `window_from_day`, `window_to_day` | 이 id를 뽑은 빈 구간 (KST `yyyymmdd`) |
-| `outcome` | null = 아직 안 읽음. `stored` / `deleted` / `unreadable` / `other_board` |
-| `board_id` | 읽어서 안 게시판 (`stored`, `other_board`) |
+| `outcome` | null = 아직 안 읽음. `stored` / `deleted` / `unreadable` / `other_board` / `notice` |
+| `board_id` | 읽어서 안 게시판 (`stored`, `other_board`, `notice`) |
 | `error_code` | `unreadable`의 코드 (`0004` 등) |
 | `probed_at`, `run_id` | 언제, 어느 실행이 읽었나 |
 
@@ -72,9 +72,10 @@ id 오름차순. 이어받기는 `outcome is null`인 가장 작은 id부터다.
 | 답 | 처리 |
 |---|---|
 | 200, `menu.id`가 수집 게시판(`boards`) | 글을 저장한다 → `stored` |
+| 200, `isNotice`가 참 (어느 게시판이든) | 저장하지 않는다 → `notice`, `board_id` 기록. 목록 걷기는 공지를 저장하지 않으므로, 여기서 저장하면 `posts`의 유일한 공지가 된다 |
 | 200, 수집하지 않는 게시판 | 저장하지 않는다 → `other_board`, `board_id` 기록 |
 | 404 `4003` | `deleted` |
-| 401 `0004` 등 읽을 수 없다는 카페 코드 | `unreadable`, `error_code` 기록. 다시 읽지 않는다 |
+| 401 `0004` | `unreadable`, `error_code` 기록. 다시 읽지 않는다. 로그인 실패가 아니라 이 읽기의 게시판별 제한이다(§5) |
 | 그 밖 (HTTP 오류, 모양이 다른 응답, 네트워크) | id를 판정하지 않고 **블록을 끝낸다**. 실행은 `failed`, 사유에 코드 |
 
 "모르는 답"을 `unreadable`로 삼키지 않는다. 계약이 바뀌었으면 9,660개가 조용히 판정되어 버린다.
@@ -96,7 +97,7 @@ id 오름차순. 이어받기는 `outcome is null`인 가장 작은 id부터다.
 
 ### 확장
 
-`articleReader.ts` 새 파일. 글 목록 읽기와 같은 모양: 요청 하나, 응답 하나, 반복·저장 없음. `naverReadGate`가 목록·검색 쪽과 함께 줄을 세운다(쪽 읽기 종류에 추가). 권한(`https://article.cafe.naver.com/*`)과 referer 규칙(`||article.cafe.naver.com/gw/v4/`)은 이미 있다.
+`articleReader.ts` 새 파일. 글 목록 읽기와 같은 모양: 요청 하나, 응답 하나, 반복·저장 없음. `naverReadGate`가 목록·검색 쪽과 함께 줄을 세운다(쪽 읽기 종류에 추가). 권한(`https://article.cafe.naver.com/*`)은 이미 있다. referer 규칙은 새로 하나(규칙 5) 둔다: 댓글 읽기의 규칙 3(`||article.cafe.naver.com/gw/v4/`)도 이 주소를 덮지만, 규칙은 요청 하나 동안만 걸리고 id로 지워지므로 id를 같이 쓰면 한 요청의 정리가 다른 요청의 referer를 벗긴다. 댓글 주소는 글 id 뒤에 `/comments/`가 이어지므로 `regexFilter` `^https://article\.cafe\.naver\.com/gw/v4/cafes/[0-9]+/articles/[0-9]+\?`로 글 읽기만 잡는다(우선순위 2).
 
 ## 5. 계약 캡처 (2026-09-26)
 
@@ -120,7 +121,9 @@ result.article.writer.memberKey / nick
 ```
 
 404: `result.errorCode "4003"`, `reason "삭제되었거나 존재하지 않는 게시글입니다."`
-401: `result.errorCode "0004"`, `reason "로그인하지 않았습니다."` (로그인한 계정으로도 나온 id가 있다 — 등급 제한 게시판으로 본다)
+401: `result.errorCode "0004"`, `reason "로그인하지 않았습니다."` — 문구와 달리 로그인 실패가 아니다. 게시판 207의 937311은 목록 걷기가 같은 세션으로 저장한 글인데 이 API는 `0004`로 답한다(2026-09-26). 이 읽기의 게시판별 제한으로 보고 `unreadable`로 둔다.
+
+실측으로 확인한 모양(2026-09-26): `result.cafeId`와 `article.menu.id`는 숫자다(글 5개). 말머리 없는 글(928665, 게시판 137)에는 `head`도 `headId`도 키가 없다. `isNotice`는 불리언이다.
 
 답글 수(`replyCount`)는 이 응답에 없다. `CollectedPostMetadata.replyCount`는 파서가 채울 뿐 어디서도 읽지 않고 `posts`에 열도 없다(2026-09-26 확인). 이 파서는 `replyCount`를 넣지 않도록 타입을 `number | null`로 넓히고 null을 준다.
 
@@ -128,7 +131,8 @@ result.article.writer.memberKey / nick
 
 수집 현황에 "빈 id 확인" 카드. 검색어 보충 카드와 같은 틀:
 
-- 요약: `확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45`
+- 기간: `2025-01-01 ~ 2025-08-28 사이의 빈 id` (빈 구간의 마지막 날은 검색어 보충 기간 `to_day`의 전날)
+- 요약: `확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45` — 다른 게시판의 글과 공지가 있으면 `· 기타(다른 게시판·공지) N`을 덧붙인다
 - 블록이 도는 동안 진행: `이번 블록 40 / 60건`
 - 시작 / 이어서 확인 / 중지. 시작 직후 두 번 누를 수 없다(1.9.8의 방식)
 - 블록 실패는 경고 문구로

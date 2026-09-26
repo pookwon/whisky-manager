@@ -22,7 +22,9 @@
 - `PROTOCOL_VERSION` 12 → 13: the app and the extension must be repackaged together and the extension reloaded (memory `repackage-after-protocol-bump`).
 - The production app is running on this machine. Never start Electron; verify UI with the renderer preview (memory `renderer-preview-without-electron`).
 - Never write to the `whisky_manager_collection` database; read-only `select`s are allowed. Migrations are generated only with `pnpm db:collection:generate` and applied by the operator by hand with the app quit (memory `collection-migration-before-app`).
-- The endpoint (spec §5, captured 2026-09-26): `GET https://article.cafe.naver.com/gw/v4/cafes/14538121/articles/{id}?fromList=true&menuId=0&tc=cafe_article_list&useCafeId=true`, header `x-cafe-product: pc`. 200 → `result.article`; 404 → `result.errorCode "4003"` (deleted); 401 → `result.errorCode "0004"` (unreadable). Anything else ends the block and judges no id (§3 "모르는 답").
+- The endpoint (spec §5, captured 2026-09-26): `GET https://article.cafe.naver.com/gw/v4/cafes/14538121/articles/{id}?fromList=true&menuId=0&tc=cafe_article_list&useCafeId=true`, header `x-cafe-product: pc`. 200 → `result.article`; 404 → `result.errorCode "4003"` (deleted); 401 → `result.errorCode "0004"` (unreadable — a per-board restriction of this read, not a login failure: post 937311 on board 207 is stored by the list walk yet answers 0004 here, 2026-09-26). Anything else ends the block and judges no id (§3 "모르는 답").
+- Live facts confirmed 2026-09-26: `result.cafeId` and `article.menu.id` are numbers (5 posts); a post without a prefix (928665, board 137) has neither a `head` nor a `headId` key.
+- Notices are never stored: the list walks never store one, so a notice stored here would be the only one. A live post with `isNotice: true` is answered with the outcome `notice` (its board recorded) and no `posts` write.
 - The id window is the search job's `board_search_state` `from_day`/`to_day`; the stored posts that bound it are those posted in `[from_day 00:00 KST, to_day 00:00 KST)` — the range `boardSearchCoverageQuery` calls the gap. On 2026-09-26 that is 20250101 / 20250829 and yields 9,660 ids (checked read-only; 153 ms). Candidate ids are generated with `lead()` over `post_id::bigint`, never with a per-id `NOT EXISTS` over `generate_series` (that took over five minutes).
 - "Collected boards" are the `boards` rows with `collect_enabled = true` (38 of 38 today) — the same set `listCollectableBoards` returns.
 - Runs of `article_probe` stay off the article collection's recent log exactly as `board_search` runs do; the card shows the feed's own last run instead (Task 1 settles the spec line).
@@ -39,18 +41,18 @@
 | File | Status | Responsibility |
 |---|---|---|
 | `docs/superpowers/specs/2026-09-25-board-search-backfill-design.md` | modify | §1 and §4 corrected to morpheme matching |
-| `docs/superpowers/specs/2026-09-26-article-id-probe-design.md` | modify | §3 run rows: off the recent log, on the card |
+| `docs/superpowers/specs/2026-09-26-article-id-probe-design.md` | modify | §3 run rows: off the recent log, on the card (the `notice` outcome, the 0004 note and the card's window wording were settled in the spec with this plan) |
 | `src/shared/cafeArticleList.ts` | modify | Export `optionalNullableString`, `epochMilliseconds`; `replyCount: number \| null` |
 | `src/shared/cafeArticleEndpoint.ts` | create | Article read URL, id rule, headers, referer |
-| `src/shared/cafeArticleRead.ts` | create | Article response → `CollectedPostMetadata`; the cafe's refusal code |
+| `src/shared/cafeArticleRead.ts` | create | Article response → `CollectedPostMetadata` and its notice flag; the cafe's refusal code |
 | `tests/fixtures/cafe-article-read-*.json` | create | 200 / 404 / 401 bodies reduced from the capture |
 | `src/shared/protocol.ts` | modify | `COLLECT_ARTICLE`, `ARTICLE_COLLECTED`, `TIMEOUTS.articleMs`, version 13 |
 | `src/extension/articleReader.ts` | create | Reads exactly one article |
 | `src/extension/dispatch.ts`, `src/extension/background.ts` | modify | Route the new request |
-| `src/extension/refererRule.ts` | modify | Comment only: rule 3 also covers the article read |
+| `src/extension/refererRule.ts` | modify | Rule 5: the article read by id, matched by a `regexFilter` the comment read does not match |
 | `src/desktop/articleFetcher.ts` | create | Desktop side of the request |
 | `src/desktop/naverReadGate.ts` | modify | Queue article reads with the page reads |
-| `src/desktop/collection-db/articleProbeSchema.ts` | create | `article_probe` table and its outcome enum |
+| `src/desktop/collection-db/articleProbeSchema.ts` | create | `article_probe` table and its outcome enum (`stored`, `deleted`, `unreadable`, `other_board`, `notice`) |
 | `src/desktop/collection-db/schema.ts` | modify | Enum value `article_probe` |
 | `drizzle.collection.config.ts` | modify | Schema list gets the probe schema |
 | `drizzle-collection/0009_*.sql` | generate | Migration |
@@ -151,9 +153,10 @@ git commit -m "docs: correct the search matching model to morpheme tokens"
   - `isArticleId(value: string): boolean`
   - `cafeArticleReadUrl(postId: string): string`
   - `cafeArticleReadReferer(postId: string): string`
-  - `type CafeArticleRead = { readonly kind: 'article'; readonly post: CollectedPostMetadata } | { readonly kind: 'absent'; readonly status: number; readonly code: string }`
-  - `parseCafeArticle(postId: string, value: unknown): CollectedPostMetadata`
-  - `parseCafeArticleText(postId: string, text: string): CollectedPostMetadata` (throws `CafeArticleListParseError`; `INVALID_JSON` for non-JSON)
+  - `interface ParsedCafeArticle { readonly post: CollectedPostMetadata; readonly isNotice: boolean }`
+  - `type CafeArticleRead = ({ readonly kind: 'article' } & ParsedCafeArticle) | { readonly kind: 'absent'; readonly status: number; readonly code: string }`
+  - `parseCafeArticle(postId: string, value: unknown): ParsedCafeArticle`
+  - `parseCafeArticleText(postId: string, text: string): ParsedCafeArticle` (throws `CafeArticleListParseError`; `INVALID_JSON` for non-JSON)
   - `cafeRefusalCode(text: string): string | null`
   - `CollectedPostMetadata.replyCount: number | null`; exported `optionalNullableString`, `epochMilliseconds`.
 
@@ -175,7 +178,7 @@ and add `export` in front of `function optionalNullableString(` and `function ep
 
 - [ ] **Step 3: Write the fixtures**
 
-`tests/fixtures/cafe-article-read-728686.json` (reduced from the 2026-09-26 capture of post 728686; the writer is anonymised like the other fixtures):
+`tests/fixtures/cafe-article-read-728686.json` (reduced from the 2026-09-26 capture of post 728686; the writer is anonymised like the other fixtures). JSON carries no comments, so the facts behind it live here and in the test: `cafeId` and `menu.id` are numbers on every live read (5 posts, 2026-09-26), and a post without a prefix (928665) has no `head` and no `headId` key at all:
 
 ```json
 {
@@ -217,7 +220,7 @@ and add `export` in front of `function optionalNullableString(` and `function ep
 }
 ```
 
-`tests/fixtures/cafe-article-read-login.json`:
+`tests/fixtures/cafe-article-read-login.json` — despite its `reason`, 0004 is a per-board restriction of this read, not a login failure: post 937311 on board 207 is stored by the list walk under the same session and still answers 0004 here (2026-09-26):
 
 ```json
 {
@@ -287,8 +290,8 @@ const codeOf = (run: () => unknown): string | null => {
 }
 
 describe('parseCafeArticle', () => {
-  it('reads a live article into the row every walk writes', () => {
-    expect(parseCafeArticleText('728686', live)).toEqual({
+  it('reads a live article into the row every walk writes, and says it is no notice', () => {
+    expect(parseCafeArticleText('728686', live)).toEqual({ isNotice: false, post: {
       cafeId: '14538121',
       postId: '728686',
       boardId: '137',
@@ -302,12 +305,18 @@ describe('parseCafeArticle', () => {
       commentCount: 1,
       replyCount: null,
       isNotice: false,
-    })
+    } })
   })
 
-  it('reads a post without a prefix whether headId is left out or 0', () => {
-    expect(parseCafeArticle('728686', withArticle((a) => { delete a.head; delete a.headId })).prefix).toBeNull()
-    expect(parseCafeArticle('728686', withArticle((a) => { delete a.head; a.headId = 0 })).prefix).toBeNull()
+  it('reads a post without a prefix whether headId is left out (928665, live) or 0', () => {
+    expect(parseCafeArticle('728686', withArticle((a) => { delete a.head; delete a.headId })).post.prefix).toBeNull()
+    expect(parseCafeArticle('728686', withArticle((a) => { delete a.head; a.headId = 0 })).post.prefix).toBeNull()
+  })
+
+  it('carries the notice flag beside the post, which itself stays the list\'s shape', () => {
+    const notice = parseCafeArticle('728686', withArticle((a) => { a.isNotice = true }))
+    expect(notice.isNotice).toBe(true)
+    expect(notice.post.isNotice).toBe(false)
   })
 
   it('refuses an answer about another article than the one asked for', () => {
@@ -321,6 +330,8 @@ describe('parseCafeArticle', () => {
     ['a board without a name', (a: Record<string, unknown>) => { a.menu = { id: 137, name: null } }],
     ['a time in seconds', (a: Record<string, unknown>) => { a.writeDate = 1749029333 }],
     ['a negative view count', (a: Record<string, unknown>) => { a.readCount = -1 }],
+    ['no notice flag', (a: Record<string, unknown>) => { delete a.isNotice }],
+    ['a notice flag that is not a boolean', (a: Record<string, unknown>) => { a.isNotice = 'N' }],
   ])('fails loudly on %s', (_label, change) => {
     expect(codeOf(() => parseCafeArticle('728686', withArticle(change)))).toBe('INVALID_ARTICLE')
   })
@@ -421,16 +432,26 @@ import {
  * id that was never really read.
  */
 
+/**
+ * The post, and whether the cafe calls it a notice. The flag sits beside the
+ * post rather than in it: `CollectedPostMetadata` is the list's row, where a
+ * notice never appears, and the desktop decides what a notice read by id means.
+ */
+export interface ParsedCafeArticle {
+  readonly post: CollectedPostMetadata
+  readonly isNotice: boolean
+}
+
 export type CafeArticleRead =
-  | { readonly kind: 'article'; readonly post: CollectedPostMetadata }
+  | ({ readonly kind: 'article' } & ParsedCafeArticle)
   /** The cafe answered and said why there is no post: its own code, with the HTTP status it came with. */
   | { readonly kind: 'absent'; readonly status: number; readonly code: string }
 
 const PATH = 'result.article'
 
 /**
- * A post without a prefix leaves `head` out, and `headId` out or 0 — the list's
- * two spellings. A non-zero `headId` without its name is neither, and is
+ * A post without a prefix leaves `head` out, and `headId` out (seen live, 928665)
+ * or 0 (the list's other spelling). A non-zero `headId` without its name is neither, and is
  * refused so a renamed field cannot pass as a post that never had a prefix.
  */
 function prefixOfArticle(article: JsonRecord): string | null {
@@ -441,7 +462,7 @@ function prefixOfArticle(article: JsonRecord): string | null {
   return fail('INVALID_ARTICLE', `${PATH}.head is missing for a headed article`)
 }
 
-export function parseCafeArticle(postId: string, value: unknown): CollectedPostMetadata {
+export function parseCafeArticle(postId: string, value: unknown): ParsedCafeArticle {
   const response = record(value, 'response', 'INVALID_ENVELOPE')
   const result = record(response.result, 'response.result', 'INVALID_ENVELOPE')
   const article = record(result.article, PATH, 'INVALID_ARTICLE')
@@ -451,7 +472,9 @@ export function parseCafeArticle(postId: string, value: unknown): CollectedPostM
   if (id !== postId) fail('INVALID_ARTICLE', `${PATH}.id ${id} is not the article asked for`)
   const boardName = nullableString(menu, 'name', `${PATH}.menu`, 'INVALID_ARTICLE')
   if (boardName === null) fail('INVALID_ARTICLE', `${PATH}.menu.name must not be null`)
-  return {
+  const isNotice = article.isNotice
+  if (typeof isNotice !== 'boolean') fail('INVALID_ARTICLE', `${PATH}.isNotice must be a boolean`)
+  const post: CollectedPostMetadata = {
     cafeId: String(safeInteger(result, 'cafeId', 'result', 1, 'INVALID_ENVELOPE')),
     postId: id,
     boardId: String(safeInteger(menu, 'id', `${PATH}.menu`, 1, 'INVALID_ARTICLE')),
@@ -464,13 +487,13 @@ export function parseCafeArticle(postId: string, value: unknown): CollectedPostM
     viewCount: safeInteger(article, 'readCount', PATH, 0, 'INVALID_ARTICLE'),
     commentCount: safeInteger(article, 'commentCount', PATH, 0, 'INVALID_ARTICLE'),
     replyCount: null,
-    // The posts table keeps no notice flag, and a notice read by id is its
-    // board's post like any other: spec §3 stores every live post of a collected board.
+    // The list's row never holds a notice; whether this one is rides beside it.
     isNotice: false,
   }
+  return { post, isNotice }
 }
 
-export function parseCafeArticleText(postId: string, text: string): CollectedPostMetadata {
+export function parseCafeArticleText(postId: string, text: string): ParsedCafeArticle {
   let value: unknown
   try {
     value = JSON.parse(text)
@@ -481,7 +504,8 @@ export function parseCafeArticleText(postId: string, text: string): CollectedPos
 }
 
 /**
- * The cafe's own code in a refusal (`4003` deleted, `0004` not readable), or
+ * The cafe's own code in a refusal (`4003` deleted, `0004` not readable on this
+ * board — answered for posts the list walk stores, so not a login failure), or
  * null when the body names none — an HTML error page, an empty body. What a
  * code means is the desktop's judgement, not the transport's.
  */
@@ -563,13 +587,14 @@ describe('COLLECT_ARTICLE', () => {
 
   it('accepts an answer that carries a post or the cafe\'s reason for none', () => {
     const post = { postId: '728686', boardId: '137' }
-    expect(isExtensionMessage({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', result: { kind: 'article', post } })).toBe(true)
+    expect(isExtensionMessage({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', result: { kind: 'article', post, isNotice: false } })).toBe(true)
     expect(isExtensionMessage({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', result: { kind: 'absent', status: 404, code: '4003' } })).toBe(true)
   })
 
   it.each([
     ['no result', { result: null }],
-    ['an article without its post', { result: { kind: 'article' } }],
+    ['an article without its post', { result: { kind: 'article', isNotice: false } }],
+    ['an article without its notice flag', { result: { kind: 'article', post: { postId: '728686' } } }],
     ['an absence without its code', { result: { kind: 'absent', status: 404 } }],
     ['an unknown kind', { result: { kind: 'maybe' } }],
   ])('refuses an answer with %s', (_label, change) => {
@@ -650,9 +675,9 @@ function isArticleCollected(value: unknown): value is Extract<ExtensionMessage, 
   if (message.type !== 'ARTICLE_COLLECTED' || typeof message.requestId !== 'string' || typeof message.result !== 'object' || message.result === null) {
     return false
   }
-  const result = message.result as { kind?: unknown; post?: unknown; status?: unknown; code?: unknown }
+  const result = message.result as { kind?: unknown; post?: unknown; isNotice?: unknown; status?: unknown; code?: unknown }
   if (result.kind === 'absent') return typeof result.status === 'number' && typeof result.code === 'string'
-  if (result.kind !== 'article' || typeof result.post !== 'object' || result.post === null) return false
+  if (result.kind !== 'article' || typeof result.isNotice !== 'boolean' || typeof result.post !== 'object' || result.post === null) return false
   return typeof (result.post as { postId?: unknown }).postId === 'string'
 }
 ```
@@ -677,7 +702,7 @@ git commit -m "feat: add the one-article read to the extension protocol"
 - Create: `src/extension/articleReader.ts`
 - Modify: `src/extension/dispatch.ts` (imports, `DispatcherDeps` ~line 30, new case after `COLLECT_BOARD_SEARCH_PAGE` ~line 130)
 - Modify: `src/extension/background.ts` (import ~line 8, reader construction ~line 143, `createDispatcher` call ~line 171)
-- Modify: `src/extension/refererRule.ts` (comment on rule 3 only, ~line 49)
+- Modify: `src/extension/refererRule.ts` (the `RefererEndpoint` type ~line 9, a new entry before rule 3 in `ENDPOINTS` ~line 45, `endpointFor` ~line 70, the rule's `priority` and `condition` in `refererRuleFor` ~line 85)
 - Test: `tests/extension/articleReader.test.ts` (create), `tests/extension/dispatch.test.ts`, `tests/extension/refererRule.test.ts`
 
 **Interfaces:**
@@ -687,8 +712,9 @@ git commit -m "feat: add the one-article read to the extension protocol"
   - `createArticleReader(deps: { readonly http: Http }): { read(request: CollectArticleRequest): Promise<ArticleReadResult> }`
   - `DispatcherDeps.articleReader: { read(request: CollectArticleRequest): Promise<ArticleReadResult> }`
   - The extension answers `COLLECT_ARTICLE` with `ARTICLE_COLLECTED` or `ERROR { code }` (code body-free, like every reader).
+  - Referer rule 5: `regexFilter` `^https://article\.cafe\.naver\.com/gw/v4/cafes/[0-9]+/articles/[0-9]+\?`, domain `article.cafe.naver.com`, priority 2. Rule 3 keeps its `urlFilter`, id and priority.
 
-The referer rule needs no new entry: rule 3 (`||article.cafe.naver.com/gw/v4/`) already matches the article path, and sets `origin` to `https://cafe.naver.com` from the referer — the only origin that host allows. The test below holds that.
+Why a rule of its own: rule 3 (`||article.cafe.naver.com/gw/v4/`) also covers the article path, but a rule is installed for one request and removed when it ends, keyed by its id — sharing id 3 with the prefix reminder's comment read would let one request's teardown strip the other's referer. A `urlFilter` cannot tell the two apart (the article path is a prefix of the comment path, `/articles/{id}/comments/...`), so rule 5 uses a `regexFilter` that needs the query string right after the id. It is listed before rule 3, since `endpointFor` takes the first entry that covers an address, and it carries priority 2 so that while a comment read's rule 3 is installed the article read still goes out with its own article's page as referer. The comment read never matches rule 5 and behaves as before. `regexFilter` is not used elsewhere yet; `chrome.declarativeNetRequest.RuleCondition` allows it (only one of `urlFilter`/`regexFilter` per rule, ASCII only).
 
 - [ ] **Step 1: Write the failing reader test**
 
@@ -716,7 +742,7 @@ describe('ArticleReader', () => {
         return { status: 200, contentType: 'application/json', text: fixture('cafe-article-read-728686.json') }
       },
     })
-    await expect(reader.read(request)).resolves.toMatchObject({ ok: true, result: { kind: 'article', post: { postId: '728686', boardId: '137' } } })
+    await expect(reader.read(request)).resolves.toMatchObject({ ok: true, result: { kind: 'article', isNotice: false, post: { postId: '728686', boardId: '137' } } })
     expect(seen).toEqual([{ url: cafeArticleReadUrl('728686'), headers: { 'x-cafe-product': 'pc' }, referer: cafeArticleReadReferer('728686') }])
   })
 
@@ -761,25 +787,53 @@ Then add, after the case `answers a board search page read with BOARD_PAGE_COLLE
   })
 ```
 
-In `tests/extension/refererRule.test.ts`, import `cafeArticleReadReferer, cafeArticleReadUrl` from `../../src/shared/cafeArticleEndpoint.js` and add after the board search case:
+In `tests/extension/refererRule.test.ts`, import `cafeArticleReadReferer, cafeArticleReadUrl` from `../../src/shared/cafeArticleEndpoint.js`, add `const articleById = cafeArticleReadUrl('728686')` beside the other addresses, and teach `matches` the second way Chrome reads a condition — replace its body with:
 
 ```ts
-  it('covers the article read by id with the comment read\'s rule and the only origin that host allows', () => {
-    const url = cafeArticleReadUrl('728686')
-    const rule = refererRuleFor(url, cafeArticleReadReferer('728686'))
-    expect(rule?.id).toBe(3)
-    expect(rule !== null && matches(rule, url)).toBe(true)
+  const parsed = new URL(url)
+  const domains = rule.condition.requestDomains ?? []
+  const onDomain = domains.some(
+    (domain) => parsed.host === domain || parsed.host.endsWith(`.${domain}`),
+  )
+  if (rule.condition.regexFilter !== undefined) {
+    if (rule.condition.urlFilter !== undefined) throw new Error('a rule takes one of urlFilter and regexFilter')
+    return onDomain && new RegExp(rule.condition.regexFilter).test(url)
+  }
+  const filter = rule.condition.urlFilter ?? ''
+  if (!filter.startsWith('||')) throw new Error(`urlFilter must be host-anchored: ${filter}`)
+  return onDomain && `${parsed.host}${parsed.pathname}`.startsWith(filter.slice(2))
+```
+
+Add `articleById` to the URL lists of `covers every endpoint that needs a referer` and `gives each endpoint a rule id of its own`, and change that case's `expect(new Set(ids).size).toBe(4)` to `toBe(5)`. Then add after the board search case:
+
+```ts
+  it('gives the article read by id a rule of its own, which the comment read does not match', () => {
+    const rule = refererRuleFor(articleById, cafeArticleReadReferer('728686'))
+    expect(rule?.id).toBe(5)
+    expect(rule?.priority).toBe(2)
+    expect(rule?.condition.urlFilter).toBeUndefined()
+    expect(rule !== null && matches(rule, articleById)).toBe(true)
+    // The comment read's path starts with the article's: only the query right after the id tells them apart.
+    expect(rule !== null && matches(rule, articleRead)).toBe(false)
     expect(rule?.action.requestHeaders).toEqual([
       { header: 'referer', operation: 'set', value: 'https://cafe.naver.com/ca-fe/cafes/14538121/articles/728686' },
       { header: 'origin', operation: 'set', value: 'https://cafe.naver.com' },
     ])
+  })
+
+  it('leaves the comment read on rule 3, as it was', () => {
+    const rule = refererRuleFor(articleRead, REFERER)
+    expect(rule?.id).toBe(3)
+    expect(rule?.priority).toBe(1)
+    expect(rule?.condition.urlFilter).toBe('||article.cafe.naver.com/gw/v4/')
+    expect(rule?.condition.regexFilter).toBeUndefined()
   })
 ```
 
 - [ ] **Step 3: Run to verify they fail**
 
 Run: `pnpm vitest run tests/extension`
-Expected: FAIL — `articleReader.js` does not resolve, `articleReader` is not a `DispatcherDeps` field. (The referer case already passes: it holds a fact, not new code.)
+Expected: FAIL — `articleReader.js` does not resolve, `articleReader` is not a `DispatcherDeps` field, and the article read still resolves to rule 3.
 
 - [ ] **Step 4: Write `src/extension/articleReader.ts`**
 
@@ -824,7 +878,7 @@ export function createArticleReader(deps: { readonly http: Http }) {
       }
 
       try {
-        return { ok: true, result: { kind: 'article', post: parseCafeArticleText(request.postId, response.text) } }
+        return { ok: true, result: { kind: 'article', ...parseCafeArticleText(request.postId, response.text) } }
       } catch (error) {
         if (error instanceof CafeArticleListParseError && error.code === 'INVALID_JSON') return { ok: false, code: 'ARTICLE_INVALID_JSON' }
         return { ok: false, code: 'ARTICLE_PARSE_ERROR' }
@@ -861,15 +915,79 @@ After the `COLLECT_BOARD_SEARCH_PAGE` case:
 
 Add `import { createArticleReader } from './articleReader.js'` beside the other reader imports; after `const boardSearchPageReader = ...` add `const articleReader = createArticleReader({ http: request })`; pass `articleReader,` to `createDispatcher` after `boardSearchPageReader,`.
 
-- [ ] **Step 7: Name the second user of rule 3**
+- [ ] **Step 7: Give the article read its own rule**
 
-In `src/extension/refererRule.ts` replace the comment above rule 3 with:
+In `src/extension/refererRule.ts`, replace the `RefererEndpoint` interface with:
 
 ```ts
-  // An ordinary article's comment read, which proves both the login and the
-  // write, and the article read by id: both live under this path and want the
-  // article's own page as their referer.
+/**
+ * How Chrome is told which addresses a rule covers — exactly one of the two.
+ * `urlFilter` spelled `||host/path` is a host-anchored prefix of host plus
+ * path; `regexFilter` is for an address that is a prefix of another endpoint's
+ * and can only be told apart by what follows it.
+ */
+type RefererMatch = { readonly urlFilter: string } | { readonly regexFilter: string }
+
+type RefererEndpoint = RefererMatch & {
+  /**
+   * The rule's own id. One id per endpoint, because the rule is installed for
+   * one request and removed when it ends: with a single shared id, a second
+   * request's teardown strips the first request's rule, and that request then
+   * goes out with no referer — answered 200, writing nothing.
+   */
+  readonly ruleId: number
+  /** The host the endpoint lives on. Chrome reads it as the host or a sub-domain of it. */
+  readonly requestDomain: string
+  /** Above 1 for an endpoint whose addresses another rule's filter also covers; that one must win. */
+  readonly priority?: number
+}
 ```
+
+In `ENDPOINTS`, insert before the rule 3 entry:
+
+```ts
+  // An article read by id. Rule 3's path covers it too, but that rule belongs to
+  // the comment read, and sharing its id would let one request's teardown strip
+  // the other's referer. The comment path goes on after the id
+  // (`/articles/{id}/comments/...`), so only the query right after the id tells
+  // them apart. Listed first, and above rule 3 in priority, so the article read
+  // is always this rule's.
+  {
+    ruleId: 5,
+    regexFilter: '^https://article\\.cafe\\.naver\\.com/gw/v4/cafes/[0-9]+/articles/[0-9]+\\?',
+    requestDomain: 'article.cafe.naver.com',
+    priority: 2,
+  },
+```
+
+Replace `endpointFor` with:
+
+```ts
+/** Whether an endpoint covers an address, read the way Chrome reads the condition we hand it. */
+function covers(endpoint: RefererEndpoint, parsed: URL): boolean {
+  if ('regexFilter' in endpoint) return new RegExp(endpoint.regexFilter).test(parsed.href)
+  return `${parsed.host}${parsed.pathname}`.startsWith(endpoint.urlFilter.slice(2))
+}
+
+/** Which endpoint an address belongs to: the first that covers it. */
+function endpointFor(url: string): RefererEndpoint | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  return ENDPOINTS.find((endpoint) => covers(endpoint, parsed)) ?? null
+}
+```
+
+In `refererRuleFor`, change `priority: 1,` to `priority: endpoint.priority ?? 1,`, and in `condition` replace `urlFilter: endpoint.urlFilter,` with:
+
+```ts
+      ...('regexFilter' in endpoint ? { regexFilter: endpoint.regexFilter } : { urlFilter: endpoint.urlFilter }),
+```
+
+Rules 1–4 keep their `urlFilter`, ids and priority 1 exactly; `REFERER_RULE_IDS` picks up 5 by itself.
 
 - [ ] **Step 8: Run tests, types, lint**
 
@@ -1036,7 +1154,7 @@ git commit -m "feat: read one article from the desktop through the read gate"
 **Interfaces:**
 - Consumes: `collectionRuns` from `./schema.js`.
 - Produces:
-  - `articleProbeOutcome = pgEnum('article_probe_outcome', ['stored', 'deleted', 'unreadable', 'other_board'])`
+  - `articleProbeOutcome = pgEnum('article_probe_outcome', ['stored', 'deleted', 'unreadable', 'other_board', 'notice'])`
   - `articleProbe` table `article_probe`: `postId` (`post_id` bigint, mode number, PK), `windowFromDay` (`window_from_day` text not null), `windowToDay` (`window_to_day` text not null), `outcome` (nullable enum), `boardId` (`board_id` text), `errorCode` (`error_code` text), `probedAt` (`probed_at` timestamptz(3)), `runId` (`run_id` uuid → `runs.id`)
   - `collection_feed_kind` gains `'article_probe'`.
 
@@ -1051,7 +1169,7 @@ describe('article probe migration', () => {
   it('adds one row per id to read, answered once', () => {
     expect(sqlText).toContain('CREATE TABLE "article_probe"')
     expect(sqlText).toContain('"post_id" bigint PRIMARY KEY NOT NULL')
-    expect(sqlText).toContain(`CREATE TYPE "public"."article_probe_outcome" AS ENUM('stored', 'deleted', 'unreadable', 'other_board')`)
+    expect(sqlText).toContain(`CREATE TYPE "public"."article_probe_outcome" AS ENUM('stored', 'deleted', 'unreadable', 'other_board', 'notice')`)
     expect(sqlText).toContain('REFERENCES "public"."runs"')
     expect(sqlText).toContain('CONSTRAINT "article_probe_answered" CHECK')
   })
@@ -1083,10 +1201,12 @@ const observedTimestamp = (name: string) => timestamp(name, { withTimezone: true
 /**
  * What reading an id answered. `stored`: a live post of a collected board, now
  * in `posts`. `other_board`: a live post of a board this app does not collect.
- * `deleted`: the cafe's 4003. `unreadable`: a refusal code the capture knows,
- * such as 0004 for a board above the account's level.
+ * `deleted`: the cafe's 4003. `unreadable`: a refusal code the capture knows —
+ * 0004, a per-board restriction of this read (937311 on board 207 answers it
+ * while the list walk stores that post). `notice`: a live notice, never stored,
+ * since the list walks never store one and it would be the only notice in `posts`.
  */
-export const articleProbeOutcome = pgEnum('article_probe_outcome', ['stored', 'deleted', 'unreadable', 'other_board'])
+export const articleProbeOutcome = pgEnum('article_probe_outcome', ['stored', 'deleted', 'unreadable', 'other_board', 'notice'])
 
 /**
  * The ids the search could not reach, one row each. Made once from the id holes
@@ -1104,7 +1224,7 @@ export const articleProbe = pgTable(
     windowToDay: text('window_to_day').notNull(),
     /** Null until the id is answered. */
     outcome: articleProbeOutcome('outcome'),
-    /** The board the answer named; for `stored` and `other_board` only. No reference: another board may be unknown to `boards`. */
+    /** The board the answer named; for `stored`, `other_board` and `notice` only. No reference: another board may be unknown to `boards`. */
     boardId: text('board_id'),
     /** The cafe's code for an `unreadable` id. */
     errorCode: text('error_code'),
@@ -1115,7 +1235,7 @@ export const articleProbe = pgTable(
     check('article_probe_id', sql`${table.postId} >= 1`),
     check('article_probe_window', sql`${table.windowFromDay} <= ${table.windowToDay}`),
     check('article_probe_answered', sql`(${table.outcome} is null) = (${table.probedAt} is null) and (${table.outcome} is null) = (${table.runId} is null)`),
-    check('article_probe_board', sql`case when ${table.outcome} in ('stored', 'other_board') then ${table.boardId} is not null else ${table.boardId} is null end`),
+    check('article_probe_board', sql`case when ${table.outcome} in ('stored', 'other_board', 'notice') then ${table.boardId} is not null else ${table.boardId} is null end`),
     check('article_probe_error_code', sql`case when ${table.outcome} = 'unreadable' then ${table.errorCode} is not null else ${table.errorCode} is null end`),
   ],
 )
@@ -1177,6 +1297,7 @@ git commit -m "feat: add the article probe table and feed kind"
     type ArticleProbeVerdict =
       | { readonly outcome: 'stored'; readonly boardId: string; readonly post: CollectedPostMetadata | null }
       | { readonly outcome: 'other_board'; readonly boardId: string }
+      | { readonly outcome: 'notice'; readonly boardId: string }
       | { readonly outcome: 'deleted' }
       | { readonly outcome: 'unreadable'; readonly errorCode: string }
     ```
@@ -1201,11 +1322,16 @@ const post = (boardId: string): CollectedPostMetadata => ({
 
 describe('judgeArticleRead', () => {
   it('stores a live post of a collected board', () => {
-    expect(judgeArticleRead('728686', { kind: 'article', post: post('137') }, COLLECTED)).toEqual({ outcome: 'stored', boardId: '137', post: post('137') })
+    expect(judgeArticleRead('728686', { kind: 'article', post: post('137'), isNotice: false }, COLLECTED)).toEqual({ outcome: 'stored', boardId: '137', post: post('137') })
   })
 
   it('records the board of a live post it does not collect, and stores nothing', () => {
-    expect(judgeArticleRead('728686', { kind: 'article', post: post('188') }, COLLECTED)).toEqual({ outcome: 'other_board', boardId: '188' })
+    expect(judgeArticleRead('728686', { kind: 'article', post: post('188'), isNotice: false }, COLLECTED)).toEqual({ outcome: 'other_board', boardId: '188' })
+  })
+
+  it('records a live notice with its board and stores nothing, on any board', () => {
+    expect(judgeArticleRead('728686', { kind: 'article', post: post('137'), isNotice: true }, COLLECTED)).toEqual({ outcome: 'notice', boardId: '137' })
+    expect(judgeArticleRead('728686', { kind: 'article', post: post('188'), isNotice: true }, COLLECTED)).toEqual({ outcome: 'notice', boardId: '188' })
   })
 
   it('reads the cafe\'s two known refusals', () => {
@@ -1241,6 +1367,8 @@ import { CollectionPageError } from './collectionPageError.js'
 export type ArticleProbeVerdict =
   | { readonly outcome: 'stored'; readonly boardId: string; readonly post: CollectedPostMetadata | null }
   | { readonly outcome: 'other_board'; readonly boardId: string }
+  /** A live notice: recorded with its board, never stored — the list walks store no notice. */
+  | { readonly outcome: 'notice'; readonly boardId: string }
   | { readonly outcome: 'deleted' }
   | { readonly outcome: 'unreadable'; readonly errorCode: string }
 
@@ -1259,6 +1387,8 @@ const KNOWN_REFUSALS: ReadonlyArray<{ readonly status: number; readonly code: st
 export function judgeArticleRead(postId: string, read: CafeArticleRead, collectedBoardIds: ReadonlySet<string>): ArticleProbeVerdict {
   if (read.kind === 'article') {
     const { post } = read
+    // Before the board: a notice is not stored whichever board it is on.
+    if (read.isNotice) return { outcome: 'notice', boardId: post.boardId }
     return collectedBoardIds.has(post.boardId) ? { outcome: 'stored', boardId: post.boardId, post } : { outcome: 'other_board', boardId: post.boardId }
   }
   const known = KNOWN_REFUSALS.find((refusal) => refusal.status === read.status && refusal.code === read.code)
@@ -1301,6 +1431,7 @@ git commit -m "feat: judge what one article read answered"
     readonly deleted: number
     readonly unreadable: number
     readonly otherBoard: number
+    readonly notice: number
   }
   export interface ArticleProbeLastRun { readonly status: RunStatus; readonly stopReason: string | null; readonly startedAtMs: number }
   export interface CreateArticleProbeJobInput { readonly fromDay: string; readonly toDay: string }
@@ -1329,12 +1460,12 @@ git commit -m "feat: judge what one article read answered"
 Add `import { createArticleProbeRepository } from '../../../src/desktop/collection-db/articleProbeRepository.js'` to `tests/desktop/collection-db/integration.test.ts` and append at the end of the `integration(...)` describe (after the narrowing case — every earlier case has finished its runs, and these posts sit in 2019, outside every earlier window):
 
 ```ts
-  /** A board and posts of their own: ids 5000001, 5000003 and 5000008 in March 2019 KST, 5000009 in April. */
+  /** A board and posts of their own: ids 5000001, 5000003 and 5000009 in March 2019 KST, 5000010 in April. */
   async function seedProbeWindow(): Promise<void> {
     const at = new Date('2026-09-26T00:00:00.000Z')
     await pool.query(`insert into boards (board_id, name, first_seen_at, last_seen_at) values ('probe-1', '확인 게시판', $1, $1), ('probe-off', '안 모으는 게시판', $1, $1) on conflict do nothing`, [at])
     await pool.query(`update boards set collect_enabled = false where board_id = 'probe-off'`)
-    for (const [id, postedAt] of [['5000001', '2019-03-02T12:00:00+09:00'], ['5000003', '2019-03-10T12:00:00+09:00'], ['5000008', '2019-03-31T23:59:00+09:00'], ['5000009', '2019-04-01T00:00:00+09:00']] as const) {
+    for (const [id, postedAt] of [['5000001', '2019-03-02T12:00:00+09:00'], ['5000003', '2019-03-10T12:00:00+09:00'], ['5000009', '2019-03-31T23:59:00+09:00'], ['5000010', '2019-04-01T00:00:00+09:00']] as const) {
       await pool.query(
         `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ($1, 'probe-1', $2, $3, $3)`,
         [id, new Date(postedAt), at],
@@ -1353,9 +1484,9 @@ Add `import { createArticleProbeRepository } from '../../../src/desktop/collecti
     const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
     expect(await probe.readJob()).toBeNull()
 
-    // [2019-03-01, 2019-04-01) KST holds 5000001..5000008: the holes are 2, 4, 5, 6, 7. 5000009 is after the window.
-    expect(await probe.createJob({ fromDay: '20190301', toDay: '20190401' })).toBe(5)
-    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 5, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0 })
+    // [2019-03-01, 2019-04-01) KST holds 5000001..5000009: the holes are 2, 4, 5, 6, 7, 8. 5000010 is after the window.
+    expect(await probe.createJob({ fromDay: '20190301', toDay: '20190401' })).toBe(6)
+    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
     expect(await probe.nextWaitingId()).toBe('5000002')
     // Answered ids are never read again, so a second job is refused rather than made over them.
     await expect(probe.createJob({ fromDay: '20190301', toDay: '20190401' })).rejects.toThrow()
@@ -1383,6 +1514,7 @@ Add `import { createArticleProbeRepository } from '../../../src/desktop/collecti
       ['5000005', { outcome: 'deleted' }],
       ['5000006', { outcome: 'unreadable', errorCode: '0004' }],
       ['5000007', { outcome: 'other_board', boardId: '999' }],
+      ['5000008', { outcome: 'notice', boardId: 'probe-1' }],
     ] as const) {
       await probe.recordPageRequest(runId)
       await probe.recordVerdict({ runId, postId, observedAt: at, requested: true, verdict })
@@ -1391,7 +1523,7 @@ Add `import { createArticleProbeRepository } from '../../../src/desktop/collecti
     await expect(probe.recordVerdict({ runId, postId: '5000005', observedAt: at, requested: true, verdict: { outcome: 'deleted' } })).rejects.toThrow('not waiting')
     await probe.finishRun(runId, 'succeeded', null, at)
 
-    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 5, probed: 5, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1 })
+    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 6, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1, notice: 1 })
     const rows = await pool.query<{ post_id: string; outcome: string; board_id: string | null; error_code: string | null; run_id: string }>(
       'select post_id::text, outcome, board_id, error_code, run_id from article_probe order by post_id',
     )
@@ -1401,15 +1533,18 @@ Add `import { createArticleProbeRepository } from '../../../src/desktop/collecti
       ['5000005', 'deleted', null, null, true],
       ['5000006', 'unreadable', null, '0004', true],
       ['5000007', 'other_board', '999', null, true],
+      ['5000008', 'notice', 'probe-1', null, true],
     ])
+    // A notice is recorded, never stored.
+    expect((await pool.query(`select 1 from posts where post_id = '5000008'`)).rows).toEqual([])
     const stored = await pool.query<{ title: string; last_run_id: string }>(`select title, last_run_id from posts where post_id = '5000002'`)
     expect(stored.rows[0]).toEqual({ title: '월드컵 홈플러스', last_run_id: runId })
     const run = await pool.query(
       'select feed_kind, menu_id, status, request_pages, collection_pages, inserted_post_count, observed_post_count, last_committed_post_id, target_start_ms::text, target_end_ms::text from runs where id = $1', [runId],
     )
     expect(run.rows[0]).toEqual({
-      feed_kind: 'article_probe', menu_id: '0', status: 'succeeded', request_pages: 4, collection_pages: 4, inserted_post_count: 1, observed_post_count: 1,
-      last_committed_post_id: '5000007', target_start_ms: String(Date.UTC(2019, 1, 28, 15)), target_end_ms: String(Date.UTC(2019, 2, 31, 15)),
+      feed_kind: 'article_probe', menu_id: '0', status: 'succeeded', request_pages: 5, collection_pages: 5, inserted_post_count: 1, observed_post_count: 1,
+      last_committed_post_id: '5000008', target_start_ms: String(Date.UTC(2019, 1, 28, 15)), target_end_ms: String(Date.UTC(2019, 2, 31, 15)),
     })
   })
 
@@ -1470,6 +1605,7 @@ export interface ArticleProbeJob {
   readonly deleted: number
   readonly unreadable: number
   readonly otherBoard: number
+  readonly notice: number
 }
 
 export interface ArticleProbeLastRun {
@@ -1531,7 +1667,7 @@ export interface ArticleProbeRepository {
 const NOTHING_WRITTEN = { insertedPostCount: 0, updatedPostCount: 0 } as const
 
 function boardOf(verdict: ArticleProbeVerdict): string | null {
-  return verdict.outcome === 'stored' || verdict.outcome === 'other_board' ? verdict.boardId : null
+  return verdict.outcome === 'stored' || verdict.outcome === 'other_board' || verdict.outcome === 'notice' ? verdict.boardId : null
 }
 
 export function createArticleProbeRepository(db: CollectionDatabase, collection: CollectionRepository): ArticleProbeRepository {
@@ -1547,6 +1683,7 @@ export function createArticleProbeRepository(db: CollectionDatabase, collection:
           deleted: sql<string>`count(*) filter (where ${articleProbe.outcome} = 'deleted')`,
           unreadable: sql<string>`count(*) filter (where ${articleProbe.outcome} = 'unreadable')`,
           otherBoard: sql<string>`count(*) filter (where ${articleProbe.outcome} = 'other_board')`,
+          notice: sql<string>`count(*) filter (where ${articleProbe.outcome} = 'notice')`,
         })
         .from(articleProbe)
         .groupBy(articleProbe.windowFromDay, articleProbe.windowToDay)
@@ -1561,6 +1698,7 @@ export function createArticleProbeRepository(db: CollectionDatabase, collection:
         deleted: Number(row.deleted),
         unreadable: Number(row.unreadable),
         otherBoard: Number(row.otherBoard),
+        notice: Number(row.notice),
       }
     },
 
@@ -1799,8 +1937,9 @@ const NO_WAIT: CollectionPacing = {
   everyHundredPages: { minSeconds: 0, maxSeconds: 0 },
 }
 
-const live = (postId: string, boardId: string): CafeArticleRead => ({
+const live = (postId: string, boardId: string, isNotice = false): CafeArticleRead => ({
   kind: 'article',
+  isNotice,
   post: {
     cafeId: '14538121', postId, boardId, boardName: '게시판', title: 't', prefix: null, authorId: null, authorNickname: null,
     postedAt: Date.UTC(2025, 5, 4), viewCount: 0, commentCount: 0, replyCount: null, isNotice: false,
@@ -1829,7 +1968,7 @@ function harness(
   const sweeps: number[] = []
   const waiting = [...ids]
   const repository: ArticleProbeRepository = {
-    readJob: async () => (setup.noJob === true ? null : { fromDay: '20250101', toDay: '20250829', total: ids.length, probed: ids.length - waiting.length, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0 }),
+    readJob: async () => (setup.noJob === true ? null : { fromDay: '20250101', toDay: '20250829', total: ids.length, probed: ids.length - waiting.length, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 }),
     createJob: async () => 0,
     listCollectedBoardIds: async () => ['137'],
     nextWaitingId: async () => waiting[0] ?? null,
@@ -1876,12 +2015,12 @@ function harness(
 
 describe('articleProbeRunner', () => {
   it('reads each waiting id in order and records what the cafe said', async () => {
-    const h = harness(['2', '3', '4', '5'], { 2: live('2', '137'), 3: DELETED, 4: LOGIN, 5: live('5', '188') })
+    const h = harness(['2', '3', '4', '5', '6'], { 2: live('2', '137'), 3: DELETED, 4: LOGIN, 5: live('5', '188'), 6: live('6', '137', true) })
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })
     await h.settle()
     expect(h.events).toEqual([
       'start 20250101-20250829',
-      'read 2', '2 stored', 'read 3', '3 deleted', 'read 4', '4 unreadable', 'read 5', '5 other_board',
+      'read 2', '2 stored', 'read 3', '3 deleted', 'read 4', '4 unreadable', 'read 5', '5 other_board', 'read 6', '6 notice',
       'finish succeeded',
     ])
   })
@@ -2275,7 +2414,7 @@ import { createArticleProbeJob } from '../../src/desktop/articleProbeJob.js'
 import type { ArticleProbeRunner } from '../../src/desktop/articleProbeRunner.js'
 import type { ArticleProbeJob, ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
 
-const summary = (probed: number, total: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0 })
+const summary = (probed: number, total: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
 
 function job(state: ArticleProbeJob | null, storage = true) {
   const runner = { start: vi.fn(() => ({ kind: 'started' as const })), stop: vi.fn(), isRunning: () => false, progress: () => null, blockFailure: () => null } satisfies ArticleProbeRunner
@@ -2314,7 +2453,7 @@ import { readArticleProbeView } from '../../src/desktop/articleProbeView.js'
 import type { ArticleProbeJob, ArticleProbeLastRun, ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 
-const job: ArticleProbeJob = { fromDay: '20250101', toDay: '20250829', total: 9660, probed: 3120, stored: 684, deleted: 2391, unreadable: 45, otherBoard: 0 }
+const job: ArticleProbeJob = { fromDay: '20250101', toDay: '20250829', total: 9660, probed: 3120, stored: 684, deleted: 2391, unreadable: 45, otherBoard: 0, notice: 0 }
 const lastRun: ArticleProbeLastRun = { status: 'failed', stopReason: 'ARTICLE_HTTP_ERROR: id 700001', startedAtMs: 1_790_000_000_000 }
 const finished: BoardSearchQueryState = {
   boardId: '137', query: 'q', fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: 3, insertedCount: 0, totalCount: null, complete: true, lastRunId: null,
@@ -2594,7 +2733,7 @@ and add `articleProbeCreateJob, articleProbeStart` to the object `build` returns
 const finishedSearch: BoardSearchQueryState = {
   boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: 3, insertedCount: 0, totalCount: null, complete: true, lastRunId: null,
 }
-const probeJob = (probed: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0 })
+const probeJob = (probed: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
 
 describe('getArticleProbeStatus', () => {
   it('reports disabled when there is no collection database', async () => {
@@ -2794,7 +2933,7 @@ git commit -m "feat: expose the article probe to the renderer"
 - Test: `tests/renderer/articleProbeLines.test.ts` (create), `tests/renderer/store.test.ts`
 
 **Interfaces:**
-- Consumes: `ArticleProbeStatusView`, `ArticleProbeCreateView`, `ArticleProbeView`, `StartCollectionResult` (Task 11); `ArticleProbeJob`, `ArticleProbeLastRun` (Task 8); `ArticleProbeProgress`, `ArticleProbeBlockFailure` (Task 9); `ArticleProbeWindow` (Task 10); `dayKeyLabel` from `./boardSearchLines.js`; `formatKstDateTime` from `../../format.js`.
+- Consumes: `ArticleProbeStatusView`, `ArticleProbeCreateView`, `ArticleProbeView`, `StartCollectionResult` (Task 11); `ArticleProbeJob`, `ArticleProbeLastRun` (Task 8); `ArticleProbeProgress`, `ArticleProbeBlockFailure` (Task 9); `ArticleProbeWindow` (Task 10); `dayKeyLabel` from `./boardSearchLines.js`; `formatKstDateTime` from `../../format.js`; `kstDayKey`, `kstDayKeyRange`, `MS_PER_DAY` from `src/shared/kst.ts`.
 - Produces:
   - `TEXT.articleProbe` (below)
   - `articleProbeSummaryLine(job: ArticleProbeJob): string`
@@ -2822,10 +2961,11 @@ In `src/shared/text.ts`, after the `boardSearch` section:
     start: '지금 확인',
     resume: '이어서 확인',
     stop: '멈추기',
-    /** The search job's window: posts from `from`, before `to` began. Both `YYYY-MM-DD`. */
-    window: (from: string, to: string) => `${from}부터 ${to} 전까지 저장된 글 사이의 빈 id`,
-    summary: (probed: number, total: number, stored: number, deleted: number, unreadable: number, otherBoard: number) =>
-      `확인 ${probed.toLocaleString('ko-KR')} / ${total.toLocaleString('ko-KR')} · 저장 ${stored.toLocaleString('ko-KR')} · 삭제 ${deleted.toLocaleString('ko-KR')} · 읽기 불가 ${unreadable.toLocaleString('ko-KR')}${otherBoard === 0 ? '' : ` · 다른 게시판 ${otherBoard.toLocaleString('ko-KR')}`}`,
+    /** The gap's first and last day, both `YYYY-MM-DD` KST. */
+    window: (firstDay: string, lastDay: string) => `${firstDay} ~ ${lastDay} 사이의 빈 id`,
+    /** `other`: live posts not stored — on a board this app does not collect, or notices. */
+    summary: (probed: number, total: number, stored: number, deleted: number, unreadable: number, other: number) =>
+      `확인 ${probed.toLocaleString('ko-KR')} / ${total.toLocaleString('ko-KR')} · 저장 ${stored.toLocaleString('ko-KR')} · 삭제 ${deleted.toLocaleString('ko-KR')} · 읽기 불가 ${unreadable.toLocaleString('ko-KR')}${other === 0 ? '' : ` · 기타(다른 게시판·공지) ${other.toLocaleString('ko-KR')}`}`,
     /** A running block: ids it has asked for of its budget. */
     progress: (requested: number, max: number) => `이번 블록 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}건`,
     created: (count: number) => `빈 id ${count.toLocaleString('ko-KR')}개를 목록에 넣었습니다`,
@@ -2867,14 +3007,15 @@ import {
 import type { ArticleProbeJob } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import { TEXT } from '../../src/shared/text.js'
 
-const job = (probed: number, otherBoard = 0): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 684, deleted: 2391, unreadable: 45, otherBoard })
+const job = (probed: number, otherBoard = 0, notice = 0): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 684, deleted: 2391, unreadable: 45, otherBoard, notice })
 // 2026-09-26 17:47 KST.
 const AT = Date.UTC(2026, 8, 26, 8, 47)
 
 describe('article probe wording', () => {
   it('sums the job the way the spec spells it', () => {
     expect(articleProbeSummaryLine(job(3120))).toBe('확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45')
-    expect(articleProbeSummaryLine(job(3120, 7))).toBe('확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45 · 다른 게시판 7')
+    // Another board's posts and notices fold into one count: neither is stored.
+    expect(articleProbeSummaryLine(job(3120, 7, 2))).toBe('확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45 · 기타(다른 게시판·공지) 9')
   })
 
   it('shows a running block\'s ids of its budget', () => {
@@ -2882,8 +3023,10 @@ describe('article probe wording', () => {
     expect(articleProbeProgressLine(null)).toBeNull()
   })
 
-  it('spells the window with the dates the other cards use', () => {
-    expect(articleProbeWindowLine({ fromDay: '20250101', toDay: '20250829' })).toBe('2025-01-01부터 2025-08-29 전까지 저장된 글 사이의 빈 id')
+  it('spells the window as the gap\'s days, ending the day before the search job\'s last day', () => {
+    expect(articleProbeWindowLine({ fromDay: '20250101', toDay: '20250829' })).toBe('2025-01-01 ~ 2025-08-28 사이의 빈 id')
+    // Across a month end, on the KST calendar.
+    expect(articleProbeWindowLine({ fromDay: '20250101', toDay: '20250301' })).toBe('2025-01-01 ~ 2025-02-28 사이의 빈 id')
   })
 
   it('offers to resume once any id is answered', () => {
@@ -2935,6 +3078,7 @@ Expected: FAIL — `articleProbeLines.js` does not resolve; the store has no `ar
 - [ ] **Step 4: Write `src/renderer/views/collection/articleProbeLines.ts`**
 
 ```ts
+import { kstDayKey, kstDayKeyRange, MS_PER_DAY } from '../../../shared/kst.js'
 import { TEXT } from '../../../shared/text.js'
 import type { ArticleProbeBlockFailure, ArticleProbeProgress } from '../../../desktop/articleProbeRunner.js'
 import type { ArticleProbeWindow } from '../../../desktop/articleProbePlan.js'
@@ -2950,15 +3094,21 @@ export interface ArticleProbeCreateOutcome {
 }
 
 export function articleProbeSummaryLine(job: ArticleProbeJob): string {
-  return TEXT.articleProbe.summary(job.probed, job.total, job.stored, job.deleted, job.unreadable, job.otherBoard)
+  return TEXT.articleProbe.summary(job.probed, job.total, job.stored, job.deleted, job.unreadable, job.otherBoard + job.notice)
 }
 
 export function articleProbeProgressLine(progress: ArticleProbeProgress | null): string | null {
   return progress === null ? null : TEXT.articleProbe.progress(progress.requested, progress.maxPages)
 }
 
+/**
+ * The gap's days as the operator counts them. `toDay` is the search job's own
+ * inclusive end, where the list walk stopped; the ids come from posts before it
+ * began, so the gap's last day is the one before.
+ */
 export function articleProbeWindowLine(window: { readonly fromDay: string; readonly toDay: string }): string {
-  return TEXT.articleProbe.window(dayKeyLabel(window.fromDay), dayKeyLabel(window.toDay))
+  const lastDay = kstDayKey(kstDayKeyRange(window.toDay).startMs - MS_PER_DAY)
+  return TEXT.articleProbe.window(dayKeyLabel(window.fromDay), dayKeyLabel(lastDay))
 }
 
 /** Resume once any id is answered; until then the job has not started. */
@@ -3165,8 +3315,8 @@ Expected: PASS; build succeeds. (`mainProcessBoundary.test.ts` holds that the ca
 
 Follow memory `renderer-preview-without-electron`: `pnpm build:renderer`, copy `dist/renderer` to the scratchpad, inject a `window.wm` shim, serve with `python3 -m http.server`, open the collection screen in the browser pane. Have `getArticleProbeStatus` answer, in turn:
 1. `{ kind: 'ready', view: { running: false, progress: null, blockFailure: null, lastRun: null, job: null, window: { kind: 'refused', reason: 'SEARCH_NOT_FINISHED' } } }` — create button idle, the reason in the warn tone;
-2. the same with `window: { kind: 'ready', fromDay: '20250101', toDay: '20250829' }` — the window line and an enabled create button;
-3. `job: { fromDay: '20250101', toDay: '20250829', total: 9660, probed: 3120, stored: 684, deleted: 2391, unreadable: 45, otherBoard: 0 }, window: null, running: true, progress: { requested: 40, maxPages: 60 }` — "확인 중", the summary, `이번 블록 40 / 60건`, a stop button;
+2. the same with `window: { kind: 'ready', fromDay: '20250101', toDay: '20250829' }` — `2025-01-01 ~ 2025-08-28 사이의 빈 id` and an enabled create button;
+3. `job: { fromDay: '20250101', toDay: '20250829', total: 9660, probed: 3120, stored: 684, deleted: 2391, unreadable: 45, otherBoard: 0, notice: 0 }, window: null, running: true, progress: { requested: 40, maxPages: 60 }` — "확인 중", the summary, `이번 블록 40 / 60건`, a stop button;
 4. the same job, `running: false`, `lastRun: { status: 'failed', stopReason: 'ARTICLE_PROBE_UNKNOWN_ANSWER: id 700001 500 9999', startedAtMs: 1790412420000 }` — "이어서 확인" and the warning.
 Check light and dark, 375 px and desktop width. Fix what looks wrong before committing.
 
