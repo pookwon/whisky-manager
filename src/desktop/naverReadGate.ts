@@ -3,10 +3,10 @@ import type { ExtensionTransport } from './ws/server.js'
 
 type InterimListener = (message: ExtensionMessage) => void
 
-type PageRead = Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' | 'COLLECT_BOARD_SEARCH_PAGE' }>
+type PageRead = Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' | 'COLLECT_BOARD_SEARCH_PAGE' | 'COLLECT_ARTICLE' }>
 
 function isPageRead(message: AppMessage): message is PageRead {
-  return message.type === 'COLLECT_BOARD_PAGE' || message.type === 'COLLECT_BOARD_SEARCH_PAGE'
+  return message.type === 'COLLECT_BOARD_PAGE' || message.type === 'COLLECT_BOARD_SEARCH_PAGE' || message.type === 'COLLECT_ARTICLE'
 }
 
 interface QueuedBoardPage {
@@ -18,7 +18,7 @@ interface QueuedBoardPage {
 }
 
 /**
- * Serializes all Naver reads — list and search pages alike — without changing
+ * Serializes all Naver reads — list pages, search pages and article reads alike — without changing
  * createCollectGate's special same-range joining behaviour. Existing COLLECT
  * calls may join the active walk; a queued COLLECT always runs before the next
  * board page. Writes and other non-read messages deliberately bypass this gate.
