@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { Pool } from 'pg'
@@ -826,5 +827,16 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     await search.replaceJob({ boardId: window.boardId, fromDay: '20250201', toDay: window.toDay, at, queries: [{ query: window.query, expectedGain: 1 }] })
     await expect(search.narrowSegment({ ...window, segmentToDay: '20250430', at })).rejects.toThrow('board search query does not exist')
     expect((await search.listQueries())[0]).toMatchObject({ fromDay: '20250201', segmentToDay: null })
+  })
+  it('cancels a statement that runs past the timeout and keeps the connection usable', async () => {
+    const guarded = openCollectionDatabase({ databaseUrl: testDatabaseUrl as string, maxConnections: 1, statementTimeoutMs: 100 })
+    try {
+      // 57014 is query_canceled: the server gave up on it, not the client.
+      await expect(guarded.db.execute(sql`select pg_sleep(2)`)).rejects.toMatchObject({ cause: { code: '57014' } })
+      const after = await guarded.db.execute<{ one: number }>(sql`select 1 as one`)
+      expect(after.rows[0]?.one).toBe(1)
+    } finally {
+      await guarded.close()
+    }
   })
 })

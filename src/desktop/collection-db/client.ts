@@ -15,7 +15,16 @@ export interface OpenCollectionDatabaseOptions {
   readonly maxConnections?: number
   readonly connectionTimeoutMs?: number
   readonly idleTimeoutMs?: number
+  readonly statementTimeoutMs?: number
 }
+
+/**
+ * The heaviest query the app sends runs well under a second. One that has not
+ * answered in a minute is stuck, and waiting on it forever would hold a pool
+ * connection — and, for a runner, the collection lock — for as long as the app
+ * stays up. The server cancels it and the connection goes back to the pool.
+ */
+const DEFAULT_STATEMENT_TIMEOUT_MS = 60_000
 
 export class CollectionDatabaseConfigError extends Error {
   constructor(message: string) {
@@ -42,6 +51,7 @@ export function openCollectionDatabase(options: OpenCollectionDatabaseOptions): 
     max: options.maxConnections ?? 4,
     connectionTimeoutMillis: options.connectionTimeoutMs ?? 5_000,
     idleTimeoutMillis: options.idleTimeoutMs ?? 10_000,
+    statement_timeout: options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS,
   })
   return { db: drizzle(pool, { schema }), close: () => pool.end() }
 }
