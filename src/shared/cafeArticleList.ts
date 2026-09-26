@@ -20,7 +20,8 @@ export interface CollectedPostMetadata {
   readonly viewCount: number
   /** Null when the feed did not know the count (the search index can report -1). */
   readonly commentCount: number | null
-  readonly replyCount: number
+  /** Null when the feed does not report it: the article read has none. Nothing stores it. */
+  readonly replyCount: number | null
   /** `notices` is a separate endpoint, so an `ARTICLE` row is never a notice. */
   readonly isNotice: false
 }
@@ -96,7 +97,7 @@ export function nullableString(record: JsonRecord, key: string, path: string, co
   return fail(code, `${path}.${key} must be a string or null`)
 }
 
-function optionalNullableString(record: JsonRecord, key: string, path: string, code: CafeArticleListParseErrorCode): string | null | undefined {
+export function optionalNullableString(record: JsonRecord, key: string, path: string, code: CafeArticleListParseErrorCode): string | null | undefined {
   if (!hasOwn(record, key)) return undefined
   return nullableString(record, key, path, code)
 }
@@ -116,7 +117,7 @@ export function safeInteger(
   return value
 }
 
-function epochMilliseconds(record: JsonRecord, key: string, path: string): number {
+export function epochMilliseconds(record: JsonRecord, key: string, path: string): number {
   const value = safeInteger(record, key, path, MIN_EPOCH_MILLISECONDS, 'INVALID_ARTICLE')
   if (value > MAX_DATE_MS) fail('INVALID_ARTICLE', `${path}.${key} is outside the Date range`)
   return value
@@ -137,15 +138,15 @@ function authorNicknameOf(item: JsonRecord, writerInfo: JsonRecord, path: string
   return fallback
 }
 
-export function prefixOf(item: JsonRecord, path: string): string | null {
-  const headName = optionalNullableString(item, 'headName', path, 'INVALID_ARTICLE')
+export function prefixOf(item: JsonRecord, path: string, nameKey = 'headName'): string | null {
+  const headName = optionalNullableString(item, nameKey, path, 'INVALID_ARTICLE')
   if (headName !== undefined) return headName
   // A post with no prefix always omits `headName`, and reports `headId` either
   // by omitting it too or as 0 — both spellings appear in one live page. A
   // present, non-zero headId without its name is neither, and is rejected so a
   // renamed prefix field cannot pass as a post that never had one.
   if (!hasOwn(item, 'headId') || item.headId === null || item.headId === 0) return null
-  fail('INVALID_ARTICLE', `${path}.headName is missing for a headed article`)
+  fail('INVALID_ARTICLE', `${path}.${nameKey} is missing for a headed article`)
 }
 
 function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
