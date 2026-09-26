@@ -12,6 +12,7 @@ import { createSqliteDedupeStore } from '../../src/desktop/db/dedupeStore.js'
 import { createExecutionsRepo } from '../../src/desktop/db/executionsRepo.js'
 import { createSettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 import { createTemplatesRepo } from '../../src/desktop/db/templatesRepo.js'
+import { IPC_CHANNELS } from '../../src/desktop/ipc.js'
 import { createRendererApi } from '../../src/desktop/rendererApi.js'
 import type { AppRepos, AutomationControl } from '../../src/desktop/bootstrap.js'
 import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.js'
@@ -1460,5 +1461,14 @@ describe('startArticleProbe', () => {
   it('refuses without a job, and with every id answered', async () => {
     expect(await build(MON_10_00, {}, { job: null }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
     expect(await build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(9660) }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+  })
+})
+
+describe('IPC_CHANNELS coverage', () => {
+  it('has a channel key for every RendererApi method', () => {
+    const { api } = build()
+    for (const method of Object.keys(api)) {
+      expect(IPC_CHANNELS, `IPC_CHANNELS missing '${method}'`).toHaveProperty(method)
+    }
   })
 })
