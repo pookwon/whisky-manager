@@ -1,5 +1,4 @@
 import type { CollectionPacing } from '../shared/collectionPacing.js'
-import { collectionDelayMs } from '../shared/collectionPacing.js'
 import { BOARD_SEARCH_CAP_PAGE, CAFE_BOARD_SEARCH } from '../shared/cafeBoardSearchEndpoint.js'
 import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
 import { kstDayKey, kstDayKeyRange, MS_PER_DAY } from '../shared/kst.js'
@@ -10,7 +9,7 @@ import { assertBoardSearchPage, assertBoardSearchPageFollows } from './boardSear
 import type { CollectionLock } from './collectionLock.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
-import { pauseUnlessStopped } from './collectionPause.js'
+import { waitForReadTurn, type ReadTurnDeps } from './collectionReadTurn.js'
 import type { CollectionStartResult } from './collectionRunner.js'
 import { failedRunStopReason, type FailedRunStopReason } from './failedRunStopReason.js'
 
@@ -135,19 +134,11 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     lastBlockFailure = { ...failure, atMs: deps.clock.now() }
   }
 
-  async function waitForTurn(ordinal: number, pacing: CollectionPacing): Promise<void> {
-    const yieldToSession = async () => {
-      while (deps.isSessionBusy()) {
-        if (abortRequested) throw new CollectionPageError('ABORTED')
-        await deps.sleep(1_000)
-      }
-    }
-    await yieldToSession()
-    if (!(await pauseUnlessStopped(collectionDelayMs(ordinal, pacing, deps.random), deps.sleep, () => abortRequested))) {
-      throw new CollectionPageError('ABORTED')
-    }
-    await yieldToSession()
-    if (abortRequested) throw new CollectionPageError('ABORTED')
+  const readTurn: ReadTurnDeps = {
+    isSessionBusy: () => deps.isSessionBusy(),
+    sleep: (ms) => deps.sleep(ms),
+    random: deps.random,
+    isAborted: () => abortRequested,
   }
 
   /**
@@ -184,7 +175,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
           return { requests, endsBlock: false }
         }
-        await waitForTurn(spentBefore + requests + 1, pacing)
+        await waitForReadTurn(readTurn, spentBefore + requests + 1, pacing)
         await repository.recordPageRequest(runId)
         requests += 1
         if (blockProgress !== null) blockProgress = { ...blockProgress, requestedPages: spentBefore + requests }
