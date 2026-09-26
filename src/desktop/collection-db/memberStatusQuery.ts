@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import type { CollectionDatabase } from './client.js'
+import { createFingerprintedRead } from './fingerprintedRead.js'
 import { members, memberFeedState, memberRuns } from './memberSchema.js'
 import { posts } from './schema.js'
 
@@ -53,10 +54,28 @@ function epochMs(value: Date | null | undefined): number | null {
 }
 
 export function createMemberCollectionStatusQuery(db: CollectionDatabase): MemberCollectionStatusQuery {
+  // Distinct post authors and how many exist in members. A low match ratio
+  // is the health signal that the key contract changed. It sweeps both tables,
+  // so it is read again only when one of them was written: every post write
+  // stamps snapshot_at, even one that only rewrites an author, and a member
+  // key is never rewritten, so their row count is enough on that side.
+  const readAuthorMatch = createFingerprintedRead(async () => {
+    const result = await db.execute<{ authors: string; matched: string }>(sql`
+      select
+        count(distinct ${posts.authorId}) as authors,
+        count(distinct ${posts.authorId}) filter (where ${members.memberKey} is not null) as matched
+      from ${posts}
+      left join ${members} on ${members.memberKey} = ${posts.authorId}
+      where ${posts.authorId} is not null
+    `)
+    return result.rows[0]
+  })
+
   return {
     async read() {
-      const [memberTotals, stateRows, runningRows, lastRunRows, walkPages, match] = await Promise.all([
+      const [memberTotals, postTotals, stateRows, runningRows, lastRunRows, walkPages] = await Promise.all([
         db.select({ members: sql<string>`count(*)` }).from(members),
+        db.select({ posts: sql<string>`count(*)`, lastWrite: sql<string | null>`max(${posts.snapshotAt})::text` }).from(posts),
         db
           .select({
             totalMemberCount: memberFeedState.totalMemberCount,
@@ -81,21 +100,12 @@ export function createMemberCollectionStatusQuery(db: CollectionDatabase): Membe
           .select({ maxPage: sql<string>`max(${memberRuns.lastCommittedPage})` })
           .from(memberRuns)
           .where(sql`${memberRuns.runKind} != 'topup'`),
-        // Distinct post authors and how many exist in members. A low match ratio
-        // is the health signal that the key contract changed.
-        db.execute<{ authors: string; matched: string }>(sql`
-          select
-            count(distinct ${posts.authorId}) as authors,
-            count(distinct ${posts.authorId}) filter (where ${members.memberKey} is not null) as matched
-          from ${posts}
-          left join ${members} on ${members.memberKey} = ${posts.authorId}
-          where ${posts.authorId} is not null
-        `),
       ])
+      const postWrites = postTotals[0]
+      const matchRow = await readAuthorMatch(`${postWrites?.posts ?? 0}:${postWrites?.lastWrite ?? ''}:${memberTotals[0]?.members ?? 0}`)
 
       const state = stateRows[0]
       const lastRun = lastRunRows[0] ?? null
-      const matchRow = match.rows[0]
       return {
         memberCount: count(memberTotals[0]?.members),
         pagesStored: walkPagesStored({
