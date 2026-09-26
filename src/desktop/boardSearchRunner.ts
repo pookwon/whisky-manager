@@ -184,14 +184,18 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         pageNumber += 1
       }
     } catch (error) {
-      // A run row left behind as running is the lesser harm here: letting the
-      // write's own failure end the block would strand every query after it.
+      // A run this write cannot close stays `running`, and the one running
+      // search run a board may have blocks every later start until it is
+      // swept. The walk goes on regardless; the failure is reported, since
+      // nothing else would ever say why the row was left.
+      const close = (status: 'failed' | 'interrupted', stopReason: string) =>
+        repository.finishRun(runId, status, stopReason, now()).catch((closeError: unknown) => { deps.onError?.(closeError) })
       if (error instanceof CollectionPageError && error.code === 'ABORTED') {
-        await repository.finishRun(runId, 'interrupted', 'ABORTED', now()).catch(() => undefined)
+        await close('interrupted', 'ABORTED')
         return { requests, endsBlock: true }
       }
       const failure = failedRunStopReason(error)
-      await repository.finishRun(runId, 'failed', failure.stopReason, now()).catch(() => undefined)
+      await close('failed', failure.stopReason)
       return { requests, endsBlock: !QUERY_OWN_FAILURES.has(failure.code) }
     }
   }

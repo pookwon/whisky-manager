@@ -59,6 +59,8 @@ function harness(
   setup: { readonly storage?: boolean; readonly connected?: boolean; readonly failedFinishRejectsFor?: string } = {},
 ) {
   const events: string[] = []
+  /** What the runner handed its onError, by message. */
+  const errors: string[] = []
   const windows: string[] = []
   /** Every request as `query fromDay-toDay pN`. */
   const requests: string[] = []
@@ -92,9 +94,10 @@ function harness(
   const runner = createBoardSearchRunner({
     repository: () => (setup.storage === false ? null : repository), fetcher, isConnected: () => setup.connected !== false, clock: { now: () => 0 }, random: { intInclusive: (min: number) => min },
     pacing: () => NO_WAIT, sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
+    onError: (error) => { errors.push(error instanceof Error ? error.message : String(error)) },
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
-  return { runner, events, windows, requests, settle }
+  return { runner, events, errors, windows, requests, settle }
 }
 
 describe('boardSearchRunner', () => {
@@ -207,6 +210,13 @@ describe('boardSearchRunner', () => {
     ])
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })
     await h.settle()
+  })
+
+  it('reports a failed run it could not close rather than dropping it', async () => {
+    const h = harness([query('글렌', 1)], { 글렌: [STRAY] }, {}, undefined, { failedFinishRejectsFor: '글렌' })
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(h.errors).toEqual(['database went away'])
   })
 
   describe('at the search\'s result cap', () => {
