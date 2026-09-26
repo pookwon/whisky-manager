@@ -416,6 +416,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           coverage: collection.boardSearchCoverage,
           lastRuns: collection.boardSearchLastRuns,
           running: deps.boardSearchRunner.isRunning(),
+          progress: deps.boardSearchRunner.progress(),
           blockFailure: deps.boardSearchRunner.blockFailure(),
         }),
       }

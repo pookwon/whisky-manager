@@ -1,7 +1,7 @@
 import { CAFE_BOARD_SEARCH } from '../../../shared/cafeBoardSearchEndpoint.js'
 import { TEXT } from '../../../shared/text.js'
 import type { BoardSearchCoverage } from '../../../desktop/collection-db/boardSearchCoverageQuery.js'
-import type { BoardSearchBlockFailure } from '../../../desktop/boardSearchRunner.js'
+import type { BoardSearchBlockFailure, BoardSearchProgress } from '../../../desktop/boardSearchRunner.js'
 import type { BoardSearchJobView, BoardSearchQueryView } from '../../../desktop/boardSearchView.js'
 import type { BoardSearchPlanView } from '../../../desktop/ipc.js'
 import { formatKstDateTime } from '../../format.js'
@@ -66,6 +66,10 @@ export function boardSearchQueryState(query: BoardSearchQueryView, running: bool
 export function boardSearchQueryStateText(query: BoardSearchQueryView, state: BoardSearchQueryStateKind): string {
   const reason = state === 'failed' ? (query.lastRun?.stopReason ?? null) : null
   return reason === null ? TEXT.boardSearch.states[state] : TEXT.boardSearch.failedWith(reason)
+}
+
+export function boardSearchProgressLine(progress: BoardSearchProgress | null): string | null {
+  return progress === null ? null : TEXT.boardSearch.progress(progress.requestedPages, progress.maxPages, progress.query)
 }
 
 /**

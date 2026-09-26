@@ -4,6 +4,7 @@ import {
   boardSearchCoverageLine,
   boardSearchPageLabel,
   boardSearchPlanOutcome,
+  boardSearchProgressLine,
   boardSearchQueryState,
   boardSearchQueryStateText,
   boardSearchStartLabel,
@@ -119,5 +120,11 @@ describe('board search wording', () => {
     const stopReason = 'COLLECTION_FAILURE: error: duplicate key value violates unique constraint "runs_one_running_feed"'
     expect(boardSearchBlockFailureLine({ code: 'COLLECTION_FAILURE', stopReason, atMs })).toBe(TEXT.boardSearch.blockFailed('09-26 03:06', stopReason))
     expect(boardSearchBlockFailureLine(null)).toBeNull()
+  })
+
+  it('reads a running block\'s progress as pages of its budget and the query in hand, and nothing before it has one', () => {
+    expect(boardSearchProgressLine({ query: '알라키', requestedPages: 12, maxPages: 60 })).toBe(TEXT.boardSearch.progress(12, 60, '알라키'))
+    expect(TEXT.boardSearch.progress(12, 60, '알라키')).toBe("이번 블록 12 / 60쪽 · '알라키'")
+    expect(boardSearchProgressLine(null)).toBeNull()
   })
 })

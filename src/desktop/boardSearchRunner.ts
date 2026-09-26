@@ -30,6 +30,15 @@ export interface BoardSearchRunnerDeps {
   readonly onError?: (error: unknown) => void
 }
 
+/** Where a block in flight stands. */
+export interface BoardSearchProgress {
+  /** The query being walked. */
+  readonly query: string
+  /** Page requests this block has made, over every query it walked. */
+  readonly requestedPages: number
+  readonly maxPages: number
+}
+
 /** Why a block ended with no run row to say it: a run could not be started, or the walk itself threw. */
 export interface BoardSearchBlockFailure extends FailedRunStopReason {
   readonly atMs: number
@@ -39,6 +48,8 @@ export interface BoardSearchRunner {
   start(request: { readonly maxPages: number }): CollectionStartResult
   stop(): void
   isRunning(): boolean
+  /** Null between blocks, and while a block has not reached its first query. */
+  progress(): BoardSearchProgress | null
   /** The last block's failure that no run row records; null again once a block starts. */
   blockFailure(): BoardSearchBlockFailure | null
 }
@@ -118,6 +129,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
   let inFlight: Promise<void> | null = null
   let abortRequested = false
   let lastBlockFailure: BoardSearchBlockFailure | null = null
+  let blockProgress: BoardSearchProgress | null = null
 
   const keepBlockFailure = (failure: FailedRunStopReason): void => {
     lastBlockFailure = { ...failure, atMs: deps.clock.now() }
@@ -175,6 +187,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         await waitForTurn(spentBefore + requests + 1, pacing)
         await repository.recordPageRequest(runId)
         requests += 1
+        if (blockProgress !== null) blockProgress = { ...blockProgress, requestedPages: spentBefore + requests }
         const observedAt = new Date(deps.clock.now())
         const result = await deps.fetcher.read({ menuId: query.boardId, query: query.query, fromDay: window.fromDay, toDay: window.toDay, page: pageNumber })
         let step: SegmentStep
@@ -236,6 +249,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     for (const query of await repository.listQueries()) {
       if (query.complete) continue
       if (abortRequested || spent >= maxPages) break
+      blockProgress = { query: query.query, requestedPages: spent, maxPages }
       const outcome = await walkQuery(repository, query, maxPages - spent, spent, pacing)
       spent += outcome.requests
       if (outcome.unrecorded !== undefined) keepBlockFailure(outcome.unrecorded)
@@ -257,7 +271,11 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           deps.onError?.(error)
           keepBlockFailure(failedRunStopReason(error))
         })
-        .finally(() => { inFlight = null; deps.lock.release() })
+        .finally(() => {
+          inFlight = null
+          blockProgress = null
+          deps.lock.release()
+        })
       return { kind: 'started' }
     },
     stop() {
@@ -265,6 +283,9 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     },
     isRunning() {
       return inFlight !== null
+    },
+    progress() {
+      return blockProgress
     },
     blockFailure() {
       return lastBlockFailure

@@ -239,6 +239,21 @@ describe('boardSearchRunner', () => {
     expect(h.events[0]).toBe('start 글렌')
   })
 
+  it('shows the query in hand and the pages this block has asked for, and nothing between blocks', async () => {
+    const seen: string[] = []
+    let look = (): void => undefined
+    const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [page([1], 2)], 구매: [page([4], 1)] }, {}, () => look())
+    look = () => {
+      const progress = h.runner.progress()
+      seen.push(progress === null ? 'none' : `${progress.query} ${progress.requestedPages}/${progress.maxPages}`)
+    }
+    expect(h.runner.progress()).toBeNull()
+    h.runner.start({ maxPages: 10 })
+    await h.settle()
+    expect(seen).toEqual(['글렌 1/10', '글렌 2/10', '구매 3/10', '구매 4/10'])
+    expect(h.runner.progress()).toBeNull()
+  })
+
   describe('a block that fails with no run row to say why', () => {
     it('keeps the failure when a query\'s run cannot be started, and ends the block', async () => {
       const h = harness([query('글렌', 1), query('구매', 2)], { 구매: [page([4], 1)] }, {}, undefined, { startRejectsFor: '글렌' })

@@ -723,6 +723,9 @@ export const TEXT = {
     stop: '멈추기',
     none: '보충 작업이 없습니다',
     running: '보충 중',
+    /** A running block: pages it has asked for of its budget, and the query in hand. */
+    progress: (requested: number, max: number, query: string) =>
+      `이번 블록 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}쪽 · '${query}'`,
     idle: '대기',
     finished: '보충 완료',
     summary: (done: number, total: number, inserted: number, current: string | null) =>

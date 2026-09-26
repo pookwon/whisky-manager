@@ -7,6 +7,7 @@ import {
   boardSearchCoverageLine,
   boardSearchPageLabel,
   boardSearchPlanOutcome,
+  boardSearchProgressLine,
   boardSearchQueryState,
   boardSearchQueryStateText,
   boardSearchStartLabel,
@@ -46,6 +47,7 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
   const fromDay = dayKeyOfDateInput(fromDate)
   const coverageLine = job === null ? null : boardSearchCoverageLine(job.coverage)
   const blockFailureLine = boardSearchBlockFailureLine(view.blockFailure)
+  const progressLine = running ? boardSearchProgressLine(view.progress) : null
   const finished = job !== null && job.current === null
 
   const clear = (): void => {
@@ -89,6 +91,11 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                   <div className="mt-0.5 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
                     {boardSearchSummaryLine(job)}
                   </div>
+                  {progressLine !== null && (
+                    <div className="mt-0.5 text-sm tabular-nums tone-accent">
+                      {progressLine}
+                    </div>
+                  )}
                   {coverageLine !== null && (
                     <div className="mt-0.5 text-sm tabular-nums" style={{ color: 'var(--ink-muted)' }}>
                       {coverageLine}
