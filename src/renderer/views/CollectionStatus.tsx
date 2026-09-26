@@ -7,6 +7,7 @@ import type {
   StartCollectionResult,
 } from '../../desktop/ipc.js'
 import { BoardQueue } from './collection/BoardQueue.js'
+import { ArticleProbeCard } from './collection/ArticleProbeCard.js'
 import { BoardSearchCard } from './collection/BoardSearchCard.js'
 import { IdGapPanel } from './collection/IdGapPanel.js'
 import { CollectionUnavailable } from './collection/CollectionUnavailable.js'
@@ -103,6 +104,7 @@ export function CollectionStatus(): React.JSX.Element {
   const collection = useApp((s) => s.collection)
   const schedule = useApp((s) => s.collectionSchedule)
   const boardSearch = useApp((s) => s.boardSearch)
+  const articleProbe = useApp((s) => s.articleProbe)
   const busy = useApp((s) => s.busy)
   const act = useApp((s) => s.act)
   const [firstDay, setFirstDay] = useState(() => kstDateValue(Date.now() - 3 * 86_400_000))
@@ -258,6 +260,7 @@ export function CollectionStatus(): React.JSX.Element {
       {job !== null && job.boards.length > 0 && <BoardQueue boards={job.boards} />}
 
       {boardSearch?.kind === 'ready' && <BoardSearchCard view={boardSearch.view} busy={busy} act={act} />}
+      {articleProbe?.kind === 'ready' && <ArticleProbeCard view={articleProbe.view} busy={busy} act={act} />}
 
       {replacing !== null && job !== null && (
         <section className="panel overflow-hidden">

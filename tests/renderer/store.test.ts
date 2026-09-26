@@ -14,6 +14,7 @@ const wm = {
   stopMemberCollection: vi.fn(),
   setMemberCollectionForced: vi.fn(),
   getBoardSearchStatus: vi.fn(),
+  getArticleProbeStatus: vi.fn(),
   getCollectionSchedule: vi.fn(),
   setCollectionSchedule: vi.fn(),
   startCollection: vi.fn(),
@@ -108,6 +109,7 @@ beforeEach(() => {
   wm.getCollectionStatus.mockResolvedValue({ kind: 'disabled' })
   wm.getMemberCollectionStatus.mockResolvedValue(memberCollectionReady)
   wm.getBoardSearchStatus.mockResolvedValue({ kind: 'disabled' })
+  wm.getArticleProbeStatus.mockResolvedValue({ kind: 'disabled' })
   wm.getCollectionSchedule.mockResolvedValue({
     schedule: DEFAULT_COLLECTION_SCHEDULE,
     nextRunAtMs: null,
@@ -139,6 +141,17 @@ describe('useApp.refresh board search', () => {
 
     expect(wm.getBoardSearchStatus).toHaveBeenCalledTimes(1)
     expect(useApp.getState().boardSearch).toEqual({ kind: 'disabled' })
+  })
+})
+
+describe('useApp.refresh article probe', () => {
+  it('loads the article probe status into the store', async () => {
+    useApp.setState({ route: DEFAULT_ROUTE })
+
+    await useApp.getState().refresh()
+
+    expect(wm.getArticleProbeStatus).toHaveBeenCalledTimes(1)
+    expect(useApp.getState().articleProbe).toEqual({ kind: 'disabled' })
   })
 })
 
