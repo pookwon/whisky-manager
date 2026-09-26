@@ -3,6 +3,7 @@ import {
   PROTOCOL_VERSION,
   TIMEOUTS,
   isAppMessage,
+  isCollectArticleRequest,
   isCollectBoardPageRequest,
   isCollectBoardSearchPageRequest,
   isExtensionMessage,
@@ -227,8 +228,46 @@ describe('COLLECT_BOARD_SEARCH_PAGE', () => {
     expect(isCollectBoardSearchPageRequest({ ...request, ...change })).toBe(false)
   })
 
+})
+
+describe('COLLECT_ARTICLE', () => {
+  const request = { type: 'COLLECT_ARTICLE', requestId: 'article-1', cafeId: '14538121', postId: '728686' } as const
+
+  it('accepts one article of this cafe', () => {
+    expect(isCollectArticleRequest(request)).toBe(true)
+    expect(isAppMessage(request)).toBe(true)
+  })
+
+  it.each([
+    ['another cafe', { cafeId: '1' }],
+    ['id zero', { postId: '0' }],
+    ['a padded id', { postId: '0728686' }],
+    ['a non-digit id', { postId: '72868a' }],
+    ['a numeric id', { postId: 728686 }],
+    ['no request id', { requestId: undefined }],
+  ])('refuses %s', (_label, change) => {
+    expect(isCollectArticleRequest({ ...request, ...change })).toBe(false)
+    expect(isAppMessage({ ...request, ...change })).toBe(false)
+  })
+
+  it("accepts an answer that carries a post or the cafe's reason for none", () => {
+    const post = { postId: '728686', boardId: '137' }
+    expect(isExtensionMessage({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', result: { kind: 'article', post, isNotice: false } })).toBe(true)
+    expect(isExtensionMessage({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', result: { kind: 'absent', status: 404, code: '4003' } })).toBe(true)
+  })
+
+  it.each([
+    ['no result', { result: null }],
+    ['an article without its post', { result: { kind: 'article', isNotice: false } }],
+    ['an article without its notice flag', { result: { kind: 'article', post: { postId: '728686' } } }],
+    ['an absence without its code', { result: { kind: 'absent', status: 404 } }],
+    ['an unknown kind', { result: { kind: 'maybe' } }],
+  ])('refuses an answer with %s', (_label, change) => {
+    expect(isExtensionMessage({ type: 'ARTICLE_COLLECTED', requestId: 'article-1', ...change })).toBe(false)
+  })
+
   it('bumps the protocol, since an older extension cannot answer it', () => {
-    expect(PROTOCOL_VERSION).toBe(12)
+    expect(PROTOCOL_VERSION).toBe(13)
   })
 })
 
