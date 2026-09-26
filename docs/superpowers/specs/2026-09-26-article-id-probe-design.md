@@ -82,7 +82,7 @@ id 오름차순. 이어받기는 `outcome is null`인 가장 작은 id부터다.
 
 ### 실행 행
 
-블록 하나가 `runs` 한 행이다(`feed_kind` = `article_probe`, 새 값). 쪽 수는 읽은 id 수, 신규는 저장한 글 수. 최근 기록에 그대로 나온다. 1.9.8의 교훈대로 블록을 시작할 때 이 feed의 `running` 고아 행을 먼저 닫는다.
+블록 하나가 `runs` 한 행이다(`feed_kind` = `article_probe`, 새 값). 쪽 수는 읽은 id 수, 신규는 저장한 글 수. 최근 기록(수집 현황의 실행 목록)에는 내지 않는다 — 검색어 보충의 실행처럼 목록 걷기의 기간이 아니라서, 나오면 전체 카페 실행처럼 읽히고 목록 걷기의 블록을 밀어낸다. 카드가 이 feed의 마지막 실행과 그 사유를 보여 준다(§6). 1.9.8의 교훈대로 블록을 시작할 때 이 feed의 `running` 고아 행을 먼저 닫는다.
 
 ## 4. 프로토콜과 확장
 
@@ -90,7 +90,7 @@ id 오름차순. 이어받기는 `outcome is null`인 가장 작은 id부터다.
 
 `{ requestId, cafeId, postId }` → `ARTICLE_COLLECTED { result }` 또는 `ERROR { code }`. `result`는
 
-- `{ kind: 'article', post: CollectedPostMetadata }`
+- `{ kind: 'article', post: CollectedPostMetadata, isNotice: boolean }`
 - `{ kind: 'absent', code: '4003' | '0004' | … , status }` — 카페가 이유를 붙여 거절한 답
 
 `PROTOCOL_VERSION` 12 → 13. 확장을 반드시 새로 고친다(메모리 `repackage-after-protocol-bump`).
