@@ -3,6 +3,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { createBoardSearchCoverageQuery, type BoardSearchCoverageQuery } from './collection-db/boardSearchCoverageQuery.js'
 import { createBoardSearchLastRunQuery, type BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
 import { createBoardSearchRepository, type BoardSearchRepository } from './collection-db/boardSearchRepository.js'
+import { createArticleProbeRepository, type ArticleProbeRepository } from './collection-db/articleProbeRepository.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
 import { createMemberCollectionStatusQuery, type MemberCollectionStatusQuery } from './collection-db/memberStatusQuery.js'
@@ -34,6 +35,8 @@ export type OptionalCollectionContext =
       readonly boardSearchCoverage: BoardSearchCoverageQuery
       /** How each search query's newest run ended, since search runs stay off the recent log. */
       readonly boardSearchLastRuns: BoardSearchLastRunQuery
+      /** The gap's ids, read one by one once the search backfill is done. */
+      readonly articleProbeRepository: ArticleProbeRepository
       close(): Promise<void>
     }
   | {
@@ -139,6 +142,7 @@ export async function openOptionalCollectionContext(
       boardSearchRepository: createBoardSearchRepository(connection.db, repository),
       boardSearchCoverage: createBoardSearchCoverageQuery(connection.db),
       boardSearchLastRuns: createBoardSearchLastRunQuery(connection.db),
+      articleProbeRepository: createArticleProbeRepository(connection.db, repository),
       close: connection.close,
     }
   } catch (error) {

@@ -18,6 +18,7 @@ import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
+import type { ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
@@ -237,6 +238,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
             boardSearchRepository: { replaceJob: boardSearchReplaceJob } as unknown as BoardSearchRepository,
             boardSearchCoverage: {} as unknown as BoardSearchCoverageQuery,
             boardSearchLastRuns: {} as unknown as BoardSearchLastRunQuery,
+            articleProbeRepository: {} as unknown as ArticleProbeRepository,
             memberStatus: {
               read: () =>
                 Promise.resolve({
