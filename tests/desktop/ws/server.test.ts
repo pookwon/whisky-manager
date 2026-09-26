@@ -111,6 +111,45 @@ describe('createBridgeServer', () => {
     await expect(request).rejects.toThrow(/pairing reset/i)
   })
 
+  it('rejects an in-flight request as soon as the socket it went out on closes', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const ws = await connect(TOKEN)
+    await nextMessage(ws)
+    const request = server.request(
+      { type: 'CHECK_LOGIN', requestId: 'drop-r1', source: { cafeId: 'c', boardId: 'b' } },
+      5_000,
+    )
+
+    ws.close()
+
+    await expect(request).rejects.toThrow(/disconnected/i)
+  })
+
+  it('keeps a request in flight when a socket it did not go out on closes', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    const stale = await connect(TOKEN)
+    await nextMessage(stale)
+    const live = await connect(TOKEN)
+    await nextMessage(live)
+    live.on('message', (data) => {
+      const msg = JSON.parse(String(data)) as { type: string; requestId?: string }
+      if (msg.type === 'CHECK_LOGIN' && msg.requestId !== undefined) {
+        // Answered only after the stale socket is gone, so its close lands mid-request.
+        stale.once('close', () => {
+          setTimeout(() => {
+            live.send(JSON.stringify({ type: 'LOGIN_STATE', requestId: msg.requestId, loggedIn: true, account: 'cafe-ops' }))
+          }, 20)
+        })
+        stale.close()
+      }
+    })
+
+    const reply = await server.request({ type: 'CHECK_LOGIN', requestId: 'drop-r2', source: { cafeId: 'c', boardId: 'b' } }, 1_000)
+
+    expect(reply.type).toBe('LOGIN_STATE')
+    live.close()
+  })
+
   it('closes every authorised socket when pairing is reset', async () => {
     server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
     const first = await connect(TOKEN)

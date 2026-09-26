@@ -6,6 +6,7 @@ import {
   getBridgeStatusTone,
   shouldOfferExtensionRecovery,
 } from './format.js'
+import { startPolling } from './poll.js'
 import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
 import { Approvals } from './views/Approvals.js'
@@ -36,12 +37,7 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     // A failed background poll is logged, not surfaced: the next tick retries
     // in five seconds and a persistent banner would just be noise.
-    const tick = (): void => {
-      refresh().catch(console.error)
-    }
-    tick()
-    const timer = setInterval(tick, REFRESH_MS)
-    return () => clearInterval(timer)
+    return startPolling(() => refresh().catch(console.error), REFRESH_MS)
   }, [refresh])
 
   useEffect(() => {

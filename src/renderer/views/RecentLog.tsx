@@ -3,6 +3,7 @@ import type { LogEntry, LogSource } from '../../desktop/ipc.js'
 import { TEXT } from '../../shared/text.js'
 import { api } from '../api.js'
 import { formatKstDateTime } from '../format.js'
+import { startPolling } from '../poll.js'
 
 /**
  * What the app did and complained about lately, on one timeline.
@@ -49,7 +50,7 @@ export function RecentLog(): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    const read = (): void => {
+    const read = (): Promise<void> =>
       api
         .getRecentLog()
         .then((next) => {
@@ -62,12 +63,10 @@ export function RecentLog(): React.JSX.Element {
           // tick tries again on its own.
           if (!cancelled) setReadFailed(true)
         })
-    }
-    read()
-    const timer = setInterval(read, REFRESH_MS)
+    const stopPolling = startPolling(read, REFRESH_MS)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      stopPolling()
     }
   }, [])
 
