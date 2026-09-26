@@ -61,6 +61,8 @@ function harness(
   const events: string[] = []
   /** What the runner handed its onError, by message. */
   const errors: string[] = []
+  /** How many events had happened at each sweep of orphaned runs. */
+  const sweeps: number[] = []
   const windows: string[] = []
   /** Every request as `query fromDay-toDay pN`. */
   const requests: string[] = []
@@ -71,6 +73,7 @@ function harness(
     readBoardTitles: async () => [],
     oldestPostedAtMs: async () => null,
     replaceJob: async () => undefined,
+    reconcileOrphanedRuns: async () => { sweeps.push(events.length); return 0 },
     startRun: async (input) => { queryOfRun.set(input.id, input.query); events.push(`start ${input.query}`) },
     recordPageRequest: async () => undefined,
     narrowSegment: async (input) => { events.push(`narrow ${input.query} ${input.fromDay}-${input.toDay} to ${input.segmentToDay}`) },
@@ -97,7 +100,7 @@ function harness(
     onError: (error) => { errors.push(error instanceof Error ? error.message : String(error)) },
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
-  return { runner, events, errors, windows, requests, settle }
+  return { runner, events, errors, sweeps, windows, requests, settle }
 }
 
 describe('boardSearchRunner', () => {
@@ -210,6 +213,15 @@ describe('boardSearchRunner', () => {
     ])
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })
     await h.settle()
+  })
+
+  it('closes search runs left running before its first query, once per block it starts', async () => {
+    const h = harness([query('글렌', 1)], { 글렌: [page([1], 1)] })
+    h.runner.start({ maxPages: 10 })
+    expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'refused', reason: 'ALREADY_RUNNING' })
+    await h.settle()
+    expect(h.sweeps).toEqual([0])
+    expect(h.events[0]).toBe('start 글렌')
   })
 
   it('reports a failed run it could not close rather than dropping it', async () => {

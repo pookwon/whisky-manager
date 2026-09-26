@@ -203,8 +203,12 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
   /**
    * A block over the queue: unused budget passes on and a query's own failure
    * moves on; a stop, or a failure every query would share, ends the block.
+   * It first closes any search run an earlier block could not: the lock is
+   * held, so none is being written, and a board's one running search run
+   * would refuse every run this block starts.
    */
   async function walk(repository: BoardSearchRepository, maxPages: number): Promise<void> {
+    await repository.reconcileOrphanedRuns(new Date(deps.clock.now()))
     const pacing = deps.pacing()
     let spent = 0
     for (const query of await repository.listQueries()) {

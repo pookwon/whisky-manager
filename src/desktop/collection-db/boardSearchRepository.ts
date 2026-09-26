@@ -75,6 +75,12 @@ export interface BoardSearchRepository {
   narrowSegment(input: NarrowBoardSearchSegmentInput): Promise<void>
   persistPage(input: PersistBoardSearchPageInput): Promise<{ readonly insertedPostCount: number; readonly updatedPostCount: number }>
   finishRun(runId: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
+  /**
+   * Marks search runs left `running` as interrupted, as the startup sweep does
+   * for every feed. Only for a caller holding the collection lock: then no
+   * search run is being written, and a running one is one nothing will close.
+   */
+  reconcileOrphanedRuns(finishedAt: Date): Promise<number>
 }
 
 type StateRow = typeof boardSearchState.$inferSelect
@@ -241,6 +247,15 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
         const window = sameQueryWindow(run.boardId, run.query, kstDayKey(run.targetStartMs), kstDayKey(run.targetEndMs - 1))
         await tx.update(boardSearchState).set({ completedAt: finishedAt, updatedAt: finishedAt }).where(window)
       })
+    },
+
+    async reconcileOrphanedRuns(finishedAt) {
+      const repaired = await db
+        .update(collectionRuns)
+        .set({ status: 'interrupted', stopReason: 'ORPHANED_RUNNING_RUN', finishedAt })
+        .where(and(eq(collectionRuns.feedKind, 'board_search'), eq(collectionRuns.status, 'running')))
+        .returning({ id: collectionRuns.id })
+      return repaired.length
     },
   }
 }

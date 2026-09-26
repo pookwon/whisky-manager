@@ -774,6 +774,35 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(run.rows[0]?.collection_pages).toBe(0)
   })
 
+  it('closes only board search runs left running, as the startup sweep words it', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-09-26T05:00:00.000Z')
+    const searchRun = randomUUID()
+    await search.startRun({ id: searchRun, boardId: '137', query: '알라키', fromDay: '20250101', toDay: '20250829', startedAt: at })
+    // A list walk's run on a board no other test leaves running.
+    const listRun = randomUUID()
+    await pool.query(
+      `insert into runs (id, feed_kind, menu_id, run_kind, target_start_ms, target_end_ms, status, started_at)
+       values ($1, 'board', 'sweep-test', 'backfill', 0, 1, 'running', $2)`,
+      [listRun, at],
+    )
+
+    expect(await search.reconcileOrphanedRuns(new Date('2026-09-26T05:10:00.000Z'))).toBe(1)
+    const rows = await pool.query<{ id: string; status: string; stop_reason: string | null }>(
+      'select id, status, stop_reason from runs where id = any($1::uuid[])', [[searchRun, listRun]],
+    )
+    expect(Object.fromEntries(rows.rows.map((row) => [row.id, [row.status, row.stop_reason]]))).toEqual({
+      [searchRun]: ['interrupted', 'ORPHANED_RUNNING_RUN'],
+      [listRun]: ['running', null],
+    })
+    // The board can start a search run again.
+    const next = randomUUID()
+    await search.startRun({ id: next, boardId: '137', query: '러셀', fromDay: '20250101', toDay: '20250829', startedAt: at })
+    await search.finishRun(next, 'interrupted', 'ABORTED', at)
+    await pool.query("update runs set status = 'interrupted', finished_at = $2 where id = $1", [listRun, at])
+  })
+
   it('narrows a query\'s segment in its own window and walks it from the first page', async () => {
     const collection = createCollectionRepository(connection.db)
     const search = createBoardSearchRepository(connection.db, collection)
