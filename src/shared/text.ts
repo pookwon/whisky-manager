@@ -818,21 +818,12 @@ export const TEXT = {
     },
   },
   articleProbe: {
-    heading: '빈 id 확인',
-    why: '검색어로도 닿지 않은 글을 id로 하나씩 읽어 거둡니다. 검색어 보충 기간에 저장된 글 사이의 빈 id를 모두 읽고, 살아 있는 글은 저장하고 나머지는 왜 없는지 적습니다. 읽어도 조회수는 오르지 않습니다.',
-    none: '빈 id 확인 작업이 없습니다',
-    running: '확인 중',
-    idle: '대기',
-    finished: '확인 완료',
     create: '빈 글 번호 목록 만들기',
     start: '지금 확인',
     resume: '이어서 확인',
     stop: '멈추기',
     /** The gap's first and last day, both `YYYY-MM-DD` KST. */
     window: (firstDay: string, lastDay: string) => `${firstDay} ~ ${lastDay} 사이의 빈 글 번호`,
-    /** `other`: live posts not stored — on a board this app does not collect, or notices. */
-    summary: (probed: number, total: number, stored: number, deleted: number, unreadable: number, other: number) =>
-      `확인 ${probed.toLocaleString('ko-KR')} / ${total.toLocaleString('ko-KR')} · 저장 ${stored.toLocaleString('ko-KR')} · 삭제 ${deleted.toLocaleString('ko-KR')} · 읽기 불가 ${unreadable.toLocaleString('ko-KR')}${other === 0 ? '' : ` · 기타(다른 게시판·공지) ${other.toLocaleString('ko-KR')}`}`,
     /** What a glance wants of the job; the breakdown below it waits under 자세히. */
     headline: (probed: number, total: number, stored: number) =>
       `확인 ${probed.toLocaleString('ko-KR')} / ${total.toLocaleString('ko-KR')} · 저장 ${stored.toLocaleString('ko-KR')}건`,

@@ -13,10 +13,6 @@ export interface ArticleProbeCreateOutcome {
   readonly text: string
 }
 
-export function articleProbeSummaryLine(job: ArticleProbeJob): string {
-  return TEXT.articleProbe.summary(job.probed, job.total, job.stored, job.deleted, job.unreadable, job.otherBoard + job.notice)
-}
-
 export function articleProbeProgressLine(progress: ArticleProbeProgress | null): string | null {
   return progress === null ? null : TEXT.articleProbe.progress(progress.requested, progress.maxPages)
 }

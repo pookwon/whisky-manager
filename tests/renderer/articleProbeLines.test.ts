@@ -7,7 +7,6 @@ import {
   articleProbeHeadlineLine,
   articleProbeProgressLine,
   articleProbeStartLabel,
-  articleProbeSummaryLine,
   articleProbeWindowLine,
 } from '../../src/renderer/views/collection/articleProbeLines.js'
 import type { ArticleProbeJob } from '../../src/desktop/collection-db/articleProbeRepository.js'
@@ -18,12 +17,6 @@ const job = (probed: number, otherBoard = 0, notice = 0): ArticleProbeJob => ({ 
 const AT = Date.UTC(2026, 8, 26, 8, 47)
 
 describe('article probe wording', () => {
-  it('sums the job the way the spec spells it', () => {
-    expect(articleProbeSummaryLine(job(3120))).toBe('확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45')
-    // Another board's posts and notices fold into one count: neither is stored.
-    expect(articleProbeSummaryLine(job(3120, 7, 2))).toBe('확인 3,120 / 9,660 · 저장 684 · 삭제 2,391 · 읽기 불가 45 · 기타(다른 게시판·공지) 9')
-  })
-
   it('shows a running block\'s ids of its budget', () => {
     expect(articleProbeProgressLine({ requested: 40, maxPages: 60 })).toBe('이번 차례 40 / 60건')
     expect(articleProbeProgressLine(null)).toBeNull()

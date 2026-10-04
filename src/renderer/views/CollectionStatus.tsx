@@ -1,12 +1,12 @@
 import { TEXT } from '../../shared/text.js'
 import type { CollectionRunSummary } from '../../desktop/collection-db/statusQuery.js'
-import { ArticleProbeCard } from './collection/ArticleProbeCard.js'
+import { ArticleProbeStep } from './collection/ArticleProbeStep.js'
 import { BoardSearchStep } from './collection/BoardSearchStep.js'
 import { CollectionUnavailable } from './collection/CollectionUnavailable.js'
 import { IdGapPanel } from './collection/IdGapPanel.js'
 import { ListWalkStep } from './collection/ListWalkStep.js'
 import { runningStep } from './collection/stepFacts.js'
-import { listStepState, searchStepState } from './collection/stepStates.js'
+import { listStepState, probeStepState, searchStepState } from './collection/stepStates.js'
 import { collectionRangeLabel, formatKstDateTime, relativeTime } from '../format.js'
 import { useApp } from '../store.js'
 
@@ -125,7 +125,15 @@ export function CollectionStatus(): React.JSX.Element {
           request={null}
         />
       )}
-      {articleProbe?.kind === 'ready' && <ArticleProbeCard view={articleProbe.view} busy={busy} act={act} />}
+      {inputs.probe !== null && (
+        <ArticleProbeStep
+          view={inputs.probe}
+          state={probeStepState(inputs)}
+          otherRunning={running !== null && running !== 'probe'}
+          busy={busy}
+          act={act}
+        />
+      )}
 
       <section className="grid grid-cols-2 gap-3">
         <Stat label={TEXT.collection.totals.posts} value={totals.posts} />
