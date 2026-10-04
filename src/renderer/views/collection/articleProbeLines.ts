@@ -57,3 +57,12 @@ export function articleProbeCreateOutcome(outcome: ArticleProbeCreateView): Arti
     ? { kind: 'created', text: TEXT.articleProbe.created(outcome.idCount) }
     : { kind: 'refusal', text: TEXT.articleProbe.refused[outcome.reason] }
 }
+
+export function articleProbeHeadlineLine(job: ArticleProbeJob): string {
+  return TEXT.articleProbe.headline(job.probed, job.total, job.stored)
+}
+
+/** Another board's posts and notices fold into one count: neither is stored. */
+export function articleProbeBreakdownLine(job: ArticleProbeJob): string {
+  return TEXT.articleProbe.breakdown(job.deleted, job.unreadable, job.otherBoard + job.notice)
+}
