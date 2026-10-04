@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
-import type { BoardSearchPlanView, BoardSearchStatusView, StartCollectionResult } from '../../../desktop/ipc.js'
+import type { BoardSearchPlanView, BoardSearchStatusView } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
 import {
   boardSearchBlockFailureLine,
@@ -16,6 +16,7 @@ import {
   dayKeyLabel,
   dayKeyOfDateInput,
 } from './boardSearchLines.js'
+import { searchStartRefusal } from './startRefusals.js'
 
 type ReadyView = Extract<BoardSearchStatusView, { readonly kind: 'ready' }>['view']
 
@@ -26,10 +27,6 @@ interface BoardSearchCardProps {
 }
 
 const DEFAULT_FROM = '2025-01-01'
-
-function startRefusal(result: StartCollectionResult): string | null {
-  return result.kind === 'refused' ? TEXT.boardSearch.startRefused[result.reason] : null
-}
 
 /**
  * The search backfill: make a job for a board, see where it stands, start or
@@ -132,7 +129,7 @@ export function BoardSearchCard({ view, busy, act }: BoardSearchCardProps): Reac
                   disabled={busy}
                   onClick={() => {
                     clear()
-                    void act(async () => setRefusal(startRefusal(await api.startBoardSearch())))
+                    void act(async () => setRefusal(searchStartRefusal(await api.startBoardSearch())))
                   }}
                 >
                   {boardSearchStartLabel(job)}

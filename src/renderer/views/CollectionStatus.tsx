@@ -4,13 +4,13 @@ import type { CollectionRunSummary } from '../../desktop/collection-db/statusQue
 import type { CollectionFeedKind } from '../../desktop/collection-db/repository.js'
 import type {
   CollectionRunRequest,
-  StartCollectionResult,
 } from '../../desktop/ipc.js'
 import { BoardQueue } from './collection/BoardQueue.js'
 import { ArticleProbeCard } from './collection/ArticleProbeCard.js'
 import { BoardSearchCard } from './collection/BoardSearchCard.js'
 import { IdGapPanel } from './collection/IdGapPanel.js'
 import { CollectionUnavailable } from './collection/CollectionUnavailable.js'
+import { listStartRefusal } from './collection/startRefusals.js'
 import { api } from '../api.js'
 import {
   collectionCoveragePercent,
@@ -30,13 +30,6 @@ function kstDateValue(epochMs: number): string {
 /** Midnight KST of a date the operator picked. */
 function kstMidnightOf(value: string): number {
   return Date.parse(`${value}T00:00:00+09:00`)
-}
-
-/** Why a press did nothing, in the words of the thing the operator can fix. */
-function refusalText(result: StartCollectionResult): string | null {
-  if (result.kind === 'refused') return TEXT.collection.refused[result.reason]
-  if (result.kind === 'rejected') return TEXT.collection.rejected[result.problem]
-  return null
 }
 
 /** Same shape the dashboard's numbers wear, so the two screens read alike. */
@@ -129,7 +122,7 @@ export function CollectionStatus(): React.JSX.Element {
         setReplacing(request)
         return
       }
-      setRefusal(refusalText(result))
+      setRefusal(listStartRefusal(result))
     })
   }
 

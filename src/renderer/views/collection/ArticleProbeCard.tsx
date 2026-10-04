@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
-import type { ArticleProbeStatusView, StartCollectionResult } from '../../../desktop/ipc.js'
+import type { ArticleProbeStatusView } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
 import {
   articleProbeCreateOutcome,
@@ -11,6 +11,7 @@ import {
   articleProbeSummaryLine,
   articleProbeWindowLine,
 } from './articleProbeLines.js'
+import { probeStartRefusal } from './startRefusals.js'
 
 type ReadyView = Extract<ArticleProbeStatusView, { readonly kind: 'ready' }>['view']
 
@@ -18,10 +19,6 @@ interface ArticleProbeCardProps {
   readonly view: ReadyView
   readonly busy: boolean
   readonly act: (run: () => Promise<unknown>) => Promise<boolean>
-}
-
-function startRefusal(result: StartCollectionResult): string | null {
-  return result.kind === 'refused' ? TEXT.articleProbe.startRefused[result.reason] : null
 }
 
 /**
@@ -122,7 +119,7 @@ export function ArticleProbeCard({ view, busy, act }: ArticleProbeCardProps): Re
                   disabled={busy}
                   onClick={() => {
                     clear()
-                    void act(async () => setRefusal(startRefusal(await api.startArticleProbe())))
+                    void act(async () => setRefusal(probeStartRefusal(await api.startArticleProbe())))
                   }}
                 >
                   {articleProbeStartLabel(job)}
