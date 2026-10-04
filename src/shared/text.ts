@@ -767,24 +767,17 @@ export const TEXT = {
     },
   },
   boardSearch: {
-    heading: '검색어 보충 수집',
-    why: '게시판 목록은 1000쪽까지만 보입니다. 그 너머의 글을 제목 검색으로 찾아 채웁니다. 검색어는 이미 모은 제목에서 많이 쓰인 단어로 고릅니다.',
     board: '게시판',
     fromDay: '시작일',
     preview: (count: number, from: string, to: string) => `검색어 ${count.toLocaleString('ko-KR')}개 · ${from} ~ ${to}`,
     previewButton: '미리 보기',
     create: '보충 작업 만들기',
-    replaceConfirm: '기존 보충 작업을 지우고 새로 만듭니다. 계속할까요?',
     start: '지금 보충',
     resume: '이어서 보충',
     stop: '멈추기',
-    none: '보충 작업이 없습니다',
-    running: '보충 중',
     /** A running block: pages it has asked for of its budget, and the query in hand. */
     progress: (requested: number, max: number, query: string) =>
       `이번 차례 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}쪽 · '${query}'`,
-    idle: '대기',
-    finished: '보충 완료',
     summary: (done: number, total: number, inserted: number, current: string | null) =>
       `검색어 ${done} / ${total} · 새 글 ${inserted.toLocaleString('ko-KR')}건${current === null ? '' : ` · 다음 '${current}'`}`,
     coverage: (span: number, missing: number, ratio: number, remaining: number) =>
@@ -801,7 +794,6 @@ export const TEXT = {
       cancel: '그대로 두기',
     },
     window: (board: string, from: string, to: string) => `${board} · ${from} ~ ${to}`,
-    queries: '검색어별 진행',
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,

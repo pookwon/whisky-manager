@@ -1,12 +1,12 @@
 import { TEXT } from '../../shared/text.js'
 import type { CollectionRunSummary } from '../../desktop/collection-db/statusQuery.js'
 import { ArticleProbeCard } from './collection/ArticleProbeCard.js'
-import { BoardSearchCard } from './collection/BoardSearchCard.js'
+import { BoardSearchStep } from './collection/BoardSearchStep.js'
 import { CollectionUnavailable } from './collection/CollectionUnavailable.js'
 import { IdGapPanel } from './collection/IdGapPanel.js'
 import { ListWalkStep } from './collection/ListWalkStep.js'
 import { runningStep } from './collection/stepFacts.js'
-import { listStepState } from './collection/stepStates.js'
+import { listStepState, searchStepState } from './collection/stepStates.js'
 import { collectionRangeLabel, formatKstDateTime, relativeTime } from '../format.js'
 import { useApp } from '../store.js'
 
@@ -115,7 +115,16 @@ export function CollectionStatus(): React.JSX.Element {
         act={act}
         periodRequest={null}
       />
-      {boardSearch?.kind === 'ready' && <BoardSearchCard view={boardSearch.view} busy={busy} act={act} />}
+      {inputs.search !== null && (
+        <BoardSearchStep
+          view={inputs.search}
+          state={searchStepState(inputs)}
+          otherRunning={running !== null && running !== 'search'}
+          busy={busy}
+          act={act}
+          request={null}
+        />
+      )}
       {articleProbe?.kind === 'ready' && <ArticleProbeCard view={articleProbe.view} busy={busy} act={act} />}
 
       <section className="grid grid-cols-2 gap-3">
