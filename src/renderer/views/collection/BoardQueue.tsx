@@ -11,7 +11,7 @@ export function BoardQueue({ boards }: { boards: readonly BoardProgress[] }): Re
   const done = boards.filter((board) => board.state === 'complete' || board.state === 'horizon').length
   const walking = boards.find((board) => board.state === 'walking') ?? null
   return (
-    <section className="panel px-5 py-4">
+    <section>
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-bold">{TEXT.collection.boards.heading}</h2>
         <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>

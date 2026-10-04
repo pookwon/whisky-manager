@@ -91,3 +91,8 @@ export function boardSearchPageLabel(query: BoardSearchQueryView): string {
   const page = query.lastCommittedPage === null ? '—' : String(query.lastCommittedPage)
   return query.segmentToDay === null ? page : TEXT.boardSearch.pageInSegment(page, dayKeyMonthDay(query.segmentToDay))
 }
+
+/** The figure a newcomer acts on; null until there is a baseline to subtract. */
+export function boardSearchRemainingLine(coverage: BoardSearchCoverage): string | null {
+  return coverage.estimatedRemaining === null ? null : TEXT.boardSearch.remaining(coverage.estimatedRemaining)
+}

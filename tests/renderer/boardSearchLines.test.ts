@@ -7,6 +7,7 @@ import {
   boardSearchProgressLine,
   boardSearchQueryState,
   boardSearchQueryStateText,
+  boardSearchRemainingLine,
   boardSearchStartLabel,
   boardSearchSummaryLine,
   boardSearchTotalLabel,
@@ -119,12 +120,18 @@ describe('board search wording', () => {
     const atMs = Date.UTC(2026, 8, 25, 18, 6, 32)
     const stopReason = 'COLLECTION_FAILURE: error: duplicate key value violates unique constraint "runs_one_running_feed"'
     expect(boardSearchBlockFailureLine({ code: 'COLLECTION_FAILURE', stopReason, atMs })).toBe(TEXT.boardSearch.blockFailed('09-26 03:06', stopReason))
+    expect(TEXT.boardSearch.blockFailed('09-26 03:06', 'x')).toBe('09-26 03:06 차례가 실행을 남기지 못하고 끝났습니다 · x')
     expect(boardSearchBlockFailureLine(null)).toBeNull()
   })
 
   it('reads a running block\'s progress as pages of its budget and the query in hand, and nothing before it has one', () => {
     expect(boardSearchProgressLine({ query: '알라키', requestedPages: 12, maxPages: 60 })).toBe(TEXT.boardSearch.progress(12, 60, '알라키'))
-    expect(TEXT.boardSearch.progress(12, 60, '알라키')).toBe("이번 블록 12 / 60쪽 · '알라키'")
+    expect(TEXT.boardSearch.progress(12, 60, '알라키')).toBe("이번 차례 12 / 60쪽 · '알라키'")
     expect(boardSearchProgressLine(null)).toBeNull()
+  })
+
+  it('says what is still to recover in one plain line, and nothing before there is a baseline', () => {
+    expect(boardSearchRemainingLine({ span: 111973, missing: 9660, baselineMissingRatio: 0.0678, estimatedRemaining: 2066 })).toBe('아직 못 거둔 글 약 2,066건')
+    expect(boardSearchRemainingLine({ span: 0, missing: 0, baselineMissingRatio: null, estimatedRemaining: null })).toBeNull()
   })
 })

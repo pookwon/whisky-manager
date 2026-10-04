@@ -11,7 +11,7 @@ import { formatKstDateTime } from '../../format.js'
 export function IdGapPanel({ report }: { report: IdGapReport }): React.JSX.Element {
   const clean = report.suspectCount === 0
   return (
-    <section className="panel overflow-hidden">
+    <section className="overflow-hidden rounded-lg" style={{ background: 'var(--surface-sunken)' }}>
       <div className="flex">
         <div className={`w-1 shrink-0 ${clean ? 'bar-ok' : 'bar-warn'}`} />
         <div className="flex-1 px-5 py-4">

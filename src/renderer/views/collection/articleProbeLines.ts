@@ -13,10 +13,6 @@ export interface ArticleProbeCreateOutcome {
   readonly text: string
 }
 
-export function articleProbeSummaryLine(job: ArticleProbeJob): string {
-  return TEXT.articleProbe.summary(job.probed, job.total, job.stored, job.deleted, job.unreadable, job.otherBoard + job.notice)
-}
-
 export function articleProbeProgressLine(progress: ArticleProbeProgress | null): string | null {
   return progress === null ? null : TEXT.articleProbe.progress(progress.requested, progress.maxPages)
 }
@@ -56,4 +52,13 @@ export function articleProbeCreateOutcome(outcome: ArticleProbeCreateView): Arti
   return outcome.kind === 'ready'
     ? { kind: 'created', text: TEXT.articleProbe.created(outcome.idCount) }
     : { kind: 'refusal', text: TEXT.articleProbe.refused[outcome.reason] }
+}
+
+export function articleProbeHeadlineLine(job: ArticleProbeJob): string {
+  return TEXT.articleProbe.headline(job.probed, job.total, job.stored)
+}
+
+/** Another board's posts and notices fold into one count: neither is stored. */
+export function articleProbeBreakdownLine(job: ArticleProbeJob): string {
+  return TEXT.articleProbe.breakdown(job.deleted, job.unreadable, job.otherBoard + job.notice)
 }
