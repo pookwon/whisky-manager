@@ -107,7 +107,6 @@ export const TEXT = {
     pagesRead: (pages: number) => `${pages}쪽 저장`,
     newPosts: (count: number) => `신규 ${count}건`,
     reobserved: (count: number) => `재관측 ${count}건`,
-    elapsed: (text: string) => `${text} 경과`,
     coverage: (percent: number) => `대상 구간의 ${percent}%`,
     totals: {
       posts: '수집한 글',
@@ -157,7 +156,6 @@ export const TEXT = {
     forceRelease: '활동 시간 지키기',
     forcedOn: '활동 시간을 무시하고 있습니다. 이 기간을 다 옮기면 저절로 풀립니다.',
     /** A window the operator picks, as opposed to the schedule's own. */
-    periodHeading: '기간 지정 수집',
     periodFrom: '시작 날짜',
     periodTo: '끝 날짜',
     periodRun: '이 기간 수집',
