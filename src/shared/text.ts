@@ -784,12 +784,14 @@ export const TEXT = {
       `빈 구간 id ${span.toLocaleString('ko-KR')}개 중 비어 있는 것 ${missing.toLocaleString('ko-KR')}개. 기준선 ${(ratio * 100).toFixed(1)}%(삭제·비수집 게시판)를 빼면 아직 못 거둔 글 약 ${remaining.toLocaleString('ko-KR')}건`,
     /** The coverage in the one figure a newcomer acts on; the full sum stays under 자세히. */
     remaining: (count: number) => `아직 못 거둔 글 약 ${count.toLocaleString('ko-KR')}건`,
-    /** Replacing an unfinished search job, said as what it costs, on the screen rather than in a browser dialog. */
+    /** Replacing a search job, said as what it costs, on the screen rather than in a browser dialog. */
     replace: {
       heading: '진행 중인 보충 작업이 있습니다',
+      finishedHeading: '끝난 보충 작업이 있습니다',
       progress: (done: number, total: number, inserted: number) =>
         `검색어 ${done} / ${total}까지 걸었고 새 글 ${inserted.toLocaleString('ko-KR')}건을 거뒀습니다`,
       cost: '새로 만들면 이 작업의 진행 위치가 사라지고 처음부터 시작합니다. 이미 거둔 글은 지워지지 않습니다.',
+      finishedCost: '새로 만들면 이 작업의 검색어별 기록이 지워지고 새 작업을 처음부터 시작합니다. 이미 거둔 글은 지워지지 않습니다.',
       confirm: '새로 만들기',
       cancel: '그대로 두기',
     },

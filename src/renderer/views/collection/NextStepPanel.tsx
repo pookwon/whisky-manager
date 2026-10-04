@@ -73,7 +73,7 @@ export function NextStepPanel({ next, busy, act, onPickPeriod, onPrepareSearch }
           setAnswer(null)
           void act(async () => {
             const outcome = articleProbeCreateOutcome(await api.createArticleProbeJob())
-            setAnswer({ text: outcome.text, warn: outcome.kind === 'refusal' })
+            if (outcome.kind === 'refusal') setAnswer({ text: outcome.text, warn: true })
           })
         })
       case 'pickPeriod':

@@ -121,12 +121,14 @@ export function BoardSearchJobForm({ view, busy, act, request, initiallyOpen }: 
         {refusal !== null && <p className="text-sm tone-warn">{refusal}</p>}
         {confirming && job !== null && (
           <div className="rounded-lg px-4 py-3" style={{ background: 'var(--surface-sunken)' }}>
-            <p className="text-sm font-semibold tone-warn">{TEXT.boardSearch.replace.heading}</p>
+            <p className="text-sm font-semibold tone-warn">
+              {job.current === null ? TEXT.boardSearch.replace.finishedHeading : TEXT.boardSearch.replace.heading}
+            </p>
             <p className="mt-1 text-sm tabular-nums">
               {TEXT.boardSearch.replace.progress(job.completedCount, job.queries.length, job.insertedTotal)}
             </p>
             <p className="mt-1 text-sm" style={MUTED}>
-              {TEXT.boardSearch.replace.cost}
+              {job.current === null ? TEXT.boardSearch.replace.finishedCost : TEXT.boardSearch.replace.cost}
             </p>
             <div className="mt-3 flex items-center gap-2">
               <button type="button" className="btn btn-primary" disabled={busy} onClick={create}>
