@@ -671,6 +671,26 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(await search.oldestPostedAtMs('137')).toBe(Date.UTC(2025, 0, 30, 23, 1))
   })
 
+  it('appends words to the search job after its last, keeping every query\'s progress', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-10-07T00:00:00.000Z')
+    await search.replaceJob({ boardId: '137', fromDay: '20240101', toDay: '20250101', at, queries: [{ query: '홈플', expectedGain: 9 }, { query: '구매', expectedGain: 6 }] })
+    const runId = randomUUID()
+    await search.startRun({ id: runId, boardId: '137', query: '홈플', fromDay: '20240101', toDay: '20250101', startedAt: at })
+    await expect(search.extendJob({ at, queries: [{ query: '홈플러스', expectedGain: 5 }] })).rejects.toThrow()
+    await search.finishRun(runId, 'succeeded', null, at)
+
+    expect(await search.extendJob({ at, queries: [{ query: '홈플러스', expectedGain: 5 }, { query: '구매', expectedGain: 5 }, { query: '구매기', expectedGain: 5 }] })).toBe(2)
+    expect(await search.extendJob({ at, queries: [{ query: '홈플러스', expectedGain: 5 }] })).toBe(0)
+    expect((await search.listQueries()).map((q) => [q.queueOrder, q.query, q.complete, q.fromDay, q.toDay])).toEqual([
+      [1, '홈플', true, '20240101', '20250101'],
+      [2, '구매', false, '20240101', '20250101'],
+      [3, '홈플러스', false, '20240101', '20250101'],
+      [4, '구매기', false, '20240101', '20250101'],
+    ])
+  })
+
   it('counts id holes in the search window and in the stretch after it', async () => {
     const coverage = await createBoardSearchCoverageQuery(connection.db).read({ fromDay: '20250101', toDay: '20250201' }, 'a')
     // The search fixture's two posts (667850, 667901) are the only ones in January 2025 here.

@@ -80,6 +80,7 @@ function harness(
     readBoardTitles: async () => [],
     oldestPostedAtMs: async () => null,
     replaceJob: async () => undefined,
+    extendJob: async () => 0,
     reconcileOrphanedRuns: async () => {
       if (setup.sweepRejects === true) throw new Error('database went away')
       sweeps.push(events.length)

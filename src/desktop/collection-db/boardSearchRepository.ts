@@ -69,6 +69,8 @@ export interface BoardSearchRepository {
   readBoardTitles(boardId: string): Promise<readonly string[]>
   oldestPostedAtMs(boardId: string): Promise<number | null>
   replaceJob(input: ReplaceBoardSearchJobInput): Promise<void>
+  /** Appends the queries the job does not hold, in the given order, after its last `queue_order`, in the job's own board and window; returns how many it added. Throws when no job exists or a `board_search` run is `running`. */
+  extendJob(input: { readonly queries: readonly BoardSearchQuery[]; readonly at: Date }): Promise<number>
   startRun(input: BoardSearchRunInput): Promise<void>
   recordPageRequest(runId: string): Promise<void>
   /** Walks the query on in a window ending at `segmentToDay`, from its first page. */
@@ -162,6 +164,35 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
             updatedAt: input.at,
           })),
         )
+      })
+    },
+
+    async extendJob(input) {
+      return await db.transaction(async (tx) => {
+        const running = await tx
+          .select({ id: collectionRuns.id })
+          .from(collectionRuns)
+          .where(and(eq(collectionRuns.feedKind, 'board_search'), eq(collectionRuns.status, 'running')))
+          .limit(1)
+        if (running.length > 0) throw new Error('cannot extend the search job while a run is writing its cursor')
+        const rows = await tx.select().from(boardSearchState).orderBy(asc(boardSearchState.queueOrder))
+        const last = rows.at(-1)
+        if (last === undefined) throw new Error('there is no search job to extend')
+        const held = new Set(rows.map((row) => row.query))
+        const added = input.queries.filter((entry) => !held.has(entry.query))
+        if (added.length === 0) return 0
+        await tx.insert(boardSearchState).values(
+          added.map((entry, index) => ({
+            boardId: last.boardId,
+            query: entry.query,
+            fromDay: last.fromDay,
+            toDay: last.toDay,
+            queueOrder: last.queueOrder + index + 1,
+            expectedGain: entry.expectedGain,
+            updatedAt: input.at,
+          })),
+        )
+        return added.length
       })
     },
 
