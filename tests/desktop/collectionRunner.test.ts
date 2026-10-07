@@ -4,6 +4,7 @@ import { createCollectionRunner } from '../../src/desktop/collectionRunner.js'
 import type { CollectionRepository } from '../../src/desktop/collection-db/repository.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
 import { createCollectionLock } from '../../src/desktop/collectionLock.js'
+import type { CollectionBlockEnd } from '../../src/desktop/collectionBlockEnd.js'
 
 function post(id: string, postedAt: number): CollectedPostMetadata {
   return { cafeId: '14538121', postId: id, boardId: '1', boardName: '게시판', title: null, prefix: null, authorId: null, authorNickname: null, postedAt, viewCount: 0, commentCount: 0, replyCount: 0, isNotice: false }
@@ -154,5 +155,22 @@ describe('collection runner over a queue of feeds', () => {
     await done
     expect(finished).toEqual(['interrupted:ABORTED'])
     expect(t.asked.filter((a) => a.startsWith('189'))).toEqual([])
+  })
+
+  it('says how each block ended, after it has let go of the lock', async () => {
+    const ended = async (t: ReturnType<typeof transport>, maxPages: number) => {
+      const { repo } = repository()
+      const r = runner(repo, t.transport)
+      return await new Promise<CollectionBlockEnd>((resolve) => {
+        expect(r.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages, feeds, resumeFromCheckpoint: true, onBlockEnd: (end) => {
+          expect(r.isRunning()).toBe(false)
+          resolve(end)
+        } })).toEqual({ kind: 'started' })
+      })
+    }
+    const pages = { '137': { 1: inPeriod('a') }, '189': { 1: inPeriod('b') }, '205': { 1: inPeriod('c') } }
+    expect(await ended(transport(pages), 30)).toEqual({ requests: 9, endedBy: 'drained' })
+    expect(await ended(transport(pages), 4)).toEqual({ requests: 4, endedBy: 'budget' })
+    expect(await ended(transport({ '137': { 1: inPeriod('a') }, '205': { 1: inPeriod('c') } }, ['189']), 30)).toMatchObject({ endedBy: 'failed' })
   })
 })

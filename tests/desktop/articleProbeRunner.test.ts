@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createArticleProbeRunner } from '../../src/desktop/articleProbeRunner.js'
 import type { ArticleFetcher } from '../../src/desktop/articleFetcher.js'
 import { createCollectionLock } from '../../src/desktop/collectionLock.js'
+import type { CollectionBlockEnd } from '../../src/desktop/collectionBlockEnd.js'
 import { CollectionPageError } from '../../src/desktop/collectionPageError.js'
 import type { ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import type { CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
@@ -238,5 +239,20 @@ describe('articleProbeRunner', () => {
     expect(h.errors).toEqual(['database went away'])
     expect(h.runner.start({ maxPages: 10, window: WINDOW })).toEqual({ kind: 'started' })
     await h.settle()
+  })
+
+  it('says how each block ended', async () => {
+    const ended = (h: ReturnType<typeof harness>, maxPages: number) =>
+      new Promise<CollectionBlockEnd>((resolve) => {
+        h.runner.start({ maxPages, window: WINDOW, onBlockEnd: (end) => { expect(h.runner.isRunning()).toBe(false); resolve(end) } })
+      })
+    expect(await ended(harness(['2', '3'], { 2: DELETED, 3: DELETED }), 10)).toEqual({ requests: 2, endedBy: 'drained' })
+    expect(await ended(harness(['2', '3', '4'], { 2: DELETED, 3: DELETED, 4: DELETED }), 2)).toEqual({ requests: 2, endedBy: 'budget' })
+    expect(await ended(harness(['2'], { 2: 'ARTICLE_HTTP_ERROR' }), 10)).toEqual({ requests: 1, endedBy: 'failed' })
+    expect(await ended(harness([], {}, { noJob: true }), 10)).toEqual({ requests: 0, endedBy: 'drained' })
+    let stop = (): void => undefined
+    const stopped = harness(['2', '3'], { 2: DELETED, 3: DELETED }, { onRead: () => stop() })
+    stop = () => stopped.runner.stop()
+    expect(await ended(stopped, 10)).toMatchObject({ endedBy: 'stopped' })
   })
 })

@@ -6,6 +6,7 @@ import type { Random } from '../shared/ports.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from './boardSearchPageFetcher.js'
 import { assertBoardSearchPage, assertBoardSearchPageFollows } from './boardSearchPageCheck.js'
+import type { CollectionBlockEnd, OnCollectionBlockEnd } from './collectionBlockEnd.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
@@ -44,7 +45,7 @@ export interface BoardSearchBlockFailure extends FailedRunStopReason {
 }
 
 export interface BoardSearchRunner {
-  start(request: { readonly maxPages: number }): CollectionStartResult
+  start(request: { readonly maxPages: number; readonly onBlockEnd?: OnCollectionBlockEnd }): CollectionStartResult
   stop(): void
   isRunning(): boolean
   /** Null between blocks, and while a block has not reached its first query. */
@@ -63,6 +64,8 @@ const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOA
 type QueryOutcome = {
   readonly requests: number
   readonly endsBlock: boolean
+  /** Whether the query's run closed `failed`, or could not be started. */
+  readonly failed: boolean
   /** The failure of a run that could not be started, which no row records. */
   readonly unrecorded?: FailedRunStopReason
 }
@@ -167,13 +170,13 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
     } catch (error) {
       // No row to finish. Whatever refused this insert would refuse the next.
-      return { requests, endsBlock: true, unrecorded: failedRunStopReason(error) }
+      return { requests, endsBlock: true, failed: true, unrecorded: failedRunStopReason(error) }
     }
     try {
       for (;;) {
         if (requests >= budget) {
           await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
-          return { requests, endsBlock: false }
+          return { requests, endsBlock: false, failed: false }
         }
         await waitForReadTurn(readTurn, spentBefore + requests + 1, pacing)
         await repository.recordPageRequest(runId)
@@ -197,7 +200,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         }
         if (step.kind === 'complete') {
           await repository.finishRun(runId, 'succeeded', null, now())
-          return { requests, endsBlock: false }
+          return { requests, endsBlock: false, failed: false }
         }
         if (step.kind === 'narrow') {
           await repository.narrowSegment({ boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, segmentToDay: step.segmentToDay, at: now() })
@@ -218,11 +221,11 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         repository.finishRun(runId, status, stopReason, now()).catch((closeError: unknown) => { deps.onError?.(closeError) })
       if (error instanceof CollectionPageError && error.code === 'ABORTED') {
         await close('interrupted', 'ABORTED')
-        return { requests, endsBlock: true }
+        return { requests, endsBlock: true, failed: false }
       }
       const failure = failedRunStopReason(error)
       await close('failed', failure.stopReason)
-      return { requests, endsBlock: !QUERY_OWN_FAILURES.has(failure.code) }
+      return { requests, endsBlock: !QUERY_OWN_FAILURES.has(failure.code), failed: true }
     }
   }
 
@@ -233,19 +236,23 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
    * held, so none is being written, and a board's one running search run
    * would refuse every run this block starts.
    */
-  async function walk(repository: BoardSearchRepository, maxPages: number): Promise<void> {
+  async function walk(repository: BoardSearchRepository, maxPages: number, report: (requests: number) => void): Promise<{ readonly spent: number; readonly failed: boolean }> {
     await repository.reconcileOrphanedRuns(new Date(deps.clock.now()))
     const pacing = deps.pacing()
     let spent = 0
+    let failed = false
     for (const query of await repository.listQueries()) {
       if (query.complete) continue
       if (abortRequested || spent >= maxPages) break
       blockProgress = { query: query.query, requestedPages: spent, maxPages }
       const outcome = await walkQuery(repository, query, maxPages - spent, spent, pacing)
       spent += outcome.requests
+      report(spent)
+      failed ||= outcome.failed
       if (outcome.unrecorded !== undefined) keepBlockFailure(outcome.unrecorded)
       if (outcome.endsBlock) break
     }
+    return { spent, failed }
   }
 
   return {
@@ -257,8 +264,15 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
       abortRequested = false
       lastBlockFailure = null
-      inFlight = walk(repository, request.maxPages)
+      let spent = 0
+      let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }
+      inFlight = walk(repository, request.maxPages, (requests) => { spent = requests })
+        .then((walked) => {
+          const endedBy = abortRequested ? 'stopped' : walked.failed ? 'failed' : walked.spent >= request.maxPages ? 'budget' : 'drained'
+          end = { requests: walked.spent, endedBy }
+        })
         .catch((error: unknown) => {
+          end = { requests: spent, endedBy: abortRequested ? 'stopped' : 'failed' }
           deps.onError?.(error)
           keepBlockFailure(failedRunStopReason(error))
         })
@@ -266,6 +280,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
           inFlight = null
           blockProgress = null
           deps.lock.release()
+          request.onBlockEnd?.(end)
         })
       return { kind: 'started' }
     },
