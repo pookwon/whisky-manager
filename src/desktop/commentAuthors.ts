@@ -18,8 +18,9 @@ export interface CommentAuthorLookup {
    * Who commented on a post, or `null` when that cannot be established.
    *
    * A count of zero is the board stating nobody has, which needs no request.
-   * A null count is the list itself being unreadable, which a request would
-   * not fix. Everything else is asked once and remembered, so a preview and
+   * A null count is the cafe giving none — an unreadable list, or a count it
+   * answered -1 for (most likely comments turned off) — and is answered null
+   * without a request. Everything else is asked once and remembered, so a preview and
    * the run it precedes do not each pay for the same post.
    *
    * The board is per post rather than per lookup: one cafe's posts can live on
