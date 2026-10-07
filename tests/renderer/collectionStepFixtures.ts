@@ -35,7 +35,7 @@ export const searchJob = (overrides: Partial<BoardSearchJobView> = {}): BoardSea
 })
 
 export const search = (job: BoardSearchJobView | null, running = false): BoardSearchView => ({
-  boards: [], running, progress: null, blockFailure: null, job,
+  running, progress: null, blockFailure: null, job,
 })
 
 export const probeJob = (overrides: Partial<ArticleProbeJob> = {}): ArticleProbeJob => ({

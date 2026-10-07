@@ -61,11 +61,10 @@ export interface NarrowBoardSearchSegmentInput {
   readonly at: Date
 }
 
-export interface CollectableBoard { readonly boardId: string; readonly name: string }
-
 export interface BoardSearchRepository {
   listQueries(): Promise<readonly BoardSearchQueryState[]>
-  listCollectableBoards(): Promise<readonly CollectableBoard[]>
+  /** The board's name; null for a board the cafe has never listed. */
+  readBoardName(boardId: string): Promise<string | null>
   readBoardTitles(boardId: string): Promise<readonly string[]>
   oldestPostedAtMs(boardId: string): Promise<number | null>
   replaceJob(input: ReplaceBoardSearchJobInput): Promise<void>
@@ -125,12 +124,9 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
       return rows.map(toQueryState)
     },
 
-    async listCollectableBoards() {
-      return await db
-        .select({ boardId: boards.boardId, name: boards.name })
-        .from(boards)
-        .where(eq(boards.collectEnabled, true))
-        .orderBy(asc(boards.name))
+    async readBoardName(boardId) {
+      const rows = await db.select({ name: boards.name }).from(boards).where(eq(boards.boardId, boardId))
+      return rows[0]?.name ?? null
     },
 
     async readBoardTitles(boardId) {

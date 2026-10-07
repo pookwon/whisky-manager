@@ -14,7 +14,7 @@ function inputs(rows: BoardSearchQueryState[], runs: Record<string, BoardSearchL
   const windows: string[] = []
   const repository = {
     listQueries: async () => rows,
-    listCollectableBoards: async () => [{ boardId: '137', name: '국내구입기 & 정보' }],
+    readBoardName: async (boardId: string) => (boardId === '137' ? '국내구입기 & 정보' : null),
   } as unknown as BoardSearchRepository
   const query: BoardSearchCoverageQuery = { read: async (_w, fingerprint) => { seen.push(fingerprint); return coverage } }
   const lastRuns: BoardSearchLastRunQuery = {
@@ -27,7 +27,6 @@ describe('readBoardSearchView', () => {
   it('sums the job up and names the query walking next', async () => {
     const i = inputs([row('글렌', 1, true, 40), row('구매', 2, false, 5), row('이마트', 3, false, 0)])
     await expect(readBoardSearchView(i)).resolves.toMatchObject({
-      boards: [{ boardId: '137', name: '국내구입기 & 정보' }],
       job: { boardId: '137', boardName: '국내구입기 & 정보', fromDay: '20250101', toDay: '20250829', completedCount: 1, insertedTotal: 45, current: '구매', coverage },
     })
     // The coverage cache is keyed on what was inserted, so it re-reads only when posts arrived.

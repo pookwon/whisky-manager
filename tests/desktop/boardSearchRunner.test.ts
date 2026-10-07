@@ -81,7 +81,7 @@ function harness(
   const queryOfRun = new Map<string, string>()
   const repository: BoardSearchRepository = {
     listQueries: async () => queries,
-    listCollectableBoards: async () => [],
+    readBoardName: async () => null,
     readBoardTitles: async () => [],
     oldestPostedAtMs: async () => null,
     replaceJob: async () => undefined,

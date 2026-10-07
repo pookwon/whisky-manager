@@ -669,6 +669,8 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect((await search.listQueries()).map((q) => q.query)).toEqual(['이마트'])
     expect(await search.readBoardTitles('137')).toEqual(expect.arrayContaining(['글렌알라키 12 이마트 구매', '글렌 두 병']))
     expect(await search.oldestPostedAtMs('137')).toBe(Date.UTC(2025, 0, 30, 23, 1))
+    expect(await search.readBoardName('137')).toBe('국내구입기 & 정보')
+    expect(await search.readBoardName('0')).toBeNull()
   })
 
   it('appends words to the search job after its last, keeping every query\'s progress', async () => {
