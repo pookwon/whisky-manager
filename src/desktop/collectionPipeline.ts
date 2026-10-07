@@ -54,12 +54,12 @@ export interface CollectionPipeline {
   isRunning(): boolean
 }
 
-type ListStage = Extract<CollectionPipelineStage, { kind: 'list' }>
 type SearchStage = Extract<CollectionPipelineStage, { kind: 'search' }>
 
+/** Only an idle stage has no job; every other stage is read off one. */
 type PreparedStage =
-  | { readonly stage: ListStage; readonly job: JobDescription }
-  | { readonly stage: Exclude<CollectionPipelineStage, { kind: 'list' }>; readonly job: JobDescription | null }
+  | { readonly stage: Extract<CollectionPipelineStage, { kind: 'idle' }>; readonly job: null }
+  | { readonly stage: CollectionPipelineStage; readonly job: JobDescription }
 
 /** What the chain compares to tell a stage that went round without reading. */
 const stageKey = (stage: CollectionPipelineStage): string => (stage.kind === 'search' ? `search:${stage.boardId}` : stage.kind)
@@ -126,7 +126,6 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
       const stage = collectionPipelineStage(job)
       if (stage.kind === 'search' && !(await ensureSearchJob(stores, stage))) continue
       if (stage.kind === 'probe' && !(await ensureProbeJob(stores, stage.period))) continue
-      if (stage.kind === 'list') return { stage, job }
       return { stage, job }
     }
   }
@@ -139,8 +138,9 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
   }
 
   function startRunner(prepared: PreparedStage, request: CollectionPipelineStartRequest, budget: number, onBlockEnd: (end: CollectionBlockEnd) => void): CollectionStartResult {
+    if (prepared.job === null) return { kind: 'refused', reason: 'NO_JOB' }
     const { stage, job } = prepared
-    if (stage.kind === 'list' && job !== null) {
+    if (stage.kind === 'list') {
       return deps.listRunner.start({
         range: { startMs: job.targetStartMs, endMs: job.targetEndMs },
         kind: request.runKind,
@@ -152,7 +152,7 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
     }
     if (stage.kind === 'search') return deps.searchRunner.start({ maxPages: budget, onBlockEnd })
     if (stage.kind === 'probe') return deps.probeRunner.start({ maxPages: budget, window: stage.period, onBlockEnd })
-    return { kind: 'refused', reason: stage.kind === 'idle' ? 'NO_JOB' : 'JOB_FINISHED' }
+    return { kind: 'refused', reason: 'JOB_FINISHED' }
   }
 
   async function runStage(

@@ -291,7 +291,6 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (inProgress !== null && !sameJob) {
         const pipelineActive = stage.kind !== 'idle' && !pipelineDone
         if (pipelineActive && request.replace !== true) return { kind: 'needs_replace', job: inProgress }
-        if (deps.collectionPipeline.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
       }
 
       // Same period's later steps (search or probe) are still in flight — just resume.
