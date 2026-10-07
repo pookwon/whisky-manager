@@ -9,6 +9,8 @@ export type BoardSearchPageReadResult =
   | {
       readonly ok: false
       readonly code: 'BOARD_SEARCH_BAD_REQUEST' | 'BOARD_SEARCH_NETWORK_ERROR' | 'BOARD_SEARCH_HTTP_ERROR' | 'BOARD_SEARCH_INVALID_JSON' | 'BOARD_SEARCH_PARSE_ERROR'
+      /** Which parser rule the page broke: its code and path, never the page's content. */
+      readonly detail?: string
     }
 
 /**
@@ -37,6 +39,7 @@ export function createBoardSearchPageReader(deps: { readonly http: Http }) {
         return { ok: true, page: request.page, result: parseCafeBoardSearchListText(response.text) }
       } catch (error) {
         if (error instanceof CafeArticleListParseError && error.code === 'INVALID_JSON') return { ok: false, code: 'BOARD_SEARCH_INVALID_JSON' }
+        if (error instanceof CafeArticleListParseError) return { ok: false, code: 'BOARD_SEARCH_PARSE_ERROR', detail: error.rule }
         return { ok: false, code: 'BOARD_SEARCH_PARSE_ERROR' }
       }
     },

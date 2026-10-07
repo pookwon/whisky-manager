@@ -43,9 +43,18 @@ describe('BoardSearchPageReader', () => {
     const answer = (status: number, text: string) => createBoardSearchPageReader({ http: async () => ({ status, contentType: null, text }) })
     await expect(answer(400, '').read(request)).resolves.toEqual({ ok: false, code: 'BOARD_SEARCH_HTTP_ERROR' })
     await expect(answer(200, '<html>').read(request)).resolves.toEqual({ ok: false, code: 'BOARD_SEARCH_INVALID_JSON' })
-    await expect(answer(200, '{"result":{}}').read(request)).resolves.toEqual({ ok: false, code: 'BOARD_SEARCH_PARSE_ERROR' })
+    await expect(answer(200, '{"result":{}}').read(request)).resolves.toEqual({ ok: false, code: 'BOARD_SEARCH_PARSE_ERROR', detail: 'INVALID_ENVELOPE: result.articleList must be an array' })
     const offline = createBoardSearchPageReader({ http: async () => { throw new Error('offline') } })
     await expect(offline.read(request)).resolves.toEqual({ ok: false, code: 'BOARD_SEARCH_NETWORK_ERROR' })
     await expect(offline.read({ ...request, menuId: '0' })).resolves.toEqual({ ok: false, code: 'BOARD_SEARCH_BAD_REQUEST' })
+  })
+
+  it('names the parser rule a page broke, by its code and path and never by its content', async () => {
+    const body = JSON.parse(sample) as { result: { articleList: { item: Record<string, unknown> }[] } }
+    body.result.articleList[1]!.item.writerInfo = 'private-nickname'
+    const reader = createBoardSearchPageReader({ http: async () => ({ status: 200, contentType: 'application/json', text: JSON.stringify(body) }) })
+    const result = await reader.read(request)
+    expect(result).toEqual({ ok: false, code: 'BOARD_SEARCH_PARSE_ERROR', detail: 'INVALID_ARTICLE: result.articleList[1].item.writerInfo must be an object' })
+    expect(JSON.stringify(result)).not.toContain('private-nickname')
   })
 })

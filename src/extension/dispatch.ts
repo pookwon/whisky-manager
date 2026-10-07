@@ -113,7 +113,8 @@ export function createDispatcher(deps: DispatcherDeps) {
         const result = await deps.boardSearchPageReader.read(message)
         if (!result.ok) {
           // Stable and body-free, like the list: a search response names members.
-          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          // The detail names only the parser rule a page broke and where.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.detail ?? result.code })
           return
         }
         reply({ type: 'BOARD_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
@@ -124,7 +125,8 @@ export function createDispatcher(deps: DispatcherDeps) {
         const result = await deps.articleReader.read(message)
         if (!result.ok) {
           // Stable and body-free, like the pages: an article names its writer.
-          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          // The detail names only the parser rule an article broke and where.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.detail ?? result.code })
           return
         }
         reply({ type: 'ARTICLE_COLLECTED', requestId: message.requestId, result: result.result })

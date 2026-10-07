@@ -35,4 +35,16 @@ describe('createBoardSearchPageFetcher', () => {
     )
     await expect(fetcher.read(page)).rejects.toEqual(new CollectionPageError('BOARD_SEARCH_HTTP_ERROR'))
   })
+
+  it('keeps the rule a refused page broke, bounded, and no other error\'s message', async () => {
+    const detail = 'INVALID_ARTICLE: result.articleList[48].item.commentCount must be a safe integer at least -1'
+    const refused = createBoardSearchPageFetcher(transportAnswering(() => ({ type: 'ERROR', requestId: 'req-1', code: 'BOARD_SEARCH_PARSE_ERROR', message: detail }), []), () => 'req-1')
+    await expect(refused.read(page)).rejects.toMatchObject({ code: 'BOARD_SEARCH_PARSE_ERROR', detail })
+
+    const long = createBoardSearchPageFetcher(transportAnswering(() => ({ type: 'ERROR', requestId: 'req-1', code: 'BOARD_SEARCH_PARSE_ERROR', message: `INVALID_ARTICLE: ${'x'.repeat(400)}` }), []), () => 'req-1')
+    await expect(long.read(page)).rejects.toSatisfy((error: CollectionPageError) => error.detail?.length === 200)
+
+    const other = createBoardSearchPageFetcher(transportAnswering(() => ({ type: 'ERROR', requestId: 'req-1', code: 'BOARD_SEARCH_HTTP_ERROR', message: 'anything at all' }), []), () => 'req-1')
+    await expect(other.read(page)).rejects.toEqual(new CollectionPageError('BOARD_SEARCH_HTTP_ERROR'))
+  })
 })

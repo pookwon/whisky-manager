@@ -66,6 +66,11 @@ export class CafeArticleListParseError extends Error {
     super(message)
     this.name = 'CafeArticleListParseError'
   }
+
+  /** Which rule a response broke, by its code and path — never the response's content. */
+  get rule(): string {
+    return `${this.code}: ${this.message}`
+  }
 }
 
 export type JsonRecord = Record<string, unknown>

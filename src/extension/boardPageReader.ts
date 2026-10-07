@@ -40,7 +40,7 @@ export function createBoardPageReader(deps: BoardPageReaderDeps) {
         if (error instanceof CafeArticleListParseError && error.code === 'INVALID_JSON') {
           return { ok: false, code: 'BOARD_PAGE_INVALID_JSON' }
         }
-        if (error instanceof CafeArticleListParseError) return { ok: false, code: 'BOARD_PAGE_PARSE_ERROR', detail: `${error.code}: ${error.message}` }
+        if (error instanceof CafeArticleListParseError) return { ok: false, code: 'BOARD_PAGE_PARSE_ERROR', detail: error.rule }
         return { ok: false, code: 'BOARD_PAGE_PARSE_ERROR' }
       }
     },
