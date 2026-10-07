@@ -699,6 +699,15 @@ describe('collection planning and orchestration', () => {
     expect(sent).toEqual(['137'])
   })
 
+  it('carries no message but a parser rule\'s, and bounds that', async () => {
+    const extension = { request: async () => ({ type: 'ERROR', requestId: 'r', code: 'EXTENSION_FAILURE', message: 'TypeError: something inside the extension' }) } as never
+    await expect(createBoardPageFetcher(extension, () => 'r', '207').read(11)).rejects.toMatchObject({ code: 'EXTENSION_FAILURE', detail: undefined })
+    const long = { request: async () => ({ type: 'ERROR', requestId: 'r', code: 'BOARD_PAGE_PARSE_ERROR', message: `INVALID_ARTICLE:\n${'x'.repeat(500)}` }) } as never
+    const detail = await createBoardPageFetcher(long, () => 'r', '207').read(11).then(() => '', (error: { detail: string }) => error.detail)
+    expect(detail).toHaveLength(200)
+    expect(detail.startsWith('INVALID_ARTICLE: xxx')).toBe(true)
+  })
+
   it('keeps the rule a refused page broke, so the run\'s stop reason names it', async () => {
     const detail = 'INVALID_PAGE_INFO: result.pageInfo.lastNavigationPageNumber must be a safe integer at least 1'
     const transport = { request: async () => ({ type: 'ERROR', requestId: 'r', code: 'BOARD_PAGE_PARSE_ERROR', message: detail }) } as never

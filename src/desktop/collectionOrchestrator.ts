@@ -6,6 +6,7 @@ import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPa
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
 import { isPastListEnd, readConfirmingEmpty } from './collectionListEnd.js'
+import { stopReasonDetail } from './collectionFailure.js'
 import { CollectionPageError } from './collectionPageError.js'
 import { failedRunStopReason } from './failedRunStopReason.js'
 import { pauseUnlessStopped } from './collectionPause.js'
@@ -38,9 +39,10 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
     const message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }> = { type: 'COLLECT_BOARD_PAGE', requestId: newRequestId(), cafeId: CAFE_ARTICLE_LIST.cafeId, menuId, page, pageSize: CAFE_ARTICLE_LIST.pageSize, sortBy: CAFE_ARTICLE_LIST.sortBy, viewType: CAFE_ARTICLE_LIST.viewType }
     const reply = await transport.request(message, TIMEOUTS.boardPageMs)
     if (reply.type === 'BOARD_PAGE_COLLECTED') return reply.result
-    // A message other than the bare code is the extension saying which rule
-    // the page broke; it rides along so the run's stop reason names it.
-    if (reply.type === 'ERROR') throw new CollectionPageError(reply.code, reply.message === reply.code || reply.message === '' ? undefined : reply.message)
+    // A parse error's message is the extension saying which rule the page
+    // broke; it rides along so the run's stop reason names it. No other
+    // message does: those come from anywhere and say anything.
+    if (reply.type === 'ERROR') throw new CollectionPageError(reply.code, reply.code === 'BOARD_PAGE_PARSE_ERROR' && reply.message !== reply.code ? stopReasonDetail(reply.message) : undefined)
     throw new CollectionPageError('BOARD_PAGE_UNEXPECTED_REPLY')
   } }
 }
