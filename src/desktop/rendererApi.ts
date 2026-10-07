@@ -283,18 +283,26 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         inProgress !== null && inProgress.scope === scope &&
         inProgress.targetStartMs === range.startMs && inProgress.targetEndMs === range.endMs
 
+      // Read pipeline state once; needed for both sameJob and !sameJob branches.
+      const reading = await deps.collectionPipeline.read()
+      const stage = reading?.stage ?? { kind: 'idle' }
+      const pipelineDone = stage.kind === 'done'
+
       if (inProgress !== null && !sameJob) {
-        const reading = await deps.collectionPipeline.read()
-        const stage = reading?.stage ?? { kind: 'idle' }
-        const pipelineActive = stage.kind !== 'idle' && stage.kind !== 'done'
+        const pipelineActive = stage.kind !== 'idle' && !pipelineDone
         if (pipelineActive && request.replace !== true) return { kind: 'needs_replace', job: inProgress }
         if (deps.collectionPipeline.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
       }
 
-      if (!sameJob || inProgress?.complete === true) {
-        await collection.repository.replaceJob({ scope, targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(deps.clock.now()) })
+      // Same period's later steps (search or probe) are still in flight — just resume.
+      if (sameJob && !pipelineDone) {
+        const started = await deps.collectionPipeline.start({ maxPages, runKind: 'backfill' })
+        return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
 
+      // Period needs to be replaced (different job, or same job that is fully done).
+      if (deps.collectionPipeline.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
+      await collection.repository.replaceJob({ scope, targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(deps.clock.now()) })
       const started = await deps.collectionPipeline.start({ maxPages, runKind: 'backfill' })
       return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
     },
@@ -416,7 +424,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
       const reading = await deps.collectionPipeline.read()
       const stage = reading?.stage ?? { kind: 'idle' }
-      const period = stage.kind === 'probe' ? stage.period : null
+      const period = (stage.kind === 'probe' || stage.kind === 'done') ? stage.period : null
       return {
         kind: 'ready',
         view: await readArticleProbeView({

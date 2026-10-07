@@ -1099,6 +1099,27 @@ describe('asking for a period while a job is unfinished', () => {
     expect(replaced).toEqual([{ scope: 'board', targetStartMs: firstDayMs, targetEndMs }])
   })
 
+  it('resumes search/probe in flight for the same period without replacing the job', async () => {
+    const period = { fromDay: kstDayKey(targetStartMs), toDay: kstDayKey(targetEndMs) }
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, {
+      job: job({ complete: true }),
+      pipelineStage: { kind: 'search', period, boardId: '137', boardName: null, position: 1, count: 1, searchExtended: true },
+    })
+    expect(await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })).toEqual({ kind: 'started' })
+    expect(replaced).toEqual([])
+    expect(pipelineStarts).toHaveLength(1)
+  })
+
+  it('refuses to replace a fully-done same period while the pipeline is running', async () => {
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, {
+      job: job({ complete: true }),
+      pipelineBusy: true,
+    })
+    expect(await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
+    expect(replaced).toEqual([])
+    expect(pipelineStarts).toEqual([])
+  })
+
   it('makes a board job by default when no period has ever been asked for', async () => {
     const { api, replaced, pipelineStarts } = build(MON_10_00, {}, { job: null })
     expect(await api.startCollection({ firstDayMs, lastDayMs })).toEqual({ kind: 'started' })
@@ -1406,6 +1427,17 @@ describe('getArticleProbeStatus', () => {
       articleProbeJob: probeJob(3120),
     })
     expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: probeJob(3120) } })
+    expect(articleProbeReadJob).toHaveBeenCalledWith(period)
+  })
+
+  it('passes the pipeline period to readJob when the stage is done', async () => {
+    const period = { fromDay: '20260819', toDay: '20260823' }
+    const { api, articleProbeReadJob } = build(MON_10_00, {}, {
+      job: null,
+      pipelineStage: { kind: 'done', period },
+      articleProbeJob: probeJob(9660),
+    })
+    expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: probeJob(9660) } })
     expect(articleProbeReadJob).toHaveBeenCalledWith(period)
   })
 
