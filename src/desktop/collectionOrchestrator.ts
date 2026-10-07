@@ -128,10 +128,23 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
   }
 }
 
-/** Uses only scheduler reads; a page past the list's end is an invalid upper bound. */
-export async function findCollectionStartPage(reader: ScheduledReader, targetEndMs: number): Promise<{ baseline: CollectedArticlePage; page: number }> {
+export type CollectionStartPage =
+  | { readonly kind: 'found'; readonly baseline: CollectedArticlePage; readonly page: number }
+  /** Every page the cafe serves is newer than the period: it lies past the horizon. */
+  | { readonly kind: 'horizon' }
+  /** The list ends while still newer than the period: this board holds nothing in it. */
+  | { readonly kind: 'nothing' }
+
+/**
+ * Uses only scheduler reads; a page past the list's end bounds the search but
+ * is never the start. Which end the list ran out at says what an unfound start
+ * means: at the cafe's last servable page the period is beyond reach, anywhere
+ * sooner it is empty.
+ */
+export async function findCollectionStartPage(reader: ScheduledReader, targetEndMs: number): Promise<CollectionStartPage> {
   const baseline = await reader.probe(1)
-  if (oldest(baseline) < targetEndMs) return { baseline, page: 1 }
+  if (isPastListEnd(baseline, 1)) return { kind: 'nothing' }
+  if (oldest(baseline) < targetEndMs) return { kind: 'found', baseline, page: 1 }
   let lower = 1; let upper = 2; let crossed = false
   while (true) {
     const candidate = await reader.probe(upper)
@@ -144,8 +157,19 @@ export async function findCollectionStartPage(reader: ScheduledReader, targetEnd
     const middle = Math.floor((lower + upper) / 2); const candidate = await reader.probe(middle)
     if (isPastListEnd(candidate, middle) || oldest(candidate) < targetEndMs) { upper = middle; if (!isPastListEnd(candidate, middle)) crossed = true } else lower = middle
   }
-  if (!crossed) throw new CollectionPageError('TARGET_PAGE_UNAVAILABLE')
-  return { baseline, page: upper }
+  if (crossed) return { kind: 'found', baseline, page: upper }
+  return lower >= FEED_HORIZON_PAGE ? { kind: 'horizon' } : { kind: 'nothing' }
+}
+
+/**
+ * The list ran out at the last page the cafe serves with the period
+ * unfinished. What remains lies beyond the list's reach, which is the feed's
+ * limit and not a fault, so the run ends partial and the feed records it.
+ */
+async function endAtHorizon(deps: CollectionOrchestratorDeps, options: CollectionRunOptions, pagesStored: number, requests: number): Promise<CollectionRunResult> {
+  await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
+  await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
+  return { kind: 'partial', pagesStored, requests, reason: 'FEED_HORIZON' }
 }
 
 interface ContinuityAnchor { readonly page: number; readonly postId: string; readonly postedAtMs: number; readonly pageIdentity: string }
@@ -211,15 +235,16 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         // A cursor written at the last page the cafe serves cannot be found
         // again once it drifts past that page — the feed answers from page 1
         // instead. That is the horizon, not a fault.
-        if (state.referencePage !== null && state.referencePage >= FEED_HORIZON_PAGE) {
-          await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
-          await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
-          return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
-        }
+        if (state.referencePage !== null && state.referencePage >= FEED_HORIZON_PAGE) return await endAtHorizon(deps, options, pagesStored, reader.reads)
         throw new CollectionPageError('RESUME_POSITION_LOST')
       }
       if (resumed?.kind === 'found') { pageNumber = resumed.page; firstOffset = resumed.offset; firstPage = resumed.candidate }
-      else { const searched = await findCollectionStartPage(reader, options.run.targetEndMs); pageNumber = searched.page }
+      else {
+        const searched = await findCollectionStartPage(reader, options.run.targetEndMs)
+        if (searched.kind === 'horizon') return await endAtHorizon(deps, options, pagesStored, reader.reads)
+        if (searched.kind === 'nothing') { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored, requests: reader.reads } }
+        pageNumber = searched.page
+      }
       let continuity: ContinuityAnchor | null = null
       while (true) {
         let page = firstPage ?? await reader.collect(pageNumber); firstPage = null
@@ -240,11 +265,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
           // Which end matters: below the cafe's last servable page there may
           // be more, and calling that the period's end would mark a job done
           // that is not.
-          if (continuity.page >= FEED_HORIZON_PAGE) {
-            await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
-            await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
-            return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
-          }
+          if (continuity.page >= FEED_HORIZON_PAGE) return await endAtHorizon(deps, options, pagesStored, reader.reads)
           await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
           return { kind: 'succeeded', pagesStored, requests: reader.reads }
         }

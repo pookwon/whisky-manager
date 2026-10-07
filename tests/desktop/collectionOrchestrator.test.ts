@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_COLLECTION_PACING } from '../../src/shared/collectionPacing.js'
-import { CollectionPageError, createBoardPageFetcher, createCollectionOrchestrator, findCollectionStartPage } from '../../src/desktop/collectionOrchestrator.js'
+import { FEED_HORIZON_PAGE, createBoardPageFetcher, createCollectionOrchestrator, findCollectionStartPage } from '../../src/desktop/collectionOrchestrator.js'
 import type { CollectionFeed, CollectionRepository, PersistCollectedPageInput } from '../../src/desktop/collection-db/repository.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
 
@@ -121,13 +121,13 @@ function deps(repo: CollectionRepository) {
 }
 
 describe('collection planning and orchestration', () => {
-  it('uses exponential search and a valid bracket; silent fallback is explicit', async () => {
+  it('uses exponential search and a valid bracket; a list ending before the period holds nothing in it', async () => {
     const pages = {
       1: page([post('1', 300), post('2', 295)]),
       2: page([post('3', 294), post('4', 280)]),
     }
-    await expect(findCollectionStartPage(probeReader(pages), 290)).resolves.toMatchObject({ page: 2 })
-    await expect(findCollectionStartPage(probeReader({ 1: pages[1]!, 2: page([post('x', 300)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
+    await expect(findCollectionStartPage(probeReader(pages), 290)).resolves.toMatchObject({ kind: 'found', page: 2 })
+    await expect(findCollectionStartPage(probeReader({ 1: pages[1]!, 2: page([post('x', 300)], 1) }), 290)).resolves.toEqual({ kind: 'nothing' })
   })
 
   it('finishes when the period reaches back to the end of the feed', async () => {
@@ -271,9 +271,40 @@ describe('collection planning and orchestration', () => {
     expect(finished).toEqual(['partial:CAS_CONFLICT_REPOSITION_REQUIRED'])
   })
 
-  it('rejects an empty page, and a page past the end of the feed, rather than treating them as no work', async () => {
-    await expect(findCollectionStartPage(probeReader({ 1: page([]) }), 290)).rejects.toBeInstanceOf(CollectionPageError)
-    await expect(findCollectionStartPage(probeReader({ 1: page([post('a', 300)]), 2: page([post('b', 295)], 1) }), 290)).rejects.toMatchObject({ code: 'TARGET_PAGE_UNAVAILABLE' })
+  it('completes a board that holds nothing older than the period end', async () => {
+    // The list runs out while every page is still newer than the period, so
+    // the period holds no posts on this board: there is no work, not a fault.
+    const { repo, finished, persisted } = repository()
+    const fresh = { 1: page([post('a', 300)], 2), 2: page([post('b', 295)], 2) }
+    await expect(findCollectionStartPage(probeReader(fresh), 290)).resolves.toEqual({ kind: 'nothing' })
+    const result = await createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n) => fresh[n as keyof typeof fresh] ?? page([], 2) } }).run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'succeeded', pagesStored: 0 })
+    expect(finished).toEqual(['succeeded:'])
+    expect(persisted).toHaveLength(0)
+  })
+
+  it('completes a board with no posts at all', async () => {
+    const { repo, finished, persisted } = repository()
+    await expect(findCollectionStartPage(probeReader({ 1: page([], 0) }), 290)).resolves.toEqual({ kind: 'nothing' })
+    const result = await createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async () => page([], 0) } }).run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'succeeded', pagesStored: 0 })
+    expect(finished).toEqual(['succeeded:'])
+    expect(persisted).toHaveLength(0)
+  })
+
+  it('marks the horizon when the period lies past the last servable page', async () => {
+    // Board 137: the period's end sits near page 1700, so every page up to
+    // 1000 is newer than it and every page past 1000 answers the newest.
+    const { repo, finished, persisted } = repository()
+    const horizon: CollectionFeed[] = []
+    repo.markHorizonReached = async (reached) => { horizon.push(reached) }
+    const read = async (n: number) => n <= FEED_HORIZON_PAGE ? page([post(`p${n}`, 300)], Math.min(FEED_HORIZON_PAGE, n + 9)) : page([post('fresh', 300)], 10)
+    await expect(findCollectionStartPage({ ...probeReader({}), probe: read, collect: read }, 290)).resolves.toEqual({ kind: 'horizon' })
+    const result = await createCollectionOrchestrator({ ...deps(repo), fetcher: { read } }).run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'partial', reason: 'FEED_HORIZON', pagesStored: 0 })
+    expect(finished).toEqual(['partial:FEED_HORIZON'])
+    expect(horizon).toEqual([feed])
+    expect(persisted).toHaveLength(0)
   })
 
   it('finds the start page by the oldest post on it, wherever that post sits', async () => {
@@ -548,7 +579,7 @@ describe('collection planning and orchestration', () => {
     // Boards 43 and 253: page 4 is past the list's end and answers empty, so it
     // bounds the search rather than failing it — whatever its page info says.
     const pages = { 1: page([post('1', 300)]), 2: page([post('2', 295)]), 3: page([post('3', 280)]), 4: page([], 10) }
-    await expect(findCollectionStartPage(probeReader(pages), 290)).resolves.toMatchObject({ page: 3 })
+    await expect(findCollectionStartPage(probeReader(pages), 290)).resolves.toMatchObject({ kind: 'found', page: 3 })
   })
 
   it('walks a board whose list ends inside the period from the page the search found to its empty end', async () => {
