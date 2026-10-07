@@ -255,4 +255,21 @@ describe('articleProbeRunner', () => {
     stop = () => stopped.runner.stop()
     expect(await ended(stopped, 10)).toMatchObject({ endedBy: 'stopped' })
   })
+
+  it('says a block a stop ended was stopped, even when the read in hand then failed', async () => {
+    let stop = (): void => undefined
+    const h = harness(['2', '3'], { 2: 'ARTICLE_HTTP_ERROR', 3: DELETED }, { onRead: () => stop() })
+    stop = () => h.runner.stop()
+    const end = await new Promise<CollectionBlockEnd>((resolve) => { h.runner.start({ maxPages: 10, window: WINDOW, onBlockEnd: resolve }) })
+    expect(end).toEqual({ requests: 1, endedBy: 'stopped' })
+  })
+
+  it('reports a block-end callback that throws, and can start again', async () => {
+    const h = harness(['2'], { 2: DELETED })
+    h.runner.start({ maxPages: 10, window: WINDOW, onBlockEnd: () => { throw new Error('next walk refused') } })
+    await h.settle()
+    expect(h.errors).toEqual(['next walk refused'])
+    expect(h.runner.start({ maxPages: 10, window: WINDOW })).toEqual({ kind: 'started' })
+    await h.settle()
+  })
 })

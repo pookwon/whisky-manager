@@ -167,7 +167,8 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
         .finally(() => {
           inFlight = null
           deps.lock.release()
-          request.onBlockEnd?.(end)
+          // The next walk may be started from here; a throw is reported, not left to reject the block.
+          try { request.onBlockEnd?.(end) } catch (error) { deps.onError?.(error) }
         })
 
       return { kind: 'started' }

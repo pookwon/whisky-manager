@@ -148,9 +148,10 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
       lastBlockFailure = null
       let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }
       inFlight = walk(repository, request.maxPages, request.window)
-        .then((walked) => { end = walked })
+        // A stop decides the verdict however it surfaced: as ABORTED, a failed read, or not at all.
+        .then((walked) => { end = abortRequested ? { ...walked, endedBy: 'stopped' } : walked })
         .catch((error: unknown) => {
-          end = { requests: requestedSoFar(), endedBy: 'failed' }
+          end = { requests: requestedSoFar(), endedBy: abortRequested ? 'stopped' : 'failed' }
           deps.onError?.(error)
           keepBlockFailure(failedRunStopReason(error))
         })
@@ -158,7 +159,8 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
           inFlight = null
           blockProgress = null
           deps.lock.release()
-          request.onBlockEnd?.(end)
+          // The next walk may be started from here; a throw is reported, not left to reject the block.
+          try { request.onBlockEnd?.(end) } catch (error) { deps.onError?.(error) }
         })
       return { kind: 'started' }
     },
