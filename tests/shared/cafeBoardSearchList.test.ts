@@ -120,6 +120,12 @@ describe('parseCafeBoardSearchList', () => {
     expect(parseCafeBoardSearchList(value).items[0]!.commentCount).toBeNull()
   })
 
+  it('reads refArticleCount -1 as an unknown reply count', () => {
+    const value = parsed()
+    value.result.articleList[0]!.item.refArticleCount = -1
+    expect(parseCafeBoardSearchList(value).items[0]!.replyCount).toBeNull()
+  })
+
   it('refuses commentCount -2 (only -1 is a known unknown sentinel)', () => {
     const value = parsed()
     value.result.articleList[0]!.item.commentCount = -2

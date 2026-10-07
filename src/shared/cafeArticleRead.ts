@@ -7,6 +7,7 @@ import {
   safeInteger,
   type CollectedPostMetadata,
 } from './cafeArticleList.js'
+import { cafeCount } from './cafeCount.js'
 
 /**
  * Pure contract for one article read by id (captured 2026-09-26). Its `article`
@@ -58,7 +59,7 @@ export function parseCafeArticle(postId: string, value: unknown): ParsedCafeArti
     authorNickname: nullableString(writer, 'nick', `${PATH}.writer`, 'INVALID_ARTICLE'),
     postedAt: epochMilliseconds(article, 'writeDate', PATH),
     viewCount: safeInteger(article, 'readCount', PATH, 0, 'INVALID_ARTICLE'),
-    commentCount: safeInteger(article, 'commentCount', PATH, 0, 'INVALID_ARTICLE'),
+    commentCount: cafeCount(article, 'commentCount', PATH, 'INVALID_ARTICLE'),
     replyCount: null,
     // The list's row never holds a notice; whether this one is rides beside it.
     isNotice: false,

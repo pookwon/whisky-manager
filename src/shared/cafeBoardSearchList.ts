@@ -8,6 +8,7 @@ import {
   type CollectedArticlePage,
   type CollectedPostMetadata,
 } from './cafeArticleList.js'
+import { cafeCount } from './cafeCount.js'
 import { decodeHtmlEntities } from './htmlEntities.js'
 import { kstLocalDateTimeToEpochMs } from './kst.js'
 
@@ -40,18 +41,6 @@ function plainTitle(subject: string | null): string | null {
   return subject === null ? null : decodeHtmlEntities(subject.replace(SEARCH_HIGHLIGHT, ''))
 }
 
-/**
- * The search index reports commentCount -1 when it does not know the count
- * (captured 2026-09-26: board 137 "홈플" page 2, articleId 753801). Read -1 as
- * null so the post is stored without a comment count rather than rejected.
- * Other negatives are refused by the -1 minimum passed to safeInteger.
- */
-function searchCommentCount(item: Record<string, unknown>, path: string): number | null {
-  const value = safeInteger(item, 'commentCount', path, -1, 'INVALID_ARTICLE')
-  if (value === -1) return null
-  return value
-}
-
 function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadata {
   const path = `result.articleList[${index}]`
   const rawEntry = record(entry, path, 'INVALID_ARTICLE')
@@ -71,8 +60,8 @@ function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadat
     authorNickname: nullableString(writerInfo, 'nickname', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
     postedAt: postedAtOf(item, itemPath),
     viewCount: safeInteger(item, 'readCount', itemPath, 0, 'INVALID_ARTICLE'),
-    commentCount: searchCommentCount(item, itemPath),
-    replyCount: safeInteger(item, 'refArticleCount', itemPath, 0, 'INVALID_ARTICLE'),
+    commentCount: cafeCount(item, 'commentCount', itemPath, 'INVALID_ARTICLE'),
+    replyCount: cafeCount(item, 'refArticleCount', itemPath, 'INVALID_ARTICLE'),
     isNotice: false,
   }
 }

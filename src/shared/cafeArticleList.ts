@@ -1,3 +1,5 @@
+import { cafeCount } from './cafeCount.js'
+
 /**
  * Pure contract for the menu=0 article-list response captured in Phase 0.
  * This module deliberately knows neither how a response is fetched nor where
@@ -18,9 +20,9 @@ export interface CollectedPostMetadata {
   /** Exact UTC epoch milliseconds from `writeDateTimestamp`. */
   readonly postedAt: number
   readonly viewCount: number
-  /** Null when the feed did not know the count (the search index can report -1). */
+  /** Null when the feed did not know the count: every feed can answer -1 for it. */
   readonly commentCount: number | null
-  /** Null when the feed does not report it: the article read has none. Nothing stores it. */
+  /** Null when the feed does not report it (the article read has none) or answered -1. Nothing stores it. */
   readonly replyCount: number | null
   /** `notices` is a separate endpoint, so an `ARTICLE` row is never a notice. */
   readonly isNotice: false
@@ -177,10 +179,19 @@ function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
     authorNickname: authorNicknameOf(item, writerInfo, `${path}.item`),
     postedAt: epochMilliseconds(item, 'writeDateTimestamp', `${path}.item`),
     viewCount: safeInteger(item, 'readCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
-    commentCount: safeInteger(item, 'commentCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
-    replyCount: safeInteger(item, 'replyArticleCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
+    commentCount: cafeCount(item, 'commentCount', `${path}.item`, 'INVALID_ARTICLE'),
+    replyCount: cafeCount(item, 'replyArticleCount', `${path}.item`, 'INVALID_ARTICLE'),
     isNotice: false,
   }
+}
+
+/**
+ * Only informative, so a page is never refused over it: a board's own list
+ * leaves it out, and left out, null or -1 all read as unknown.
+ */
+function totalArticleCountOf(pageInfo: JsonRecord): number | null {
+  if (pageInfo.totalArticleCount === undefined || pageInfo.totalArticleCount === null) return null
+  return cafeCount(pageInfo, 'totalArticleCount', 'result.pageInfo', 'INVALID_PAGE_INFO')
 }
 
 /** `lastPageMinimum` is the smallest `lastNavigationPageNumber` a page may report. */
@@ -193,7 +204,7 @@ export function parsePageInfo(value: unknown, lastPageMinimum = 1): CafeArticleP
   return {
     lastNavigationPageNumber: safeInteger(pageInfo, 'lastNavigationPageNumber', 'result.pageInfo', lastPageMinimum, 'INVALID_PAGE_INFO'),
     visibleNextButton,
-    totalArticleCount: pageInfo.totalArticleCount === undefined ? null : safeInteger(pageInfo, 'totalArticleCount', 'result.pageInfo', 0, 'INVALID_PAGE_INFO'),
+    totalArticleCount: totalArticleCountOf(pageInfo),
   }
 }
 

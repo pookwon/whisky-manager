@@ -91,6 +91,27 @@ describe('parseCafeArticleList', () => {
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: unsafeId }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
   })
 
+  it('reads a count the cafe answers -1 for as unknown, and still refuses other negatives', () => {
+    // Captured 2026-10-08: board 207 page 11, article 452015 — a visit-count
+    // event post — answered commentCount -1 and the whole page was refused.
+    const unknownComments = { ...validArticle(), articleId: 452015, commentCount: -1 }
+    expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownComments }], pageInfo: validPageInfo() } }).items[0]?.commentCount).toBeNull()
+
+    const unknownReplies = { ...validArticle(), replyArticleCount: -1 }
+    expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownReplies }], pageInfo: validPageInfo() } }).items[0]?.replyCount).toBeNull()
+
+    const belowSentinel = { ...validArticle(), commentCount: -2 }
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: belowSentinel }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
+  })
+
+  it('reads a total the page answers -1 or null for as unknown', () => {
+    for (const totalArticleCount of [-1, null]) {
+      const page = parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: validArticle() }], pageInfo: { ...validPageInfo(), totalArticleCount } } })
+      expect(page.pageInfo.totalArticleCount).toBeNull()
+    }
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: validArticle() }], pageInfo: { ...validPageInfo(), totalArticleCount: -2 } } }, 'INVALID_PAGE_INFO')
+  })
+
   it('reads both spellings a post without a prefix uses, and still rejects a headed post with no name', () => {
     const omitted: Record<string, unknown> = { ...validArticle() }
     delete omitted.headName
