@@ -45,6 +45,9 @@ function fullFakeArticleRepo(overrides: Partial<CollectionRepository> = {}): Col
     complete: false,
     forced: false,
     horizonReached: false,
+    searchExtended: false,
+    searchFinished: false,
+    probeFinished: false,
   }
   return {
     readFeedState: async () => state,
@@ -56,6 +59,9 @@ function fullFakeArticleRepo(overrides: Partial<CollectionRepository> = {}): Col
     finishRun: async () => undefined,
     setForced: async () => undefined,
     reconcileOrphanedRuns: async () => 0,
+    markSearchExtended: async () => undefined,
+    markSearchFinished: async () => undefined,
+    markProbeFinished: async () => undefined,
     persistPage: async () => ({ kind: 'conflict' }),
     ...overrides,
   }

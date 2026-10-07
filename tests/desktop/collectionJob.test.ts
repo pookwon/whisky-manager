@@ -81,6 +81,9 @@ function makeState(overrides: Partial<CollectionFeedState> = {}): StoredFeedStat
     complete: false,
     forced: false,
     horizonReached: false,
+    searchExtended: false,
+    searchFinished: false,
+    probeFinished: false,
     cursorUpdatedAtMs: Date.UTC(2026, 7, 1),
     referencePage: 1,
     pageIdentity: 'fnv1a64:0000000000000001',
@@ -130,7 +133,7 @@ function fakeRunner(): { runner: CollectionRunner; starts: CollectionStartReques
   return { starts, runner: { start(req: CollectionStartRequest) { starts.push(req); return { kind: 'started' } }, stop() {}, isRunning() { return false } } }
 }
 function board(menuId: string, queueOrder: number, over: Partial<StoredFeedState> = {}): StoredFeedState {
-  return { feed: { feedKind: 'board', menuId }, queueOrder, boardName: `board ${menuId}`, stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: 100, targetEndMs: 200, complete: false, forced: false, horizonReached: false, ...over }
+  return { feed: { feedKind: 'board', menuId }, queueOrder, boardName: `board ${menuId}`, stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: 100, targetEndMs: 200, complete: false, forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false, ...over }
 }
 
 describe('createArticleCollectionJob over a board job', () => {

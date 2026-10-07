@@ -192,6 +192,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   complete: job.complete,
                   forced: job.forced,
                   horizonReached: false,
+                  searchExtended: false,
+                  searchFinished: false,
+                  probeFinished: false,
                 }
                 return [row]
               },
@@ -214,6 +217,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   complete: false,
                   forced: false,
                   horizonReached: false,
+                  searchExtended: false,
+                  searchFinished: false,
+                  probeFinished: false,
                 }
                 return [row]
               },
@@ -1120,8 +1126,8 @@ describe('asking for a period while a job is unfinished', () => {
 
   it('makes a board job by default and passes its queue to the runner', async () => {
     const boardRows: StoredFeedState[] = [
-      { feed: { feedKind: 'board', menuId: '137' }, queueOrder: 1, boardName: 'board 137', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false },
-      { feed: { feedKind: 'board', menuId: '189' }, queueOrder: 2, boardName: 'board 189', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false },
+      { feed: { feedKind: 'board', menuId: '137' }, queueOrder: 1, boardName: 'board 137', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false },
+      { feed: { feedKind: 'board', menuId: '189' }, queueOrder: 2, boardName: 'board 189', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false },
     ]
     const { api, started, replaced } = build(MON_10_00, {}, { job: null, replaceJobRows: boardRows })
 

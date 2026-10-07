@@ -168,6 +168,16 @@ export const feedState = pgTable(
      * will not show it. Cleared when the period is replaced.
      */
     horizonReachedAt: observedTimestamp('horizon_reached_at'),
+    /**
+     * When the search job of this board's unreached part was given the longer
+     * forms of its words. Once per job: asked every block, newly stored titles
+     * would keep adding words.
+     */
+    searchExtendedAt: observedTimestamp('search_extended_at'),
+    /** When the search backfill of this board's unreached part ran out, or had nothing to search. */
+    searchFinishedAt: observedTimestamp('search_finished_at'),
+    /** When every article id hole of the period was answered; written on every row of the job. */
+    probeFinishedAt: observedTimestamp('probe_finished_at'),
     updatedAt: observedTimestamp('updated_at').notNull(),
   },
   (table) => [

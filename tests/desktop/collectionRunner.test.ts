@@ -35,12 +35,15 @@ function repository() {
     readFeedState: async () => null,
     listFeedStates: async () => [],
     replaceJob: async () => [],
-    startRun: async (input) => ({ stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, complete: false, forced: false, horizonReached: false, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
+    startRun: async (input) => ({ stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, complete: false, forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
     recordPageRequest: async () => undefined,
     finishRun: async (id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
     markHorizonReached: async () => undefined,
     setForced: async () => undefined,
     reconcileOrphanedRuns: async () => 0,
+    markSearchExtended: async () => undefined,
+    markSearchFinished: async () => undefined,
+    markProbeFinished: async () => undefined,
     persistPage: async (input) => ({ kind: 'stored', insertedPostCount: input.page.items.length, updatedPostCount: 0, nextStateVersion: 1, anchorPostId: input.page.items.at(-1)!.postId }),
   }
   return { repo, finished }

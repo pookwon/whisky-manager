@@ -40,14 +40,17 @@ function repository(conflict = false): { repo: CollectionRepository; persisted: 
       replaceJob: async () => [],
       markHorizonReached: async () => undefined,
       readFeedState: async () => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
-    forced: false, horizonReached: false,
+    forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false,
     cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: run.targetStartMs, targetEndMs: run.targetEndMs }),
       startRun: async (input) => ({ stateVersion: version, anchorPostId: anchor, anchorPostedAtMs: null, complete: false,
-    forced: false, horizonReached: false,
+    forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false,
     cursorUpdatedAtMs: 1_000, referencePage: null, pageIdentity: null, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
       recordPageRequest: async () => undefined,
       finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
       reconcileOrphanedRuns: async () => 0,
+      markSearchExtended: async () => undefined,
+      markSearchFinished: async () => undefined,
+      markProbeFinished: async () => undefined,
       persistPage: async (input) => {
         persisted.push(input)
         if (conflict) return { kind: 'conflict' }
@@ -73,6 +76,9 @@ function repositoryWithCheckpoint(checkpoint: {
     complete: false,
     forced: false,
     horizonReached: false,
+    searchExtended: false,
+    searchFinished: false,
+    probeFinished: false,
     cursorUpdatedAtMs: 1_000,
     pageIdentity: 'previous',
     targetStartMs: run.targetStartMs,
@@ -90,6 +96,9 @@ function repositoryWithCheckpoint(checkpoint: {
     recordPageRequest: async () => undefined,
     finishRun: async (_id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
     reconcileOrphanedRuns: async () => 0,
+    markSearchExtended: async () => undefined,
+    markSearchFinished: async () => undefined,
+    markProbeFinished: async () => undefined,
     persistPage: async (input) => {
       persisted.push(input)
       const anchorPostId = input.page.items.at(-1)?.postId ?? ''

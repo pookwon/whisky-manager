@@ -280,6 +280,9 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
             cursorUpdatedAtMs: deps.clock.now(),
             targetStartMs: options.run.targetStartMs,
             targetEndMs: options.run.targetEndMs,
+            searchExtended: state.searchExtended,
+            searchFinished: state.searchFinished,
+            probeFinished: state.probeFinished,
           }
           pagesStored += 1
         }

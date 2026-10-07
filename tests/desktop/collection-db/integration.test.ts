@@ -525,6 +525,23 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(back[0]).toMatchObject({ feed: { feedKind: 'all_articles', menuId: '0' }, horizonReached: false, forced: false })
   })
 
+  it('records the later steps per period, and a new period starts them over', async () => {
+    const repository = createCollectionRepository(connection.db)
+    const made = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(5_000) })
+    const first = made[0]!.feed.menuId
+    expect(made.every((row) => !row.searchExtended && !row.searchFinished && !row.probeFinished)).toBe(true)
+
+    await repository.markSearchExtended(first, new Date(6_000))
+    await repository.markSearchFinished(first, new Date(6_000))
+    await repository.markProbeFinished(new Date(7_000))
+    const marked = await repository.listFeedStates()
+    expect(marked.find((row) => row.feed.menuId === first)).toMatchObject({ searchExtended: true, searchFinished: true, probeFinished: true })
+    expect(marked.filter((row) => row.feed.menuId !== first).every((row) => !row.searchExtended && !row.searchFinished && row.probeFinished)).toBe(true)
+
+    const again = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 3_000, at: new Date(8_000) })
+    expect(again.every((row) => !row.searchExtended && !row.searchFinished && !row.probeFinished)).toBe(true)
+  })
+
   it('describes a board job board by board', async () => {
     const repository = createCollectionRepository(connection.db)
     const status = createCollectionStatusQuery(connection.db)
