@@ -1,4 +1,5 @@
 import {
+  cafeCount,
   collectedArticlePage,
   fail,
   nullableString,
@@ -8,7 +9,6 @@ import {
   type CollectedArticlePage,
   type CollectedPostMetadata,
 } from './cafeArticleList.js'
-import { cafeCount } from './cafeCount.js'
 import { decodeHtmlEntities } from './htmlEntities.js'
 import { kstLocalDateTimeToEpochMs } from './kst.js'
 

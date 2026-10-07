@@ -1,4 +1,5 @@
 import {
+  cafeCount,
   epochMilliseconds,
   fail,
   nullableString,
@@ -7,7 +8,6 @@ import {
   safeInteger,
   type CollectedPostMetadata,
 } from './cafeArticleList.js'
-import { cafeCount } from './cafeCount.js'
 
 /**
  * Pure contract for one article read by id (captured 2026-09-26). Its `article`
