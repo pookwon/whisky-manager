@@ -33,4 +33,16 @@ describe('createArticleFetcher', () => {
     const fetcher = createArticleFetcher(transportAnswering(() => ({ type: 'COMMENTS', requestId: 'req-1', authors: null }), []), () => 'req-1')
     await expect(fetcher.read('728686')).rejects.toEqual(new CollectionPageError('ARTICLE_UNEXPECTED_REPLY', 'id 728686'))
   })
+
+  it('keeps the rule a refused article broke beside its id, bounded, and no other error\'s message', async () => {
+    const rule = 'INVALID_ARTICLE: result.article.commentCount must be a safe integer at least -1'
+    const refused = createArticleFetcher(transportAnswering(() => ({ type: 'ERROR', requestId: 'req-1', code: 'ARTICLE_PARSE_ERROR', message: rule }), []), () => 'req-1')
+    await expect(refused.read('728686')).rejects.toEqual(new CollectionPageError('ARTICLE_PARSE_ERROR', `id 728686, ${rule}`))
+
+    const long = createArticleFetcher(transportAnswering(() => ({ type: 'ERROR', requestId: 'req-1', code: 'ARTICLE_PARSE_ERROR', message: `INVALID_ARTICLE: ${'x'.repeat(400)}` }), []), () => 'req-1')
+    await expect(long.read('728686')).rejects.toSatisfy((error: CollectionPageError) => error.detail?.length === 200 && error.detail.startsWith('id 728686, INVALID_ARTICLE'))
+
+    const other = createArticleFetcher(transportAnswering(() => ({ type: 'ERROR', requestId: 'req-1', code: 'ARTICLE_HTTP_ERROR', message: 'anything at all' }), []), () => 'req-1')
+    await expect(other.read('728686')).rejects.toEqual(new CollectionPageError('ARTICLE_HTTP_ERROR', 'id 728686'))
+  })
 })

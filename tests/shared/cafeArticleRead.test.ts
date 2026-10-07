@@ -50,6 +50,11 @@ describe('parseCafeArticle', () => {
     expect(notice.post.isNotice).toBe(false)
   })
 
+  it('reads a comment or view count the cafe answers -1 for as unknown', () => {
+    expect(parseCafeArticle('728686', withArticle((a) => { a.commentCount = -1 })).post.commentCount).toBeNull()
+    expect(parseCafeArticle('728686', withArticle((a) => { a.readCount = -1 })).post.viewCount).toBeNull()
+  })
+
   it('refuses an answer about another article than the one asked for', () => {
     expect(codeOf(() => parseCafeArticleText('728687', live))).toBe('INVALID_ARTICLE')
   })
@@ -60,7 +65,8 @@ describe('parseCafeArticle', () => {
     ['no board', (a: Record<string, unknown>) => { delete a.menu }],
     ['a board without a name', (a: Record<string, unknown>) => { a.menu = { id: 137, name: null } }],
     ['a time in seconds', (a: Record<string, unknown>) => { a.writeDate = 1749029333 }],
-    ['a negative view count', (a: Record<string, unknown>) => { a.readCount = -1 }],
+    ['a view count below the unknown sentinel', (a: Record<string, unknown>) => { a.readCount = -2 }],
+    ['a comment count below the unknown sentinel', (a: Record<string, unknown>) => { a.commentCount = -2 }],
     ['no notice flag', (a: Record<string, unknown>) => { delete a.isNotice }],
     ['a notice flag that is not a boolean', (a: Record<string, unknown>) => { a.isNotice = 'N' }],
   ])('fails loudly on %s', (_label, change) => {

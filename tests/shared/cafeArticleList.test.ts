@@ -5,6 +5,7 @@ import { kstDayRange } from '../../src/shared/kst.js'
 import {
   CafeArticleListParseError,
   cafeArticlePageIdentity,
+  cafeCount,
   parseCafeArticleList,
   parseCafeArticleListText,
 } from '../../src/shared/cafeArticleList.js'
@@ -76,7 +77,7 @@ describe('parseCafeArticleList', () => {
     expectParseError({ result: { articleList: [{ type: 'NOTICE', item: {} }], pageInfo: validPageInfo() } }, 'UNEXPECTED_LIST_ENTRY_TYPE')
 
     const badCount = validArticle()
-    badCount.readCount = -1
+    badCount.readCount = -2
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: badCount }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
 
     const nullCount = { ...validArticle(), commentCount: null }
@@ -89,6 +90,30 @@ describe('parseCafeArticleList', () => {
     const unsafeId = validArticle()
     unsafeId.articleId = Number.MAX_SAFE_INTEGER + 1
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: unsafeId }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
+  })
+
+  it('reads a count the cafe answers -1 for as unknown, and still refuses other negatives', () => {
+    // Captured 2026-10-08: board 207 page 11, article 452015 — a visit-count
+    // event post — answered commentCount -1 and the whole page was refused.
+    const unknownComments = { ...validArticle(), articleId: 452015, commentCount: -1 }
+    expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownComments }], pageInfo: validPageInfo() } }).items[0]?.commentCount).toBeNull()
+
+    const unknownViews = { ...validArticle(), readCount: -1 }
+    expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownViews }], pageInfo: validPageInfo() } }).items[0]?.viewCount).toBeNull()
+
+    const unknownReplies = { ...validArticle(), replyArticleCount: -1 }
+    expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownReplies }], pageInfo: validPageInfo() } }).items[0]?.replyCount).toBeNull()
+
+    const belowSentinel = { ...validArticle(), commentCount: -2 }
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: belowSentinel }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
+  })
+
+  it('reads a total the page answers -1 or null for as unknown', () => {
+    for (const totalArticleCount of [-1, null]) {
+      const page = parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: validArticle() }], pageInfo: { ...validPageInfo(), totalArticleCount } } })
+      expect(page.pageInfo.totalArticleCount).toBeNull()
+    }
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: validArticle() }], pageInfo: { ...validPageInfo(), totalArticleCount: -2 } } }, 'INVALID_PAGE_INFO')
   })
 
   it('reads both spellings a post without a prefix uses, and still rejects a headed post with no name', () => {
@@ -185,3 +210,34 @@ function expectParseError(value: unknown, code: string): void {
     expect((error as CafeArticleListParseError).code).toBe(code)
   }
 }
+
+const countOf = (record: Record<string, unknown>) => cafeCount(record, 'commentCount', 'result.article', 'INVALID_ARTICLE')
+
+function countCodeOf(run: () => unknown): string | null {
+  try {
+    run()
+    return null
+  } catch (error) {
+    return error instanceof CafeArticleListParseError ? error.code : 'NOT_A_PARSE_ERROR'
+  }
+}
+
+describe('cafeCount', () => {
+  it('reads -1 as a count the cafe does not know', () => {
+    expect(countOf({ commentCount: -1 })).toBeNull()
+  })
+
+  it.each([0, 1, 4_812])('keeps the count %i', (value) => {
+    expect(countOf({ commentCount: value })).toBe(value)
+  })
+
+  it.each([
+    ['-2', { commentCount: -2 }],
+    ['null', { commentCount: null }],
+    ['a string', { commentCount: '3' }],
+    ['a fraction', { commentCount: 1.5 }],
+    ['a missing key', {}],
+  ])('refuses %s with the code it is given', (_label, record) => {
+    expect(countCodeOf(() => cafeCount(record, 'commentCount', 'result.pageInfo', 'INVALID_PAGE_INFO'))).toBe('INVALID_PAGE_INFO')
+  })
+})

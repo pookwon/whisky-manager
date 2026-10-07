@@ -17,10 +17,11 @@ export interface CollectedPostMetadata {
   readonly authorNickname: string | null
   /** Exact UTC epoch milliseconds from `writeDateTimestamp`. */
   readonly postedAt: number
-  readonly viewCount: number
-  /** Null when the feed did not know the count (the search index can report -1). */
+  /** Null when the feed did not know the count: it can answer -1 as for comments. */
+  readonly viewCount: number | null
+  /** Null when the feed did not know the count: every feed can answer -1 for it. */
   readonly commentCount: number | null
-  /** Null when the feed does not report it: the article read has none. Nothing stores it. */
+  /** Null when the feed does not report it (the article read has none) or answered -1. Nothing stores it. */
   readonly replyCount: number | null
   /** `notices` is a separate endpoint, so an `ARTICLE` row is never a notice. */
   readonly isNotice: false
@@ -62,6 +63,11 @@ export class CafeArticleListParseError extends Error {
   ) {
     super(message)
     this.name = 'CafeArticleListParseError'
+  }
+
+  /** Which rule a response broke, by its code and path — never the response's content. */
+  get rule(): string {
+    return `${this.code}: ${this.message}`
   }
 }
 
@@ -115,6 +121,26 @@ export function safeInteger(
     fail(code, `${path}.${key} must be a safe integer at least ${minimum}`)
   }
   return value
+}
+
+/**
+ * What the cafe answers for a count it does not know. Seen live as
+ * `commentCount` in the board search (captured 2026-09-26: board 137 "홈플"
+ * page 2, articleId 753801) and in a board's own list (captured 2026-10-08:
+ * board 207 page 11, articleId 452015, a visit-count event post), where it
+ * refused the whole page.
+ */
+const UNKNOWN_COUNT = -1
+
+/**
+ * A counter the cafe reports beside a post or a page: its value, or null when
+ * the cafe answered -1. Only that one sentinel is read as unknown. Any other
+ * negative, null, a string or a missing key still fails with `code`: a renamed
+ * or retyped field must stop the walk, not read as unknown forever.
+ */
+export function cafeCount(record: JsonRecord, key: string, path: string, code: CafeArticleListParseErrorCode): number | null {
+  const value = safeInteger(record, key, path, UNKNOWN_COUNT, code)
+  return value === UNKNOWN_COUNT ? null : value
 }
 
 export function epochMilliseconds(record: JsonRecord, key: string, path: string): number {
@@ -176,11 +202,20 @@ function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
     authorId: nullableString(writerInfo, 'memberKey', `${path}.item.writerInfo`, 'INVALID_ARTICLE'),
     authorNickname: authorNicknameOf(item, writerInfo, `${path}.item`),
     postedAt: epochMilliseconds(item, 'writeDateTimestamp', `${path}.item`),
-    viewCount: safeInteger(item, 'readCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
-    commentCount: safeInteger(item, 'commentCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
-    replyCount: safeInteger(item, 'replyArticleCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
+    viewCount: cafeCount(item, 'readCount', `${path}.item`, 'INVALID_ARTICLE'),
+    commentCount: cafeCount(item, 'commentCount', `${path}.item`, 'INVALID_ARTICLE'),
+    replyCount: cafeCount(item, 'replyArticleCount', `${path}.item`, 'INVALID_ARTICLE'),
     isNotice: false,
   }
+}
+
+/**
+ * Only informative, so a page is never refused over it: a board's own list
+ * leaves it out, and left out, null or -1 all read as unknown.
+ */
+function totalArticleCountOf(pageInfo: JsonRecord): number | null {
+  if (pageInfo.totalArticleCount === undefined || pageInfo.totalArticleCount === null) return null
+  return cafeCount(pageInfo, 'totalArticleCount', 'result.pageInfo', 'INVALID_PAGE_INFO')
 }
 
 /** `lastPageMinimum` is the smallest `lastNavigationPageNumber` a page may report. */
@@ -193,7 +228,7 @@ export function parsePageInfo(value: unknown, lastPageMinimum = 1): CafeArticleP
   return {
     lastNavigationPageNumber: safeInteger(pageInfo, 'lastNavigationPageNumber', 'result.pageInfo', lastPageMinimum, 'INVALID_PAGE_INFO'),
     visibleNextButton,
-    totalArticleCount: pageInfo.totalArticleCount === undefined ? null : safeInteger(pageInfo, 'totalArticleCount', 'result.pageInfo', 0, 'INVALID_PAGE_INFO'),
+    totalArticleCount: totalArticleCountOf(pageInfo),
   }
 }
 

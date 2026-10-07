@@ -215,9 +215,15 @@ describe('the rest of the instructions', () => {
     await run(searchRequest)
 
     expect(replies[0]).toMatchObject({ type: 'BOARD_PAGE_COLLECTED', requestId: 'rs1', page: 1 })
+
+    const failed = setup({
+      boardSearchPageReader: { read: async () => ({ ok: false as const, code: 'BOARD_SEARCH_PARSE_ERROR' as const, detail: 'INVALID_ARTICLE: result.articleList[2].item.readCount must be a safe integer at least -1' }) },
+    })
+    await failed.run(searchRequest)
+    expect(failed.replies[0]).toEqual({ type: 'ERROR', requestId: 'rs1', code: 'BOARD_SEARCH_PARSE_ERROR', message: 'INVALID_ARTICLE: result.articleList[2].item.readCount must be a safe integer at least -1' })
   })
 
-  it('answers an article read with ARTICLE_COLLECTED, and a failed one with its bare code', async () => {
+  it('answers an article read with ARTICLE_COLLECTED, a failed one with its bare code, and a refused one with its rule', async () => {
     const articleRequest: CollectArticleRequest = { type: 'COLLECT_ARTICLE', requestId: 'ra1', cafeId: '14538121', postId: '728686' }
     const absent = { kind: 'absent' as const, status: 404, code: '4003' }
     const answered = setup({ articleReader: { read: async () => ({ ok: true as const, result: absent }) } })
@@ -227,6 +233,10 @@ describe('the rest of the instructions', () => {
     const failed = setup({ articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_HTTP_ERROR' as const }) } })
     await failed.run(articleRequest)
     expect(failed.replies[0]).toEqual({ type: 'ERROR', requestId: 'ra1', code: 'ARTICLE_HTTP_ERROR', message: 'ARTICLE_HTTP_ERROR' })
+
+    const refused = setup({ articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_PARSE_ERROR' as const, detail: 'INVALID_ARTICLE: result.article.writer must be an object' }) } })
+    await refused.run(articleRequest)
+    expect(refused.replies[0]).toEqual({ type: 'ERROR', requestId: 'ra1', code: 'ARTICLE_PARSE_ERROR', message: 'INVALID_ARTICLE: result.article.writer must be an object' })
   })
 
   it('hands a probe to the probe itself and ignores an abort', async () => {

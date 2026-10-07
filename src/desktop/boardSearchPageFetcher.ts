@@ -3,6 +3,7 @@ import { CAFE_ARTICLE_LIST } from '../shared/cafeArticleFixture.js'
 import { CAFE_BOARD_SEARCH, type BoardSearchPage } from '../shared/cafeBoardSearchEndpoint.js'
 import { TIMEOUTS, type AppMessage } from '../shared/protocol.js'
 import { CollectionPageError } from './collectionPageError.js'
+import { parserRuleDetail } from './parserRuleDetail.js'
 import type { ExtensionTransport } from './ws/server.js'
 
 export interface BoardSearchPageFetcher {
@@ -21,7 +22,8 @@ export function createBoardSearchPageFetcher(transport: ExtensionTransport, newR
       }
       const reply = await transport.request(message, TIMEOUTS.boardPageMs)
       if (reply.type === 'BOARD_PAGE_COLLECTED') return reply.result
-      if (reply.type === 'ERROR') throw new CollectionPageError(reply.code)
+      // The rule a refused page broke rides along so the run's stop reason names it.
+      if (reply.type === 'ERROR') throw new CollectionPageError(reply.code, parserRuleDetail(reply, 'BOARD_SEARCH_PARSE_ERROR'))
       throw new CollectionPageError('BOARD_SEARCH_UNEXPECTED_REPLY')
     },
   }
