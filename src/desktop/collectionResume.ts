@@ -1,5 +1,6 @@
 import type { CollectedArticlePage } from '../shared/cafeArticleList.js'
 import type { ScheduledReader } from './collectionOrchestrator.js'
+import { isPastListEnd } from './collectionListEnd.js'
 
 /**
  * Finding where a run left off, days or minutes later.
@@ -58,11 +59,6 @@ function newest(page: CollectedArticlePage): number {
 
 function oldest(page: CollectedArticlePage): number {
   return page.items.length === 0 ? Number.POSITIVE_INFINITY : Math.min(...page.items.map((item) => item.postedAt))
-}
-
-/** A page the cafe answered from its newest instead of the one asked for. */
-function silentlyFellBack(page: CollectedArticlePage, requested: number): boolean {
-  return requested > page.pageInfo.lastNavigationPageNumber
 }
 
 /**
@@ -131,7 +127,7 @@ async function scan(
 ): Promise<ResumePosition | null> {
   for (let page = from; page < from + RESUME_SCAN_PAGE_LIMIT; page += 1) {
     const candidate = await reader.collect(page)
-    if (silentlyFellBack(candidate, page)) return { kind: 'unusable' }
+    if (isPastListEnd(candidate, page)) return { kind: 'unusable' }
 
     const offset = positionWithin(candidate, cursor)
     if (offset !== null) return { kind: 'found', page, offset, candidate }
@@ -164,7 +160,7 @@ async function jump(
 
   for (let jumps = 0; jumps < RESUME_JUMP_LIMIT; jumps += 1) {
     const candidate = await reader.collect(low)
-    if (silentlyFellBack(candidate, low)) return { kind: 'unusable' }
+    if (isPastListEnd(candidate, low)) return { kind: 'unusable' }
 
     const offset = positionWithin(candidate, cursor)
     if (offset !== null) return { kind: 'found', page: low, offset, candidate }
@@ -190,7 +186,7 @@ async function jump(
   while (lower < upper) {
     const middle = Math.floor((lower + upper) / 2)
     const candidate = await reader.collect(middle)
-    if (silentlyFellBack(candidate, middle)) return { kind: 'unusable' }
+    if (isPastListEnd(candidate, middle)) return { kind: 'unusable' }
 
     const offset = positionWithin(candidate, cursor)
     if (offset !== null) return { kind: 'found', page: middle, offset, candidate }
@@ -202,6 +198,6 @@ async function jump(
   // The anchor's page fell between two reads, which only deletions can do. The
   // first page older than it is where the uncollected posts start.
   const candidate = await reader.collect(upper)
-  if (silentlyFellBack(candidate, upper)) return { kind: 'unusable' }
+  if (isPastListEnd(candidate, upper)) return { kind: 'unusable' }
   return { kind: 'found', page: upper, offset: 0, candidate }
 }

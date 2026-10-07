@@ -531,6 +531,40 @@ describe('collection planning and orchestration', () => {
     expect(horizon).toEqual([])
   })
 
+  it('finishes a board whose list ends inside the period, where the cafe answers an empty page', async () => {
+    // A board whose list ends before page 1000 answers the page past its end
+    // with no posts, not with its newest page. Boards 165 and 235 hold nothing
+    // older than the period, so that empty page is the only end their walk meets.
+    const { repo, finished, horizon } = repositoryWithCheckpoint({ anchorPostId: 'a', anchorPostedAtMs: 280, referencePage: 2, stateVersion: 1 })
+    const pages: Record<number, ReturnType<typeof page>> = { 2: page([post('a', 280), post('b', 270)], 3) }
+    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n) => pages[n] ?? page([], 3) } })
+    const result = await orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'succeeded' })
+    expect(finished).toEqual(['succeeded:'])
+    expect(horizon).toEqual([])
+  })
+
+  it('reads an empty page as the end of the list while looking for the period', async () => {
+    // Boards 43 and 253: page 4 is past the list's end and answers empty, so it
+    // bounds the search rather than failing it — whatever its page info says.
+    const pages = { 1: page([post('1', 300)]), 2: page([post('2', 295)]), 3: page([post('3', 280)]), 4: page([], 10) }
+    await expect(findCollectionStartPage(probeReader(pages), 290)).resolves.toMatchObject({ page: 3 })
+  })
+
+  it('walks a board whose list ends inside the period from the page the search found to its empty end', async () => {
+    const { repo, finished, persisted } = repository()
+    const pages = {
+      1: page([post('n1', 300), post('n2', 295)]),
+      2: page([post('n3', 294), post('n4', 292)]),
+      3: page([post('in-1', 280), post('in-2', 250)]),
+    }
+    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n: number) => pages[n as keyof typeof pages] ?? page([], 10) } })
+    const result = await orchestrator.run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'succeeded', pagesStored: 1 })
+    expect(finished).toEqual(['succeeded:'])
+    expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['in-1', 'in-2'])
+  })
+
   it('leaves the unclassified exception on the run so the list says what broke', async () => {
     // A bare COLLECTION_FAILURE hid a real failure on 2026-09-08: a board's
     // walk ended mid-block and nothing recorded whether the bridge timed out

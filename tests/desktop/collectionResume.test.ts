@@ -186,6 +186,26 @@ describe('locating where a run left off', () => {
     expect(found.kind).toBe('unusable')
   })
 
+  it('refuses a cursor whose page is past the end of a board that answers it empty', async () => {
+    // A board whose list ends before page 1000 answers a page past its end with
+    // no posts rather than with its newest page.
+    const requested: number[] = []
+    const reader: ScheduledReader = {
+      probe: (page) => empty(page),
+      collect: (page) => empty(page),
+      observedAt: () => new Date(NOW),
+      reads: 0,
+    }
+    function empty(page: number): Promise<CollectedArticlePage> {
+      requested.push(page)
+      return Promise.resolve({ items: [], pageInfo: { lastNavigationPageNumber: 130, visibleNextButton: true, totalArticleCount: null }, pageIdentity: 'empty' })
+    }
+    const found = await locateResumePosition(reader, cursor(), NOW, targetStartMs)
+
+    expect(found.kind).toBe('unusable')
+    expect(requested).toEqual([120])
+  })
+
   it('reports the period finished when the search runs past its start', async () => {
     // Everything older than the anchor is outside the period, so there is
     // nothing left to walk.

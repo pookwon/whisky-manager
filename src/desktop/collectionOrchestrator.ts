@@ -5,6 +5,7 @@ import type { Random } from '../shared/ports.js'
 import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
+import { isPastListEnd } from './collectionListEnd.js'
 import { CollectionPageError } from './collectionPageError.js'
 import { failedRunStopReason } from './failedRunStopReason.js'
 import { pauseUnlessStopped } from './collectionPause.js'
@@ -61,9 +62,11 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
  * article ids afterwards: they are dense and rise with time, so a deleted post
  * leaves a gap of one or two and a lost page leaves one of fifty. That check is
  * run by hand against the database today; it is not in this repository.
+ *
+ * Nor is a page being empty: that is how a board answers past its end, which
+ * only the walk can tell from a fault.
  */
 function assertPage(page: CollectedArticlePage, requested: number): void {
-  if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
   const ids = new Set<string>()
   for (const [index, item] of page.items.entries()) {
     if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `page ${requested} #${index} ${item.postId}`)
@@ -86,7 +89,6 @@ function newestPostedAt(page: CollectedArticlePage): number {
 }
 
 function oldest(page: CollectedArticlePage): number { return oldestPost(page).postedAt }
-function fallback(page: CollectedArticlePage, requested: number): boolean { return requested > page.pageInfo.lastNavigationPageNumber }
 
 export interface ScheduledReader {
   probe(page: number): Promise<CollectedArticlePage>
@@ -126,21 +128,21 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
   }
 }
 
-/** Uses only scheduler reads; silent fallback is an invalid upper bound. */
+/** Uses only scheduler reads; a page past the list's end is an invalid upper bound. */
 export async function findCollectionStartPage(reader: ScheduledReader, targetEndMs: number): Promise<{ baseline: CollectedArticlePage; page: number }> {
   const baseline = await reader.probe(1)
   if (oldest(baseline) < targetEndMs) return { baseline, page: 1 }
   let lower = 1; let upper = 2; let crossed = false
   while (true) {
     const candidate = await reader.probe(upper)
-    if (fallback(candidate, upper)) break
+    if (isPastListEnd(candidate, upper)) break
     if (oldest(candidate) < targetEndMs) { crossed = true; break }
     lower = upper; upper *= 2
     if (!Number.isSafeInteger(upper)) throw new CollectionPageError('TARGET_PAGE_UNAVAILABLE')
   }
   while (upper - lower > 1) {
     const middle = Math.floor((lower + upper) / 2); const candidate = await reader.probe(middle)
-    if (fallback(candidate, middle) || oldest(candidate) < targetEndMs) { upper = middle; if (!fallback(candidate, middle)) crossed = true } else lower = middle
+    if (isPastListEnd(candidate, middle) || oldest(candidate) < targetEndMs) { upper = middle; if (!isPastListEnd(candidate, middle)) crossed = true } else lower = middle
   }
   if (!crossed) throw new CollectionPageError('TARGET_PAGE_UNAVAILABLE')
   return { baseline, page: upper }
@@ -159,7 +161,7 @@ async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnc
   const surfaced = next.items.findIndex((item) => item.postId === previous.postId)
   if (surfaced >= 0) return { page: next, pageNumber: nextPageNumber, firstOffset: surfaced + 1 }
   const rewind = await reader.collect(previous.page)
-  if (fallback(rewind, previous.page)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
+  if (isPastListEnd(rewind, previous.page)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
   if (rewind.pageIdentity === previous.pageIdentity) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
   const index = rewind.items.findIndex((item) => item.postId === previous.postId)
   if (index === rewind.items.length - 1) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
@@ -221,10 +223,11 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
       let continuity: ContinuityAnchor | null = null
       while (true) {
         let page = firstPage ?? await reader.collect(pageNumber); firstPage = null
-        if (fallback(page, pageNumber)) {
+        if (isPastListEnd(page, pageNumber)) {
           // Asked for a page the feed does not have. Once the walk is under way
-          // that is simply its end: the cafe answers from its newest page, and
-          // there is nothing older left to read. It matters because the walk now
+          // that is simply its end: the cafe answers from its newest page, or
+          // with no posts on a board that ends sooner, and there is nothing
+          // older left to read. It matters because the walk now
           // ends on a page's newest post, so it always asks for one page beyond
           // the last that held anything — and a period reaching back to the
           // cafe's own beginning would otherwise fail on every run forever.
