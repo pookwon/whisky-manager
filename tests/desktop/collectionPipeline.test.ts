@@ -126,6 +126,17 @@ describe('collectionPipeline', () => {
     expect(h.calls).toEqual(['extend 홈플러스', 'extended 137', 'search 50'])
   })
 
+  it('walks an adopted search job again when its every query is done but the longer words add one', async () => {
+    const h = harness({
+      feeds: [feed('137', 1, { horizonReached: true })],
+      queries: [query('137', '홈플', 1, true), query('137', '구매', 2, true)],
+      titles: ['월드컵 홈플러스', '홈플러스', '홈플러스', '홈플러스', '홈플러스'],
+    })
+    await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
+    expect(h.calls).toEqual(['extend 홈플러스', 'extended 137', 'search 50'])
+    expect(h.calls).not.toContain('searched 137')
+  })
+
   it('replaces a search job left for another board or another start day', async () => {
     const h = harness({ feeds: [feed('205', 1, { horizonReached: true })], queries: [query('137', '홈플', 1, false, '20250101')], titles: Array.from({ length: 5 }, () => '득템') })
     await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
