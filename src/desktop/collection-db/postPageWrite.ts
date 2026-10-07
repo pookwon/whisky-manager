@@ -87,7 +87,7 @@ export async function writePostRows(
         authorNickname: sql`excluded.author_nickname`,
         authorId: sql`excluded.author_id`,
         postedAt: sql`excluded.posted_at`,
-        viewCount: sql`excluded.view_count`,
+        viewCount: sql`coalesce(excluded.view_count, ${posts.viewCount})`,
         commentCount: sql`coalesce(excluded.comment_count, ${posts.commentCount})`,
         snapshotAt: observedAt,
         lastRunId: runId,

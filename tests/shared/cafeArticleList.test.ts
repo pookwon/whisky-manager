@@ -76,7 +76,7 @@ describe('parseCafeArticleList', () => {
     expectParseError({ result: { articleList: [{ type: 'NOTICE', item: {} }], pageInfo: validPageInfo() } }, 'UNEXPECTED_LIST_ENTRY_TYPE')
 
     const badCount = validArticle()
-    badCount.readCount = -1
+    badCount.readCount = -2
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: badCount }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
 
     const nullCount = { ...validArticle(), commentCount: null }
@@ -96,6 +96,9 @@ describe('parseCafeArticleList', () => {
     // event post — answered commentCount -1 and the whole page was refused.
     const unknownComments = { ...validArticle(), articleId: 452015, commentCount: -1 }
     expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownComments }], pageInfo: validPageInfo() } }).items[0]?.commentCount).toBeNull()
+
+    const unknownViews = { ...validArticle(), readCount: -1 }
+    expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownViews }], pageInfo: validPageInfo() } }).items[0]?.viewCount).toBeNull()
 
     const unknownReplies = { ...validArticle(), replyArticleCount: -1 }
     expect(parseCafeArticleList({ result: { articleList: [{ type: 'ARTICLE', item: unknownReplies }], pageInfo: validPageInfo() } }).items[0]?.replyCount).toBeNull()

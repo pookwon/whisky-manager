@@ -19,7 +19,8 @@ export interface CollectedPostMetadata {
   readonly authorNickname: string | null
   /** Exact UTC epoch milliseconds from `writeDateTimestamp`. */
   readonly postedAt: number
-  readonly viewCount: number
+  /** Null when the feed did not know the count: it can answer -1 as for comments. */
+  readonly viewCount: number | null
   /** Null when the feed did not know the count: every feed can answer -1 for it. */
   readonly commentCount: number | null
   /** Null when the feed does not report it (the article read has none) or answered -1. Nothing stores it. */
@@ -178,7 +179,7 @@ function parseArticle(entry: unknown, index: number): CollectedPostMetadata {
     authorId: nullableString(writerInfo, 'memberKey', `${path}.item.writerInfo`, 'INVALID_ARTICLE'),
     authorNickname: authorNicknameOf(item, writerInfo, `${path}.item`),
     postedAt: epochMilliseconds(item, 'writeDateTimestamp', `${path}.item`),
-    viewCount: safeInteger(item, 'readCount', `${path}.item`, 0, 'INVALID_ARTICLE'),
+    viewCount: cafeCount(item, 'readCount', `${path}.item`, 'INVALID_ARTICLE'),
     commentCount: cafeCount(item, 'commentCount', `${path}.item`, 'INVALID_ARTICLE'),
     replyCount: cafeCount(item, 'replyArticleCount', `${path}.item`, 'INVALID_ARTICLE'),
     isNotice: false,

@@ -59,7 +59,7 @@ function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadat
     authorId: nullableString(writerInfo, 'memberKey', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
     authorNickname: nullableString(writerInfo, 'nickname', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
     postedAt: postedAtOf(item, itemPath),
-    viewCount: safeInteger(item, 'readCount', itemPath, 0, 'INVALID_ARTICLE'),
+    viewCount: cafeCount(item, 'readCount', itemPath, 'INVALID_ARTICLE'),
     commentCount: cafeCount(item, 'commentCount', itemPath, 'INVALID_ARTICLE'),
     replyCount: cafeCount(item, 'refArticleCount', itemPath, 'INVALID_ARTICLE'),
     isNotice: false,

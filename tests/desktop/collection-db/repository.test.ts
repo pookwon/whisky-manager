@@ -13,7 +13,7 @@ describe('collection page persistence inputs', () => {
     const page = parseCafeArticleListText(PAGE_1)
     expect(page.items).toHaveLength(50)
     expect(new Set(page.items.map((item) => item.postId))).toHaveLength(50)
-    expect(page.items.every((item) => item.isNotice === false && item.viewCount >= 0 && (item.commentCount === null || item.commentCount >= 0))).toBe(true)
+    expect(page.items.every((item) => item.isNotice === false && (item.viewCount === null || item.viewCount >= 0) && (item.commentCount === null || item.commentCount >= 0))).toBe(true)
   })
 
   it('carries a posted time for every row, which the post row stores as an instant', () => {

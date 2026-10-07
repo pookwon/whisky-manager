@@ -58,7 +58,7 @@ export function parseCafeArticle(postId: string, value: unknown): ParsedCafeArti
     authorId: nullableString(writer, 'memberKey', `${PATH}.writer`, 'INVALID_ARTICLE'),
     authorNickname: nullableString(writer, 'nick', `${PATH}.writer`, 'INVALID_ARTICLE'),
     postedAt: epochMilliseconds(article, 'writeDate', PATH),
-    viewCount: safeInteger(article, 'readCount', PATH, 0, 'INVALID_ARTICLE'),
+    viewCount: cafeCount(article, 'readCount', PATH, 'INVALID_ARTICLE'),
     commentCount: cafeCount(article, 'commentCount', PATH, 'INVALID_ARTICLE'),
     replyCount: null,
     // The list's row never holds a notice; whether this one is rides beside it.

@@ -740,31 +740,31 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     })
   })
 
-  it('on conflict, a null comment count from the search does not wipe a known count from a prior walk', async () => {
-    // If the board list already stored commentCount 5 for a post, and the search
-    // later re-reads it with commentCount null (search index reported -1),
-    // the upsert must keep 5 rather than writing null.  A new post with null
+  it('on conflict, null view and comment counts do not wipe known counts from a prior walk', async () => {
+    // If the board list already stored viewCount 120 and commentCount 5 for a
+    // post, and a later read answers -1 for both (read as null), the upsert
+    // must keep 120 and 5 rather than writing null. A new post with null
     // stores null — there is no prior value to preserve.
     const collection = createCollectionRepository(connection.db)
     const search = createBoardSearchRepository(connection.db, collection)
     const at = new Date('2026-09-26T04:00:00.000Z')
     await pool.query(`insert into boards (board_id, name, first_seen_at, last_seen_at) values ('137', '국내구입기 & 정보', $1, $1) on conflict do nothing`, [at])
 
-    // Seed a post with comment_count 5 directly, simulating what the list walk stores.
+    // Seed a post with view_count 120 and comment_count 5 directly, simulating what the list walk stores.
     await pool.query(
-      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at, comment_count)
-       values ('999001', '137', $1, $1, $1, 5) on conflict do nothing`,
+      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at, view_count, comment_count)
+       values ('999001', '137', $1, $1, $1, 120, 5) on conflict do nothing`,
       [new Date(Date.UTC(2025, 0, 10, 3, 0, 0))],
     )
 
-    // Re-read the same post from the search with commentCount null (search reported -1).
+    // Re-read the same post from the search with both counts null (the cafe answered -1).
     await search.replaceJob({ boardId: '137', fromDay: '20250101', toDay: '20250829', at, queries: [{ query: '댓글수', expectedGain: 1 }] })
     const runId = randomUUID()
     await search.startRun({ id: runId, boardId: '137', query: '댓글수', fromDay: '20250101', toDay: '20250829', startedAt: at })
     const nullCountPost = {
       cafeId: '14538121', postId: '999001', boardId: '137', boardName: null,
       title: '댓글수 있는 글', prefix: null, authorId: null, authorNickname: null,
-      postedAt: Date.UTC(2025, 0, 10, 3, 0, 0), viewCount: 10, commentCount: null,
+      postedAt: Date.UTC(2025, 0, 10, 3, 0, 0), viewCount: null, commentCount: null,
       replyCount: 0, isNotice: false as const,
     }
     await search.persistPage({
@@ -773,9 +773,9 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       result: { items: [nullCountPost], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 1 }, pageIdentity: 'p-nullcount-1' },
     })
 
-    // The coalesce must keep the prior known count.
-    const row = await pool.query<{ comment_count: string | null }>('select comment_count from posts where post_id = $1', ['999001'])
-    expect(row.rows[0]?.comment_count).toBe('5')
+    // The coalesce must keep the prior known counts.
+    const row = await pool.query<{ view_count: string | null; comment_count: string | null }>('select view_count, comment_count from posts where post_id = $1', ['999001'])
+    expect(row.rows[0]).toEqual({ view_count: '120', comment_count: '5' })
 
     // A brand-new post written by the search with null stores null (no prior value to keep).
     const newPost = { ...nullCountPost, postId: '999002' }
@@ -784,8 +784,8 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       page: 2, observedAt: at,
       result: { items: [newPost], pageInfo: { lastNavigationPageNumber: 2, visibleNextButton: false, totalArticleCount: 2 }, pageIdentity: 'p-nullcount-2' },
     })
-    const newRow = await pool.query<{ comment_count: string | null }>('select comment_count from posts where post_id = $1', ['999002'])
-    expect(newRow.rows[0]?.comment_count).toBeNull()
+    const newRow = await pool.query<{ view_count: string | null; comment_count: string | null }>('select view_count, comment_count from posts where post_id = $1', ['999002'])
+    expect(newRow.rows[0]).toEqual({ view_count: null, comment_count: null })
 
     await search.finishRun(runId, 'succeeded', null, at)
   })
