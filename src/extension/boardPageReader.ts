@@ -8,6 +8,8 @@ export type BoardPageReadResult =
   | {
       readonly ok: false
       readonly code: 'BOARD_PAGE_BAD_REQUEST' | 'BOARD_PAGE_NETWORK_ERROR' | 'BOARD_PAGE_HTTP_ERROR' | 'BOARD_PAGE_INVALID_JSON' | 'BOARD_PAGE_PARSE_ERROR'
+      /** Which parser rule the page broke: its code and path, never the page's content. */
+      readonly detail?: string
     }
 
 export interface BoardPageReaderDeps {
@@ -38,6 +40,7 @@ export function createBoardPageReader(deps: BoardPageReaderDeps) {
         if (error instanceof CafeArticleListParseError && error.code === 'INVALID_JSON') {
           return { ok: false, code: 'BOARD_PAGE_INVALID_JSON' }
         }
+        if (error instanceof CafeArticleListParseError) return { ok: false, code: 'BOARD_PAGE_PARSE_ERROR', detail: `${error.code}: ${error.message}` }
         return { ok: false, code: 'BOARD_PAGE_PARSE_ERROR' }
       }
     },

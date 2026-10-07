@@ -646,4 +646,12 @@ describe('collection planning and orchestration', () => {
     await expect(createBoardPageFetcher(transport, () => 'r', '137').read(1)).rejects.toMatchObject({ code: 'BOARD_PAGE_HTTP_ERROR' })
     expect(sent).toEqual(['137'])
   })
+
+  it('keeps the rule a refused page broke, so the run\'s stop reason names it', async () => {
+    const detail = 'INVALID_PAGE_INFO: result.pageInfo.lastNavigationPageNumber must be a safe integer at least 1'
+    const transport = { request: async () => ({ type: 'ERROR', requestId: 'r', code: 'BOARD_PAGE_PARSE_ERROR', message: detail }) } as never
+    await expect(createBoardPageFetcher(transport, () => 'r', '207').read(11)).rejects.toMatchObject({ code: 'BOARD_PAGE_PARSE_ERROR', detail })
+    const bare = { request: async () => ({ type: 'ERROR', requestId: 'r', code: 'BOARD_PAGE_HTTP_ERROR', message: 'BOARD_PAGE_HTTP_ERROR' }) } as never
+    await expect(createBoardPageFetcher(bare, () => 'r', '207').read(11)).rejects.toMatchObject({ code: 'BOARD_PAGE_HTTP_ERROR', detail: undefined })
+  })
 })

@@ -38,7 +38,9 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
     const message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }> = { type: 'COLLECT_BOARD_PAGE', requestId: newRequestId(), cafeId: CAFE_ARTICLE_LIST.cafeId, menuId, page, pageSize: CAFE_ARTICLE_LIST.pageSize, sortBy: CAFE_ARTICLE_LIST.sortBy, viewType: CAFE_ARTICLE_LIST.viewType }
     const reply = await transport.request(message, TIMEOUTS.boardPageMs)
     if (reply.type === 'BOARD_PAGE_COLLECTED') return reply.result
-    if (reply.type === 'ERROR') throw new CollectionPageError(reply.code)
+    // A message other than the bare code is the extension saying which rule
+    // the page broke; it rides along so the run's stop reason names it.
+    if (reply.type === 'ERROR') throw new CollectionPageError(reply.code, reply.message === reply.code || reply.message === '' ? undefined : reply.message)
     throw new CollectionPageError('BOARD_PAGE_UNEXPECTED_REPLY')
   } }
 }

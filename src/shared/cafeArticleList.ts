@@ -215,14 +215,25 @@ export function cafeArticlePageIdentity(postIds: readonly string[]): string {
   return `fnv1a64:${hash.toString(16).padStart(16, '0')}`
 }
 
+/**
+ * The page past the end of a list can answer all-zero page info: the board
+ * search past its result cap (captured 2026-09-25: page 81 of 137 "구매" after
+ * 80 full pages), and board 207's own list past its last page. An empty page
+ * ends a list whatever its page info says, so zero is read there; a page with
+ * posts that claims no pages is still malformed.
+ */
+function lastPageMinimumFor(articleCount: number): number {
+  return articleCount === 0 ? 0 : 1
+}
+
 /** A parsed page from its items: no post twice, its page info read, its identity stamped. */
-export function collectedArticlePage(items: readonly CollectedPostMetadata[], rawPageInfo: unknown, lastPageMinimum = 1): CollectedArticlePage {
+export function collectedArticlePage(items: readonly CollectedPostMetadata[], rawPageInfo: unknown): CollectedArticlePage {
   const postIds = new Set<string>()
   for (const item of items) {
     if (postIds.has(item.postId)) fail('DUPLICATE_POST_ID', `result.articleList has duplicate articleId ${item.postId}`)
     postIds.add(item.postId)
   }
-  return { items, pageInfo: parsePageInfo(rawPageInfo, lastPageMinimum), pageIdentity: cafeArticlePageIdentity(items.map((item) => item.postId)) }
+  return { items, pageInfo: parsePageInfo(rawPageInfo, lastPageMinimumFor(items.length)), pageIdentity: cafeArticlePageIdentity(items.map((item) => item.postId)) }
 }
 
 /** Parses a decoded JSON value from the exact list endpoint. */

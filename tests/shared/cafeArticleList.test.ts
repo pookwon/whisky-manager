@@ -137,6 +137,18 @@ describe('parseCafeArticleList on a board\'s own list', () => {
     expect(page.pageInfo).toEqual({ lastNavigationPageNumber: 10, visibleNextButton: true, totalArticleCount: null })
   })
 
+  it('reads the empty page past a board\'s last page, whose page info is all zero, as an empty page', () => {
+    // Board 207 failed on the page past its end: the same answer the board
+    // search gives past its last page (captured 2026-09-25, 137 "구매" page 81).
+    const page = parseCafeArticleList({ result: { articleList: [], pageInfo: { lastNavigationPageNumber: 0, visibleNextButton: false } } })
+    expect(page.items).toEqual([])
+    expect(page.pageInfo).toEqual({ lastNavigationPageNumber: 0, visibleNextButton: false, totalArticleCount: null })
+  })
+
+  it('refuses a page with posts whose page info is all zero', () => {
+    expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: validArticle() }], pageInfo: { lastNavigationPageNumber: 0, visibleNextButton: false } } }, 'INVALID_PAGE_INFO')
+  })
+
   it('still refuses a board name that is present but null', () => {
     expectParseError({ result: { articleList: [{ type: 'ARTICLE', item: { ...validArticle(), menuName: null } }], pageInfo: validPageInfo() } }, 'INVALID_ARTICLE')
   })

@@ -59,6 +59,17 @@ describe('BoardPageReader', () => {
     await expect(invalidJson.read(request)).resolves.toEqual({ ok: false, code: 'BOARD_PAGE_INVALID_JSON' })
 
     const malformed = createBoardPageReader({ http: async () => ({ status: 200, contentType: 'application/json', text: '{"result":{"articleList":[]}}' }) })
-    await expect(malformed.read(request)).resolves.toEqual({ ok: false, code: 'BOARD_PAGE_PARSE_ERROR' })
+    await expect(malformed.read(request)).resolves.toMatchObject({ ok: false, code: 'BOARD_PAGE_PARSE_ERROR' })
+  })
+
+  it('names the parser rule a page broke, by its code and path and never by its content', async () => {
+    // Board 207 failed past its last page and the run kept only the bare code,
+    // so which rule refused the page could not be told afterwards.
+    const body = JSON.parse(pageOne) as { result: { articleList: { item: Record<string, unknown> }[] } }
+    body.result.articleList[3]!.item.writerInfo = 'private-nickname'
+    const malformed = createBoardPageReader({ http: async () => ({ status: 200, contentType: 'application/json', text: JSON.stringify(body) }) })
+    const result = await malformed.read(request)
+    expect(result).toEqual({ ok: false, code: 'BOARD_PAGE_PARSE_ERROR', detail: 'INVALID_ARTICLE: result.articleList[3].item.writerInfo must be an object' })
+    expect(JSON.stringify(result)).not.toContain('private-nickname')
   })
 })
