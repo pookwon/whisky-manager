@@ -42,6 +42,8 @@ export type CollectionStartRefusal =
   | 'NO_JOB'
   /** The stored job has already walked past its period's start. */
   | 'JOB_FINISHED'
+  /** The pipeline could not make or read the next step's job; the reason is in the diagnostics log. */
+  | 'STEP_FAILED'
 
 export type CollectionStartResult =
   | { readonly kind: 'started' }

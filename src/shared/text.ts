@@ -47,6 +47,7 @@ const MEMBER_START_REFUSED = {
   STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 다시 시도하세요.',
   NO_JOB: '시작된 회원 수집이 없습니다.',
   JOB_FINISHED: '전체 회원을 이미 옮겼습니다. 신규는 매일 자동으로 보탭니다.',
+  STEP_FAILED: '다음 단계를 준비하지 못했습니다. 최근 기록의 오류를 보세요.',
 }
 
 /** `at` is `MM-DD HH:MM` KST. Used by the collection screen's step wording. */
@@ -171,6 +172,7 @@ export const TEXT = {
       STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 기간을 바꾸세요.',
       NO_JOB: '이어받을 작업이 없습니다. 아래에서 기간을 골라 시작하세요.',
       JOB_FINISHED: '이 기간은 끝까지 옮겼습니다. 새 기간을 골라 시작하세요.',
+      STEP_FAILED: '다음 단계를 준비하지 못했습니다. 최근 기록의 오류를 보세요.',
     },
     /** Replacing a job the operator has not finished, said as what it costs. */
     replace: {
