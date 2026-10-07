@@ -8,6 +8,7 @@ import {
   type CollectionClock,
   type CollectionRunResult,
 } from './collectionOrchestrator.js'
+import type { CollectionBlockEnd, OnCollectionBlockEnd } from './collectionBlockEnd.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { ExtensionTransport } from './ws/server.js'
 
@@ -22,6 +23,10 @@ export interface CollectionStartRequest {
   readonly feeds: readonly CollectionFeed[]
   /** Whether to resume from each feed's checkpoint (for continuing jobs). */
   readonly resumeFromCheckpoint?: boolean
+  /** Told how the block ended, once, after the lock is free. */
+  readonly onBlockEnd?: OnCollectionBlockEnd
+  /** Requests the block made before this walk; its pacing counts on from them. */
+  readonly requestsBefore?: number
 }
 
 /**
@@ -39,6 +44,8 @@ export type CollectionStartRefusal =
   | 'NO_JOB'
   /** The stored job has already walked past its period's start. */
   | 'JOB_FINISHED'
+  /** The pipeline could not make or read the next step's job; the reason is in the diagnostics log. */
+  | 'STEP_FAILED'
 
 export type CollectionStartResult =
   | { readonly kind: 'started' }
@@ -77,6 +84,14 @@ export interface CollectionRunner {
   isRunning(): boolean
 }
 
+/** The block's verdict off its feeds' results; see `CollectionBlockEnd`. */
+function blockEndOf(results: readonly CollectionRunResult[], maxPages: number, aborted: boolean): CollectionBlockEnd {
+  const requests = results.reduce((sum, result) => sum + result.requests, 0)
+  if (aborted || results.some((result) => result.kind === 'interrupted')) return { requests, endedBy: 'stopped' }
+  if (results.some((result) => result.kind === 'failed' || result.kind === 'cas_conflict')) return { requests, endedBy: 'failed' }
+  return { requests, endedBy: requests >= maxPages ? 'budget' : 'drained' }
+}
+
 export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRunner {
   let inFlight: Promise<void> | null = null
   let abortRequested = false
@@ -88,7 +103,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
    * on too: one board's bad page is no reason to hold the other thirty-seven.
    * A stop does not; it is the operator asking for quiet.
    */
-  async function walk(request: CollectionStartRequest, repository: CollectionRepository): Promise<readonly CollectionRunResult[]> {
+  async function walk(request: CollectionStartRequest, repository: CollectionRepository, report: (requests: number) => void): Promise<readonly CollectionRunResult[]> {
     const results: CollectionRunResult[] = []
     const pacing = deps.pacing()
     let spent = 0
@@ -116,10 +131,11 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
           startedAt: new Date(deps.clock.now()),
         },
         maxPages: request.maxPages - spent,
-        requestsBefore: spent,
+        requestsBefore: (request.requestsBefore ?? 0) + spent,
       })
       results.push(result)
       spent += result.requests
+      report(spent)
       if (result.kind === 'interrupted') break
     }
     return results
@@ -140,11 +156,24 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
       if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
 
       abortRequested = false
+      let spent = 0
+      let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }
 
-      inFlight = walk(request, repository)
-        .then((results) => { deps.onFinished?.(results) })
-        .catch((error: unknown) => { deps.onError?.(error) })
-        .finally(() => { inFlight = null; deps.lock.release() })
+      inFlight = walk(request, repository, (requests) => { spent = requests })
+        .then((results) => {
+          end = blockEndOf(results, request.maxPages, abortRequested)
+          deps.onFinished?.(results)
+        })
+        .catch((error: unknown) => {
+          end = { requests: spent, endedBy: abortRequested ? 'stopped' : 'failed' }
+          deps.onError?.(error)
+        })
+        .finally(() => {
+          inFlight = null
+          deps.lock.release()
+          // The next walk may be started from here; a throw is reported, not left to reject the block.
+          try { request.onBlockEnd?.(end) } catch (error) { deps.onError?.(error) }
+        })
 
       return { kind: 'started' }
     },

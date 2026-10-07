@@ -11,7 +11,11 @@
 const MAX_DETAIL_LENGTH = 200
 
 export function describeFailure(error: unknown): string {
-  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  return stopReasonDetail(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
+}
+
+/** Any detail a stop reason carries, kept to one line and a bounded length. */
+export function stopReasonDetail(text: string): string {
   const oneLine = text.replace(/\s+/g, ' ').trim()
   return oneLine.length > MAX_DETAIL_LENGTH ? `${oneLine.slice(0, MAX_DETAIL_LENGTH - 1)}…` : oneLine
 }

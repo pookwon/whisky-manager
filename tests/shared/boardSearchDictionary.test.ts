@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBoardSearchDictionary, titleWords } from '../../src/shared/boardSearchDictionary.js'
+import { buildBoardSearchDictionary, extendBoardSearchQueries, titleWords } from '../../src/shared/boardSearchDictionary.js'
 
 describe('titleWords', () => {
   it('splits on anything that is not a Hangul syllable, Latin letter or digit, lower-cased', () => {
@@ -81,5 +81,48 @@ describe('buildBoardSearchDictionary', () => {
     const titles = ['이마트 구매', '트레이더스 구매', '코스트코', '이마트 조니', '조니워커']
     const once = buildBoardSearchDictionary(titles, { minGain: 1 })
     expect(buildBoardSearchDictionary([...titles].reverse(), { minGain: 1 })).toEqual(once)
+  })
+})
+
+describe('extendBoardSearchQueries', () => {
+  it('offers a longer word that starts with an asked query, since the search matches whole words', () => {
+    // '홈플' does not find '월드컵 홈플러스' (measured 2026-09-26): '홈플러스' must be asked itself.
+    const titles = ['월드컵 홈플러스', '홈플러스 득템', '동광주홈플', '홈플 오픈런']
+    expect(extendBoardSearchQueries(titles, ['홈플'], { minGain: 1 })).toEqual([{ query: '홈플러스', expectedGain: 2 }])
+  })
+
+  it('counts only titles no asked query matches as a whole word', () => {
+    // The second title has '홈플' itself, so asking '홈플' already finds it.
+    const titles = ['홈플러스 득템', '홈플 홈플러스']
+    expect(extendBoardSearchQueries(titles, ['홈플'], { minGain: 1 })).toEqual([{ query: '홈플러스', expectedGain: 1 }])
+  })
+
+  it('never offers an asked query, a word extending none, or a word whose every title is already found', () => {
+    // '이마트24' extends '이마트', but its one title also holds '홈플' itself.
+    const titles = ['홈플 이마트', '이마트24 홈플', 'x 오픈런']
+    expect(extendBoardSearchQueries(titles, ['홈플', '이마트'], { minGain: 1 })).toEqual([])
+  })
+
+  it('picks greedily, a title counted once, and stops below the minimum gain and at the limit', () => {
+    const titles = ['홈플러스 홈플런', '홈플러스', '홈플런', '홈플런 구매기', '구매기']
+    expect(extendBoardSearchQueries(titles, ['홈플', '구매'], { minGain: 1 })).toEqual([
+      { query: '홈플런', expectedGain: 3 },
+      { query: '구매기', expectedGain: 1 },
+      { query: '홈플러스', expectedGain: 1 },
+    ])
+    expect(extendBoardSearchQueries(titles, ['홈플', '구매'], { minGain: 2 })).toEqual([{ query: '홈플런', expectedGain: 3 }])
+    expect(extendBoardSearchQueries(titles, ['홈플', '구매'], { minGain: 1, limit: 1 })).toEqual([{ query: '홈플런', expectedGain: 3 }])
+  })
+
+  it('breaks an equal gain by how many titles use the word, then by code-unit order', () => {
+    // '홈플러스' and '홈플런' each catch one open title; '홈플러스' is used in two titles.
+    const titles = ['홈플러스', '홈플런', '홈플 홈플러스']
+    expect(extendBoardSearchQueries(titles, ['홈플'], { minGain: 1 }).map((entry) => entry.query)).toEqual(['홈플러스', '홈플런'])
+  })
+
+  it('defaults to the minimum gain of five', () => {
+    const titles = Array.from({ length: 4 }, () => '홈플러스')
+    expect(extendBoardSearchQueries(titles, ['홈플'])).toEqual([])
+    expect(extendBoardSearchQueries([...titles, '홈플러스'], ['홈플'])).toEqual([{ query: '홈플러스', expectedGain: 5 }])
   })
 })

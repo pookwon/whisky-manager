@@ -15,17 +15,18 @@ const observedTimestamp = (name: string) => timestamp(name, { withTimezone: true
 export const articleProbeOutcome = pgEnum('article_probe_outcome', ['stored', 'deleted', 'unreadable', 'other_board', 'notice'])
 
 /**
- * The ids the search could not reach, one row each. Made once from the id holes
- * of the search job's window; an id answered once is never read again, since a
- * deleted post does not come back and a stored one is kept current by the walks
- * that re-read it. The id is numeric here, unlike `posts.post_id`: the walk goes
- * in id order, and as text 99999 would sort after 100000.
+ * The ids the search could not reach, one row each. Filled once per window from
+ * the holes between the window's first and last stored post; answered ids keep
+ * their answer when a later window spans them — a deleted post does not come back
+ * and a stored one is kept current by the walks that re-read it. The id is numeric
+ * here, unlike `posts.post_id`: the walk goes in id order, and as text 99999 would
+ * sort after 100000.
  */
 export const articleProbe = pgTable(
   'article_probe',
   {
     postId: bigint('post_id', { mode: 'number' }).primaryKey(),
-    /** KST `yyyymmdd`: the search job's window the id was drawn from; `to` is the search's own, inclusive. */
+    /** KST `yyyymmdd`: the pipeline period this job covers; `to` is the exclusive end — ids come from posts before that day's 00:00 KST. Filled once per window. */
     windowFromDay: text('window_from_day').notNull(),
     windowToDay: text('window_to_day').notNull(),
     /** Null until the id is answered. */

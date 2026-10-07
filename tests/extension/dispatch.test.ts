@@ -171,6 +171,16 @@ describe('the rest of the instructions', () => {
     expect(replies[1]).toMatchObject({ type: 'ERROR', code: 'MEMBER_PAGE_FORBIDDEN' })
   })
 
+  it('carries a page read failure\'s detail in the error message', async () => {
+    const { run, replies } = setup({
+      boardPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'BOARD_PAGE_PARSE_ERROR' as const, detail: 'INVALID_PAGE_INFO: result.pageInfo must be an object' }) },
+    })
+
+    await run(boardPage('r1', 11))
+
+    expect(replies[0]).toMatchObject({ type: 'ERROR', code: 'BOARD_PAGE_PARSE_ERROR', message: 'INVALID_PAGE_INFO: result.pageInfo must be an object' })
+  })
+
   it('passes a read page straight through', async () => {
     const page = { items: [], pageIdentity: 'x', totalCount: null }
     const { run, replies } = setup({

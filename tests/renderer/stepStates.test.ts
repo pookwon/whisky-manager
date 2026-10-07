@@ -1,63 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { listStepState, probeStepState, searchStepState } from '../../src/renderer/views/collection/stepStates.js'
-import { TEXT } from '../../src/shared/text.js'
-import { board, inputs, listJob, probe, probeJob, runningRun, search, searchJob, status } from './collectionStepFixtures.js'
+import { board, inputs, listJob, probe, probeJob, runningRun, status, PERIOD } from './collectionStepFixtures.js'
 
-describe('list step badge', () => {
-  it('is to do with no job or an unfinished one, and done once the job is', () => {
-    expect(listStepState(inputs())).toEqual({ badge: 'todo', reason: null })
-    expect(listStepState(inputs({ status: status({ job: listJob() }) })).badge).toBe('todo')
+describe('step badges', () => {
+  it('list: running while a list run is in flight, done once its job is complete, else to do', () => {
+    expect(listStepState(inputs({ status: status({ running: runningRun }) })).badge).toBe('running')
     expect(listStepState(inputs({ status: status({ job: listJob({ complete: true }) }) })).badge).toBe('done')
+    expect(listStepState(inputs()).badge).toBe('todo')
   })
 
-  it('is running while a list run is in flight', () => {
-    expect(listStepState(inputs({ status: status({ job: listJob(), running: runningRun }) })).badge).toBe('running')
-  })
-})
-
-describe('search step badge', () => {
-  it('is not needed, saying why, with no job and no board at the list horizon', () => {
-    expect(searchStepState(inputs({ search: search(null) }))).toEqual({ badge: 'notNeeded', reason: TEXT.collection.steps.search.notNeeded })
-    // Storage for the search not answering is the same as no search at all.
-    expect(searchStepState(inputs()).badge).toBe('notNeeded')
+  it('search: to do while it is the stage or a board at the horizon waits, done after, not needed without such a board', () => {
+    const horizon = status({ job: listJob({ complete: true, boards: [board(1, '188', 'horizon')] }) })
+    expect(searchStepState(inputs({ status: horizon, pipeline: { kind: 'search', period: PERIOD, boardId: '188', boardName: null, position: 1, count: 1, searchExtended: true } })).badge).toBe('todo')
+    expect(searchStepState(inputs({ status: horizon, pipeline: { kind: 'probe', period: PERIOD } })).badge).toBe('done')
+    expect(searchStepState(inputs({ status: status({ job: listJob({ boards: [board(1, '188', 'horizon')] }) }), pipeline: { kind: 'list', period: PERIOD } })).badge).toBe('todo')
+    expect(searchStepState(inputs({ status: status({ job: listJob({ complete: true, boards: [board(1, '189', 'complete')] }) }), pipeline: { kind: 'probe', period: PERIOD } }))).toEqual({ badge: 'notNeeded', reason: '목록 끝에 닿은 게시판이 없어 필요 없습니다.' })
   })
 
-  it('is to do when a board reached the horizon that the job is not for', () => {
-    const atHorizon = status({ job: listJob({ complete: true, boards: [board(1, '137', 'horizon')] }) })
-    expect(searchStepState(inputs({ status: atHorizon, search: search(null) })).badge).toBe('todo')
-    expect(searchStepState(inputs({ status: atHorizon, search: search(searchJob({ boardId: '200', current: null })) })).badge).toBe('todo')
-    // No search storage: there is no step to send the operator to.
-    expect(searchStepState(inputs({ status: atHorizon })).badge).toBe('notNeeded')
-  })
-
-  it('is to do while its job is unfinished, and running while it walks', () => {
-    expect(searchStepState(inputs({ search: search(searchJob()) })).badge).toBe('todo')
-    expect(searchStepState(inputs({ search: search(searchJob(), true) })).badge).toBe('running')
-  })
-
-  it('is done once every query finished and no other board waits', () => {
-    const atHorizon = status({ job: listJob({ complete: true, boards: [board(1, '137', 'horizon')] }) })
-    expect(searchStepState(inputs({ status: atHorizon, search: search(searchJob({ current: null })) }))).toEqual({ badge: 'done', reason: null })
-  })
-})
-
-describe('probe step badge', () => {
-  it('is not needed until the search has finished', () => {
-    expect(probeStepState(inputs({ probe: probe(null) }))).toEqual({ badge: 'notNeeded', reason: TEXT.collection.steps.probe.notNeeded })
-    expect(probeStepState(inputs({ search: search(searchJob()), probe: probe(null) })).badge).toBe('notNeeded')
-    expect(probeStepState(inputs()).badge).toBe('notNeeded')
-  })
-
-  it('is to do once the search finished and no probe job exists, or while one is unfinished', () => {
-    expect(probeStepState(inputs({ search: search(searchJob({ current: null })), probe: probe(null) })).badge).toBe('todo')
-    expect(probeStepState(inputs({ probe: probe(probeJob({ probed: 40 })) })).badge).toBe('todo')
-    expect(probeStepState(inputs({ probe: probe(probeJob({ probed: 40 }), true) })).badge).toBe('running')
-  })
-
-  it('is done, and says it cannot be made again when the search moved to another window', () => {
-    const done = probe(probeJob({ probed: 100 }))
-    expect(probeStepState(inputs({ search: search(searchJob({ current: null })), probe: done }))).toEqual({ badge: 'done', reason: null })
-    const elsewhere = search(searchJob({ boardId: '200', fromDay: '20240101', toDay: '20240601', current: null }))
-    expect(probeStepState(inputs({ search: elsewhere, probe: done }))).toEqual({ badge: 'done', reason: TEXT.collection.steps.probe.spent })
+  it('probe: done when the pipeline is, to do while it is the stage, and waiting with a reason before', () => {
+    expect(probeStepState(inputs({ pipeline: { kind: 'done', period: PERIOD } })).badge).toBe('done')
+    expect(probeStepState(inputs({ pipeline: { kind: 'probe', period: PERIOD } })).badge).toBe('todo')
+    expect(probeStepState(inputs({ pipeline: { kind: 'list', period: PERIOD } }))).toEqual({ badge: 'notNeeded', reason: '② 보충이 끝나면 저절로 시작합니다.' })
+    expect(probeStepState(inputs({ probe: probe(probeJob(), true), pipeline: { kind: 'probe', period: PERIOD } })).badge).toBe('running')
   })
 })

@@ -101,7 +101,8 @@ export function createDispatcher(deps: DispatcherDeps) {
         if (!result.ok) {
           // Codes are deliberately stable and body-free: a list response can
           // contain account-linked data and must never be echoed to the bridge.
-          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          // The detail names only the parser rule a page broke and where.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.detail ?? result.code })
           return
         }
         reply({ type: 'BOARD_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })

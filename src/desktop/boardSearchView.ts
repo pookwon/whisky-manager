@@ -1,6 +1,6 @@
 import type { BoardSearchCoverage, BoardSearchCoverageQuery } from './collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRun, BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
-import type { BoardSearchQueryState, BoardSearchRepository, CollectableBoard } from './collection-db/boardSearchRepository.js'
+import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { BoardSearchBlockFailure, BoardSearchProgress } from './boardSearchRunner.js'
 
 /** A query of the job with how its newest run in the job's window ended; null before its first run. */
@@ -22,9 +22,8 @@ export interface BoardSearchJobView {
   readonly coverage: BoardSearchCoverage
 }
 
-/** What the search backfill screen shows: the boards it can pick, and the job if there is one. */
+/** What the search backfill card shows: the job the pipeline walks, if there is one, and the block in flight. */
 export interface BoardSearchView {
-  readonly boards: readonly CollectableBoard[]
   readonly running: boolean
   /** The block in flight's progress; null when none runs. */
   readonly progress: BoardSearchProgress | null
@@ -41,19 +40,21 @@ export async function readBoardSearchView(inputs: {
   readonly progress: BoardSearchProgress | null
   readonly blockFailure: BoardSearchBlockFailure | null
 }): Promise<BoardSearchView> {
-  const [boards, queries] = await Promise.all([inputs.repository.listCollectableBoards(), inputs.repository.listQueries()])
+  const queries = await inputs.repository.listQueries()
   const first = queries[0]
-  if (first === undefined) return { boards, running: inputs.running, progress: inputs.progress, blockFailure: inputs.blockFailure, job: null }
+  if (first === undefined) return { running: inputs.running, progress: inputs.progress, blockFailure: inputs.blockFailure, job: null }
   const insertedTotal = queries.reduce((sum, query) => sum + query.insertedCount, 0)
-  const lastRuns = await inputs.lastRuns.read({ boardId: first.boardId, fromDay: first.fromDay, toDay: first.toDay })
+  const [boardName, lastRuns] = await Promise.all([
+    inputs.repository.readBoardName(first.boardId),
+    inputs.lastRuns.read({ boardId: first.boardId, fromDay: first.fromDay, toDay: first.toDay }),
+  ])
   return {
-    boards,
     running: inputs.running,
     progress: inputs.progress,
     blockFailure: inputs.blockFailure,
     job: {
       boardId: first.boardId,
-      boardName: boards.find((board) => board.boardId === first.boardId)?.name ?? null,
+      boardName,
       fromDay: first.fromDay,
       toDay: first.toDay,
       queries: queries.map((query) => ({ ...query, lastRun: lastRuns.get(query.query) ?? null })),

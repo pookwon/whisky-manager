@@ -9,27 +9,22 @@ import { isWithinActiveHours } from '../shared/schedule.js'
 import { approve as approveExecution, reject as rejectExecution } from './approvals.js'
 import type { AppRepos, AutomationControl } from './bootstrap.js'
 import { getCafeImage as fetchCafeImage } from './cafeImage.js'
-import type { CollectionFeed } from './collection-db/repository.js'
 import type { OptionalCollectionContext } from './collectionContext.js'
 import type { CollectionLoop } from './collectionLoop.js'
-import type { CollectionRunner } from './collectionRunner.js'
 import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
 import { readCollectionPacing, writeCollectionPacing } from './collectionPacingSettings.js'
 import { readMemberResyncInterval, writeMemberResyncInterval } from './memberResyncSettings.js'
 import { readMemberResyncView } from './memberResyncView.js'
 import { readBoardSearchView } from './boardSearchView.js'
-import { planBoardSearchJob } from './boardSearchPlan.js'
 import type { BoardSearchRunner } from './boardSearchRunner.js'
 import { readArticleProbeView } from './articleProbeView.js'
-import { articleProbeWindow } from './articleProbePlan.js'
 import type { ArticleProbeRunner } from './articleProbeRunner.js'
+import type { CollectionPipeline } from './collectionPipeline.js'
 import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import { pagesPerWorkBlock } from '../shared/collectionPacing.js'
-import { describeJob } from './collectionScope.js'
 import {
   checkCollectionRange,
   collectionRangeOfDays,
-  type CollectionRange,
 } from '../shared/collectionSchedule.js'
 import { applyBundle, buildBundle, type ConfigTransferDeps } from './configTransfer.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
@@ -43,9 +38,7 @@ import type { MemberCollectionRunner } from './memberCollectionRunner.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
-  ArticleProbeCreateView,
   ArticleProbeStatusView,
-  BoardSearchPlanView,
   BoardSearchStatusView,
   MemberCollectionStatusView,
   SetCollectionForcedResult,
@@ -100,8 +93,8 @@ export interface RendererApiDeps {
    * api.
    */
   readonly collection: () => OptionalCollectionContext
-  /** Starts and stops one collection walk. */
-  readonly collectionRunner: CollectionRunner
+  /** Manages all three stages of a collection period end-to-end. */
+  readonly collectionPipeline: CollectionPipeline
   /** Starts and stops the member collection walk. */
   readonly memberCollectionRunner: MemberCollectionRunner
   /** The same walk bound to the re-walk's own cursor. */
@@ -170,7 +163,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     schedule: readCollectionSchedule(settings),
     pacing: readCollectionPacing(settings),
     nextRunAtMs: deps.collectionLoop.nextRunAt(),
-    running: deps.collectionRunner.isRunning(),
+    running: deps.collectionPipeline.isRunning(),
   })
 
   const transfer: ConfigTransferDeps = {
@@ -269,27 +262,18 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     async startCollection(request?: CollectionRunRequest): Promise<StartCollectionResult> {
       const collection = deps.collection()
-      const stored = collection.kind === 'ready' ? await collection.status.read() : null
-      const inProgress = stored?.job ?? null
+      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
 
-      const startFor = (range: CollectionRange, feeds: readonly CollectionFeed[], resumeFromCheckpoint: boolean): StartCollectionResult => {
-        const schedule = readCollectionSchedule(settings)
-        const started = deps.collectionRunner.start({
-          range, kind: 'backfill', maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)), feeds, resumeFromCheckpoint,
-        })
+      const schedule = readCollectionSchedule(settings)
+      const maxPages = pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings))
+
+      if (request === undefined) {
+        const started = await deps.collectionPipeline.start({ maxPages, runKind: 'backfill' })
         return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
 
-      if (request === undefined) {
-        if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-        if (inProgress === null) return { kind: 'refused', reason: 'NO_JOB' }
-        if (inProgress.complete) return { kind: 'refused', reason: 'JOB_FINISHED' }
-        const rows = describeJob(await collection.repository.listFeedStates())
-        if (rows === null) return { kind: 'refused', reason: 'NO_JOB' }
-        return startFor({ startMs: rows.targetStartMs, endMs: rows.targetEndMs }, rows.remaining.map((row) => row.feed), true)
-      }
-
-      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
+      const stored = await collection.status.read()
+      const inProgress = stored?.job ?? null
       const range = collectionRangeOfDays(request.firstDayMs, request.lastDayMs)
       const problem = checkCollectionRange(range, deps.clock.now())
       if (problem !== null) return { kind: 'rejected', problem }
@@ -299,24 +283,27 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         inProgress !== null && inProgress.scope === scope &&
         inProgress.targetStartMs === range.startMs && inProgress.targetEndMs === range.endMs
 
-      if (inProgress !== null && !sameJob && !inProgress.complete && request.replace !== true) {
-        return { kind: 'needs_replace', job: inProgress }
-      }
-      if (inProgress !== null && !sameJob && deps.collectionRunner.isRunning()) {
-        return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
+      // Read pipeline state once; needed for both sameJob and !sameJob branches.
+      const reading = await deps.collectionPipeline.read()
+      const stage = reading?.stage ?? { kind: 'idle' }
+      const pipelineDone = stage.kind === 'done'
+
+      if (inProgress !== null && !sameJob) {
+        const pipelineActive = stage.kind !== 'idle' && !pipelineDone
+        if (pipelineActive && request.replace !== true) return { kind: 'needs_replace', job: inProgress }
       }
 
-      // The same unfinished job carries on from its cursors. Anything else —
-      // a new period, a new scope, or the same one asked for again after it
-      // finished — is made afresh, without touching the posts already held.
-      if (sameJob && !inProgress.complete) {
-        const rows = describeJob(await collection.repository.listFeedStates())
-        if (rows === null) return { kind: 'refused', reason: 'NO_JOB' }
-        return startFor(range, rows.remaining.map((row) => row.feed), true)
+      // Same period's later steps (search or probe) are still in flight — just resume.
+      if (sameJob && !pipelineDone) {
+        const started = await deps.collectionPipeline.start({ maxPages, runKind: 'backfill' })
+        return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
       }
-      const made = describeJob(await collection.repository.replaceJob({ scope, targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(deps.clock.now()) }))
-      if (made === null) return { kind: 'refused', reason: 'NO_JOB' }
-      return startFor(range, made.feeds.map((row) => row.feed), false)
+
+      // Period needs to be replaced (different job, or same job that is fully done).
+      if (deps.collectionPipeline.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
+      await collection.repository.replaceJob({ scope, targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(deps.clock.now()) })
+      const started = await deps.collectionPipeline.start({ maxPages, runKind: 'backfill' })
+      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
     },
 
     async setCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {
@@ -340,7 +327,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     },
 
     stopCollection(): Promise<void> {
-      deps.collectionRunner.stop()
+      deps.collectionPipeline.stop()
       return Promise.resolve()
     },
 
@@ -348,7 +335,8 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const collection = deps.collection()
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
-      return { kind: 'ready', status: await collection.status.read() }
+      const [status, reading] = await Promise.all([collection.status.read(), deps.collectionPipeline.read()])
+      return { kind: 'ready', status, pipeline: reading?.stage ?? { kind: 'idle' } }
     },
 
     async getMemberCollectionStatus(): Promise<MemberCollectionStatusView> {
@@ -429,81 +417,23 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       }
     },
 
-    async previewBoardSearchJob(request): Promise<BoardSearchPlanView> {
-      const collection = deps.collection()
-      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      const plan = await planBoardSearchJob(collection.boardSearchRepository, request)
-      return plan.kind === 'ready' ? { kind: 'ready', toDay: plan.toDay, queryCount: plan.queries.length } : plan
-    },
-
-    async createBoardSearchJob(request): Promise<BoardSearchPlanView> {
-      const collection = deps.collection()
-      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      if (deps.boardSearchRunner.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
-      const plan = await planBoardSearchJob(collection.boardSearchRepository, request)
-      if (plan.kind !== 'ready') return plan
-      await collection.boardSearchRepository.replaceJob({ ...plan, at: new Date(deps.clock.now()) })
-      return { kind: 'ready', toDay: plan.toDay, queryCount: plan.queries.length }
-    },
-
-    async startBoardSearch(): Promise<StartCollectionResult> {
-      const collection = deps.collection()
-      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      const queries = await collection.boardSearchRepository.listQueries()
-      if (queries.length === 0) return { kind: 'refused', reason: 'NO_JOB' }
-      if (queries.every((query) => query.complete)) return { kind: 'refused', reason: 'JOB_FINISHED' }
-      const schedule = readCollectionSchedule(settings)
-      const started = deps.boardSearchRunner.start({ maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)) })
-      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
-    },
-
-    stopBoardSearch(): Promise<void> {
-      deps.boardSearchRunner.stop()
-      return Promise.resolve()
-    },
-
     async getArticleProbeStatus(): Promise<ArticleProbeStatusView> {
       const collection = deps.collection()
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
+      const reading = await deps.collectionPipeline.read()
+      const stage = reading?.stage ?? { kind: 'idle' }
+      const period = (stage.kind === 'probe' || stage.kind === 'done') ? stage.period : null
       return {
         kind: 'ready',
         view: await readArticleProbeView({
           repository: collection.articleProbeRepository,
-          search: collection.boardSearchRepository,
+          period,
           running: deps.articleProbeRunner.isRunning(),
           progress: deps.articleProbeRunner.progress(),
           blockFailure: deps.articleProbeRunner.blockFailure(),
         }),
       }
-    },
-
-    async createArticleProbeJob(): Promise<ArticleProbeCreateView> {
-      const collection = deps.collection()
-      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      if (deps.articleProbeRunner.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
-      if ((await collection.articleProbeRepository.readJob()) !== null) return { kind: 'refused', reason: 'JOB_EXISTS' }
-      const window = articleProbeWindow(await collection.boardSearchRepository.listQueries())
-      if (window.kind !== 'ready') return window
-      const idCount = await collection.articleProbeRepository.createJob({ fromDay: window.fromDay, toDay: window.toDay })
-      if (idCount === 0) return { kind: 'refused', reason: 'NO_GAP' }
-      return { kind: 'ready', idCount }
-    },
-
-    async startArticleProbe(): Promise<StartCollectionResult> {
-      const collection = deps.collection()
-      if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      const job = await collection.articleProbeRepository.readJob()
-      if (job === null) return { kind: 'refused', reason: 'NO_JOB' }
-      if (job.probed === job.total) return { kind: 'refused', reason: 'JOB_FINISHED' }
-      const schedule = readCollectionSchedule(settings)
-      const started = deps.articleProbeRunner.start({ maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)) })
-      return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
-    },
-
-    stopArticleProbe(): Promise<void> {
-      deps.articleProbeRunner.stop()
-      return Promise.resolve()
     },
 
     async setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {

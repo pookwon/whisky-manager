@@ -19,14 +19,17 @@ import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
-import type { ArticleProbeJob, ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
-import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
+import type { ArticleProbeJob, ArticleProbeRepository, ArticleProbeWindowDays } from '../../src/desktop/collection-db/articleProbeRepository.js'
+import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
 import type { MemberResyncLastRun, MemberResyncRepository, MemberResyncState } from '../../src/desktop/collection-db/memberResyncRepository.js'
 import type { MemberCollectionStatus } from '../../src/desktop/collection-db/memberStatusQuery.js'
-import type { CollectionStartRequest } from '../../src/desktop/collectionRunner.js'
+import type { CollectionPipeline } from '../../src/desktop/collectionPipeline.js'
+import type { CollectionPipelineStartRequest } from '../../src/desktop/collectionPipeline.js'
+import type { CollectionPipelineStage } from '../../src/desktop/collectionPipelineStage.js'
 import type { MemberCollectionStartRequest } from '../../src/desktop/memberCollectionRunner.js'
+import { kstDayKey } from '../../src/shared/kst.js'
 import type { SessionProgress } from '../../src/desktop/orchestrator.js'
 import type { WarmCheck } from '../../src/desktop/sessionWarmer.js'
 import { PROFILES } from '../../src/shared/profiles.js'
@@ -86,15 +89,18 @@ interface CollectionOverrides {
   readonly articleProbeJob?: ArticleProbeJob | null
   /** Whether a probe block is in flight. */
   readonly articleProbeBusy?: boolean
-  /** The search job's rows, which a probe job takes its window from. */
-  readonly searchQueries?: readonly BoardSearchQueryState[]
+  /** The stage the pipeline reads; by default idle without a job, done when the job's list is complete, else the list. */
+  readonly pipelineStage?: CollectionPipelineStage
+  /** Whether the pipeline has a chain in flight. */
+  readonly pipelineBusy?: boolean
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
   /** Inputs passed to repository.replaceJob(), newest last. */
   const replaced: { scope: string; targetStartMs: number; targetEndMs: number }[] = []
-  /** Every start the api asked for, so the resume flag can be read back. */
-  const started: CollectionStartRequest[] = []
+  /** Every pipeline start the api asked for, and every stop. */
+  const pipelineStarts: CollectionPipelineStartRequest[] = []
+  const pipelineStops = { count: 0 }
   /** Every member start the api asked for. */
   const memberStarted: MemberCollectionStartRequest[] = []
   /** Whether the member runner's stop() was called. */
@@ -111,8 +117,30 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
   /** Stands in for the search job write, so a refusal can be shown to leave it alone. */
   const boardSearchReplaceJob = vi.fn()
   /** Stands in for the probe job write, and says how many ids it put in. */
-  const articleProbeCreateJob = vi.fn(async () => 9660)
-  const articleProbeStart = vi.fn(() => ({ kind: 'started' as const }))
+  const articleProbeCreateJob = vi.fn(async (_window: ArticleProbeWindowDays) => 9660)
+  /** The windows readJob() was asked about, oldest first. */
+  const articleProbeReadJob = vi.fn(async (_window: ArticleProbeWindowDays) => collection.articleProbeJob ?? null)
+  const pipelineStage = (): CollectionPipelineStage => {
+    if (collection.pipelineStage !== undefined) return collection.pipelineStage
+    const job = collection.job ?? null
+    if (job === null) return { kind: 'idle' }
+    const period = { fromDay: kstDayKey(job.targetStartMs), toDay: kstDayKey(job.targetEndMs) }
+    return job.complete ? { kind: 'done', period } : { kind: 'list', period }
+  }
+  const collectionPipeline: CollectionPipeline = {
+    read: async () => (collection.job === undefined ? null : { stage: pipelineStage(), forced: false }),
+    start: async (request) => {
+      pipelineStarts.push(request)
+      // After a replace a real pipeline reads the new period's list.
+      if (replaced.length > 0) return { kind: 'started' }
+      const kind = pipelineStage().kind
+      if (kind === 'idle') return { kind: 'refused', reason: 'NO_JOB' }
+      if (kind === 'done') return { kind: 'refused', reason: 'JOB_FINISHED' }
+      return { kind: 'started' }
+    },
+    stop: () => { pipelineStops.count += 1 },
+    isRunning: () => collection.pipelineBusy === true,
+  }
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
     templates: createTemplatesRepo(db),
@@ -192,6 +220,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   complete: job.complete,
                   forced: job.forced,
                   horizonReached: false,
+                  searchExtended: false,
+                  searchFinished: false,
+                  probeFinished: false,
                 }
                 return [row]
               },
@@ -214,6 +245,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                   complete: false,
                   forced: false,
                   horizonReached: false,
+                  searchExtended: false,
+                  searchFinished: false,
+                  probeFinished: false,
                 }
                 return [row]
               },
@@ -244,12 +278,12 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
               readResyncState: () => Promise.resolve(collection.memberResyncState ?? null),
               readLastRun: () => Promise.resolve(collection.memberResyncLastRun ?? null),
             } as unknown as MemberResyncRepository,
-            // Only the write and the queue are stubbed: any other touch fails the test.
-            boardSearchRepository: { replaceJob: boardSearchReplaceJob, listQueries: async () => collection.searchQueries ?? [] } as unknown as BoardSearchRepository,
+            // Only the write is stubbed: any other touch fails the test.
+            boardSearchRepository: { replaceJob: boardSearchReplaceJob } as unknown as BoardSearchRepository,
             boardSearchCoverage: {} as unknown as BoardSearchCoverageQuery,
             boardSearchLastRuns: {} as unknown as BoardSearchLastRunQuery,
             articleProbeRepository: {
-              readJob: async () => collection.articleProbeJob ?? null,
+              readJob: articleProbeReadJob,
               readLastRun: async () => null,
               createJob: articleProbeCreateJob,
             } as unknown as ArticleProbeRepository,
@@ -272,14 +306,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
                 }),
             },
           },
-    collectionRunner: {
-      start: (request) => {
-        started.push(request)
-        return collection.job === undefined ? { kind: 'refused', reason: 'NO_STORAGE' } : { kind: 'started' }
-      },
-      stop: () => undefined,
-      isRunning: () => collection.runnerBusy ?? false,
-    },
+    collectionPipeline,
     memberCollectionRunner: {
       start: (request: MemberCollectionStartRequest) => {
         memberStarted.push(request)
@@ -301,7 +328,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       isRunning: () => false,
     },
     boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false, progress: () => null, blockFailure: () => null },
-    articleProbeRunner: { start: articleProbeStart, stop: vi.fn(), isRunning: () => collection.articleProbeBusy ?? false, progress: () => null, blockFailure: () => null },
+    articleProbeRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.articleProbeBusy ?? false, progress: () => null, blockFailure: () => null },
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1
@@ -361,7 +388,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeStart }
+  return { api, repos, settings, clock, pipelineStarts, pipelineStops, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeReadJob }
 }
 
 async function seedAwaiting(
@@ -1004,132 +1031,106 @@ describe('asking for a period while a job is unfinished', () => {
     }
   }
 
-  it('carries on from the cursor when the period is the one already under way', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job() })
-
-    const result = await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })
-
-    expect(result).toEqual({ kind: 'started' })
-    expect(started[0]?.resumeFromCheckpoint).toBe(true)
+  it('carries on with the period already under way', async () => {
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, { job: job() })
+    expect(await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })).toEqual({ kind: 'started' })
+    expect(replaced).toEqual([])
+    expect(pipelineStarts).toEqual([{ maxPages: expect.any(Number), runKind: 'backfill' }])
   })
 
   it('asks before replacing a different period, and starts nothing yet', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job() })
-
+    const { api, pipelineStarts } = build(MON_10_00, {}, { job: job() })
     const result = await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs })
-
     expect(result.kind).toBe('needs_replace')
     if (result.kind !== 'needs_replace') return
-    // The panel is shown the job itself, which is what it puts in front of the
-    // operator before they answer.
     expect(result.job.targetStartMs).toBe(targetStartMs)
     expect(result.job.cursorPostedAtMs).toBe(targetStartMs + DAY)
-    expect(started).toEqual([])
+    expect(pipelineStarts).toEqual([])
   })
 
-  it('starts the new period from scratch once the operator has answered', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job() })
-
-    const result = await api.startCollection({
-      firstDayMs: firstDayMs - 7 * DAY,
-      lastDayMs,
-      replace: true,
+  it('asks before replacing a period whose list is done but whose search or probe is not', async () => {
+    const period = { fromDay: kstDayKey(targetStartMs), toDay: kstDayKey(targetEndMs) }
+    const { api, pipelineStarts } = build(MON_10_00, {}, {
+      job: job({ complete: true }),
+      pipelineStage: { kind: 'search', period, boardId: '137', boardName: null, position: 1, count: 1, searchExtended: true },
     })
-
-    expect(result).toEqual({ kind: 'started' })
-    // A fresh cursor is what makes it a replacement rather than a resume; the
-    // repository resets `feed_state` on exactly this flag.
-    expect(started[0]?.resumeFromCheckpoint).toBe(false)
-    expect(started[0]?.range.startMs).toBe(firstDayMs - 7 * DAY)
+    expect((await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs })).kind).toBe('needs_replace')
+    expect(pipelineStarts).toEqual([])
   })
 
-  it('does not ask about a job that has already finished its period', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job({ complete: true }) })
-
-    const result = await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs })
-
-    expect(result).toEqual({ kind: 'started' })
-    expect(started[0]?.resumeFromCheckpoint).toBe(false)
+  it('makes the new period once the operator has answered, then starts the pipeline', async () => {
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, { job: job() })
+    expect(await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs, replace: true })).toEqual({ kind: 'started' })
+    expect(replaced).toEqual([{ scope: 'board', targetStartMs: firstDayMs - 7 * DAY, targetEndMs }])
+    expect(pipelineStarts).toHaveLength(1)
   })
 
-  it('sends the operator to stop the walk before changing the period under it', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job(), runnerBusy: true })
-
-    const result = await api.startCollection({
-      firstDayMs: firstDayMs - 7 * DAY,
-      lastDayMs,
-      replace: true,
-    })
-
-    // Resetting the cursor while a run is writing it would race; the walk ends
-    // at its own page boundary, so the operator stops it first.
-    expect(result).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
-    expect(started).toEqual([])
+  it('does not ask about a period the pipeline has finished', async () => {
+    const { api, replaced } = build(MON_10_00, {}, { job: job({ complete: true }) })
+    expect(await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs })).toEqual({ kind: 'started' })
+    expect(replaced).toHaveLength(1)
   })
 
-  it('carries the stored job on when no period is named', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job() })
-
-    const result = await api.startCollection()
-
-    expect(result).toEqual({ kind: 'started' })
-    expect(started[0]?.resumeFromCheckpoint).toBe(true)
-    // The job's own period, not a window assumed on the operator's behalf.
-    expect(started[0]?.range).toEqual({ startMs: targetStartMs, endMs: targetEndMs })
+  it('sends the operator to stop the pipeline before changing the period under it', async () => {
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, { job: job(), pipelineBusy: true })
+    expect(await api.startCollection({ firstDayMs: firstDayMs - 7 * DAY, lastDayMs, replace: true })).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
+    expect(replaced).toEqual([])
+    expect(pipelineStarts).toEqual([])
   })
 
-  it('has nothing to carry on with before a period has been asked for', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: null })
-
-    expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
-    expect(started).toEqual([])
+  it('carries the stored job on through the pipeline when no period is named', async () => {
+    const { api, pipelineStarts } = build(MON_10_00, {}, { job: job() })
+    expect(await api.startCollection()).toEqual({ kind: 'started' })
+    expect(pipelineStarts).toEqual([{ maxPages: expect.any(Number), runKind: 'backfill' }])
   })
 
-  it('says the period is done rather than starting a walk that would end at once', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job({ complete: true }) })
-
-    expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
-    expect(started).toEqual([])
+  it('passes on the pipeline\'s answer when there is nothing to carry on', async () => {
+    expect(await build(MON_10_00, {}, { job: null }).api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(await build(MON_10_00, {}, { job: job({ complete: true }) }).api.startCollection()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
   })
 
   it('names the missing database rather than the missing job', async () => {
-    const { api } = build()
-
-    expect(await api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
+    expect(await build().api.startCollection()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
   })
 
-  it('reads a finished period over again rather than resuming a cursor at its end', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: job({ complete: true }) })
-
-    const result = await api.startCollection({ firstDayMs, lastDayMs })
-
-    expect(result).toEqual({ kind: 'started' })
-    // Asking for the same period again is a request to read it over; resuming
-    // would start at the end of it and finish having stored nothing.
-    expect(started[0]?.resumeFromCheckpoint).toBe(false)
+  it('reads a finished period over again, made afresh', async () => {
+    const { api, replaced } = build(MON_10_00, {}, { job: job({ complete: true }) })
+    expect(await api.startCollection({ firstDayMs, lastDayMs })).toEqual({ kind: 'started' })
+    expect(replaced).toEqual([{ scope: 'board', targetStartMs: firstDayMs, targetEndMs }])
   })
 
-  it('starts fresh when no period has ever been asked for', async () => {
-    const { api, started } = build(MON_10_00, {}, { job: null })
-
-    const result = await api.startCollection({ firstDayMs, lastDayMs })
-
-    expect(result).toEqual({ kind: 'started' })
-    expect(started[0]?.resumeFromCheckpoint).toBe(false)
+  it('resumes search/probe in flight for the same period without replacing the job', async () => {
+    const period = { fromDay: kstDayKey(targetStartMs), toDay: kstDayKey(targetEndMs) }
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, {
+      job: job({ complete: true }),
+      pipelineStage: { kind: 'search', period, boardId: '137', boardName: null, position: 1, count: 1, searchExtended: true },
+    })
+    expect(await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })).toEqual({ kind: 'started' })
+    expect(replaced).toEqual([])
+    expect(pipelineStarts).toHaveLength(1)
   })
 
-  it('makes a board job by default and passes its queue to the runner', async () => {
-    const boardRows: StoredFeedState[] = [
-      { feed: { feedKind: 'board', menuId: '137' }, queueOrder: 1, boardName: 'board 137', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false },
-      { feed: { feedKind: 'board', menuId: '189' }, queueOrder: 2, boardName: 'board 189', stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY, complete: false, forced: false, horizonReached: false },
-    ]
-    const { api, started, replaced } = build(MON_10_00, {}, { job: null, replaceJobRows: boardRows })
+  it('refuses to replace a fully-done same period while the pipeline is running', async () => {
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, {
+      job: job({ complete: true }),
+      pipelineBusy: true,
+    })
+    expect(await api.startCollection({ firstDayMs, lastDayMs, scope: 'all_articles' })).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
+    expect(replaced).toEqual([])
+    expect(pipelineStarts).toEqual([])
+  })
 
-    const result = await api.startCollection({ firstDayMs, lastDayMs })
-
-    expect(result).toEqual({ kind: 'started' })
+  it('makes a board job by default when no period has ever been asked for', async () => {
+    const { api, replaced, pipelineStarts } = build(MON_10_00, {}, { job: null })
+    expect(await api.startCollection({ firstDayMs, lastDayMs })).toEqual({ kind: 'started' })
     expect(replaced).toEqual([{ scope: 'board', targetStartMs: firstDayMs, targetEndMs: lastDayMs + DAY }])
-    expect(started[0]?.feeds.map((f) => f.menuId)).toEqual(['137', '189'])
+    expect(pipelineStarts).toHaveLength(1)
+  })
+
+  it('stops collection by stopping the pipeline', async () => {
+    const { api, pipelineStops } = build(MON_10_00, {}, { job: job() })
+    await api.stopCollection()
+    expect(pipelineStops.count).toBe(1)
   })
 })
 
@@ -1396,18 +1397,21 @@ describe('getBoardSearchStatus', () => {
   })
 })
 
-describe('createBoardSearchJob', () => {
-  it('refuses while a search block is running and leaves the job alone', async () => {
-    const { api, boardSearchReplaceJob } = build(MON_10_00, {}, { job: null, boardSearchBusy: true })
-    expect(await api.createBoardSearchJob({ boardId: '137', fromDay: '20250101' })).toEqual({ kind: 'refused', reason: 'STOP_RUNNING_FIRST' })
-    expect(boardSearchReplaceJob).not.toHaveBeenCalled()
+const probeJob = (probed: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
+
+describe('getCollectionStatus', () => {
+  it('carries the pipeline stage on the ready view', async () => {
+    const DAY = 86_400_000
+    const firstDayMs = Date.UTC(2026, 7, 19, 15, 0, 0)
+    const job: CollectionJob = {
+      targetStartMs: firstDayMs, targetEndMs: firstDayMs + 3 * DAY,
+      cursorPostedAtMs: firstDayMs + DAY, cursorUpdatedAtMs: MON_10_00 - 3_600_000,
+      complete: false, forced: false, scope: 'all_articles', boards: [],
+    }
+    const { api } = build(MON_10_00, {}, { job })
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', pipeline: { kind: 'list' } })
   })
 })
-
-const finishedSearch: BoardSearchQueryState = {
-  boardId: '137', query: '글렌', fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: 3, insertedCount: 0, totalCount: null, complete: true, lastRunId: null,
-}
-const probeJob = (probed: number): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
 
 describe('getArticleProbeStatus', () => {
   it('reports disabled when there is no collection database', async () => {
@@ -1415,52 +1419,33 @@ describe('getArticleProbeStatus', () => {
     expect(await api.getArticleProbeStatus()).toEqual({ kind: 'disabled' })
   })
 
-  it('says which window a job would take while there is none', async () => {
-    const { api } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
-    expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: null, window: { kind: 'ready', fromDay: '20250101', toDay: '20250829' } } })
-  })
-})
-
-describe('createArticleProbeJob', () => {
-  it('makes the job over the finished search job\'s window', async () => {
-    const { api, articleProbeCreateJob } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
-    expect(await api.createArticleProbeJob()).toEqual({ kind: 'ready', idCount: 9660 })
-    expect(articleProbeCreateJob).toHaveBeenCalledWith({ fromDay: '20250101', toDay: '20250829' })
+  it('passes the pipeline period to readJob when the stage is probe', async () => {
+    const period = { fromDay: '20260819', toDay: '20260823' }
+    const { api, articleProbeReadJob } = build(MON_10_00, {}, {
+      job: null,
+      pipelineStage: { kind: 'probe', period },
+      articleProbeJob: probeJob(3120),
+    })
+    expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: probeJob(3120) } })
+    expect(articleProbeReadJob).toHaveBeenCalledWith(period)
   })
 
-  it.each([
-    ['a block is running', { articleProbeBusy: true, searchQueries: [finishedSearch] }, 'STOP_RUNNING_FIRST'],
-    ['a job exists', { articleProbeJob: probeJob(0), searchQueries: [finishedSearch] }, 'JOB_EXISTS'],
-    ['there is no search job', { searchQueries: [] }, 'NO_SEARCH_JOB'],
-    ['the search job is unfinished', { searchQueries: [{ ...finishedSearch, complete: false }] }, 'SEARCH_NOT_FINISHED'],
-  ] as const)('refuses while %s and writes nothing', async (_label, overrides, reason) => {
-    const { api, articleProbeCreateJob } = build(MON_10_00, {}, { job: null, ...overrides })
-    expect(await api.createArticleProbeJob()).toEqual({ kind: 'refused', reason })
-    expect(articleProbeCreateJob).not.toHaveBeenCalled()
+  it('passes the pipeline period to readJob when the stage is done', async () => {
+    const period = { fromDay: '20260819', toDay: '20260823' }
+    const { api, articleProbeReadJob } = build(MON_10_00, {}, {
+      job: null,
+      pipelineStage: { kind: 'done', period },
+      articleProbeJob: probeJob(9660),
+    })
+    expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: probeJob(9660) } })
+    expect(articleProbeReadJob).toHaveBeenCalledWith(period)
   })
 
-  it('refuses without storage', async () => {
-    const { api } = build()
-    expect(await api.createArticleProbeJob()).toEqual({ kind: 'refused', reason: 'NO_STORAGE' })
-  })
-
-  it('refuses when createJob returns 0 (no id holes in the window)', async () => {
-    const built = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
-    built.articleProbeCreateJob.mockResolvedValueOnce(0)
-    expect(await built.api.createArticleProbeJob()).toEqual({ kind: 'refused', reason: 'NO_GAP' })
-  })
-})
-
-describe('startArticleProbe', () => {
-  it('starts a block with the work block\'s budget', async () => {
-    const { api, articleProbeStart } = build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(3120) })
-    expect(await api.startArticleProbe()).toEqual({ kind: 'started' })
-    expect(articleProbeStart).toHaveBeenCalledWith({ maxPages: expect.any(Number) })
-  })
-
-  it('refuses without a job, and with every id answered', async () => {
-    expect(await build(MON_10_00, {}, { job: null }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
-    expect(await build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(9660) }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+  it('passes null period when the stage is idle, yielding no job', async () => {
+    const { api, articleProbeReadJob } = build(MON_10_00, {}, { job: null })
+    const result = await api.getArticleProbeStatus()
+    expect(result).toMatchObject({ kind: 'ready', view: { job: null } })
+    expect(articleProbeReadJob).not.toHaveBeenCalled()
   })
 })
 

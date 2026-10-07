@@ -47,6 +47,7 @@ const MEMBER_START_REFUSED = {
   STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 다시 시도하세요.',
   NO_JOB: '시작된 회원 수집이 없습니다.',
   JOB_FINISHED: '전체 회원을 이미 옮겼습니다. 신규는 매일 자동으로 보탭니다.',
+  STEP_FAILED: '다음 단계를 준비하지 못했습니다. 최근 기록의 오류를 보세요.',
 }
 
 /** `at` is `MM-DD HH:MM` KST. Used by the collection screen's step wording. */
@@ -171,6 +172,7 @@ export const TEXT = {
       STOP_RUNNING_FIRST: '수집이 도는 중입니다. 중지한 뒤에 기간을 바꾸세요.',
       NO_JOB: '이어받을 작업이 없습니다. 아래에서 기간을 골라 시작하세요.',
       JOB_FINISHED: '이 기간은 끝까지 옮겼습니다. 새 기간을 골라 시작하세요.',
+      STEP_FAILED: '다음 단계를 준비하지 못했습니다. 최근 기록의 오류를 보세요.',
     },
     /** Replacing a job the operator has not finished, said as what it costs. */
     replace: {
@@ -180,6 +182,7 @@ export const TEXT = {
       progressUnknown: '아직 한 쪽도 옮기지 않았습니다',
       walkedTo: (at: string) => `${at}까지 내려왔습니다`,
       cost: '기간을 바꾸면 이 작업의 진행 위치가 사라지고 새 기간의 처음부터 시작합니다. 이미 옮긴 글은 지워지지 않습니다.',
+      laterStepsCost: '이 기간의 ② 검색어 보충과 ③ 빈 글 번호 확인도 처음부터 다시 시작합니다.',
       confirm: '기간 바꾸기',
       cancel: '그대로 두기',
     },
@@ -243,8 +246,7 @@ export const TEXT = {
         number: '③',
         title: '빈 글 번호 확인',
         what: '검색으로도 못 찾은 글을 글 번호로 하나씩 읽어 거둡니다. 읽어도 조회수는 오르지 않습니다.',
-        notNeeded: '② 보충이 끝나야 쓸 수 있습니다.',
-        spent: '이미 한 번 확인했습니다. 다시 만들 수는 없습니다.',
+        notNeeded: '② 보충이 끝나면 저절로 시작합니다.',
         folded: (stored: number) => `확인 완료 · 저장 ${stored.toLocaleString('ko-KR')}건`,
       },
       check: { number: '④', title: '점검', what: '모은 글의 범위와, 빠진 페이지가 없는지 보여 줍니다.' },
@@ -252,12 +254,9 @@ export const TEXT = {
     badges: { todo: '할 일', running: '진행 중', done: '완료', notNeeded: '필요 없음' },
     details: '자세히',
     newPeriod: '새 기간 수집',
-    newSearchJob: '새 보충 작업',
     /** Under a button that waits for another walk: the lock is shared, so only one walks at a time. */
     otherRunning: '다른 수집이 도는 중입니다. 끝나면 누를 수 있습니다.',
-    /** The fold over a step that is not needed, for an operator who wants it anyway. */
-    useAnyway: '그래도 직접 쓰기',
-    /** The panel at the top: the one thing to do now, read off the state the screen already has. */
+    /** The panel at the top: the one thing to do now, read off the pipeline stage the screen already has. */
     next: {
       heading: '다음 할 일',
       running: {
@@ -265,17 +264,15 @@ export const TEXT = {
         search: '② 검색어 보충이 돌고 있습니다. 기다리면 됩니다.',
         probe: '③ 빈 글 번호 확인이 돌고 있습니다. 기다리면 됩니다.',
       },
-      listWaitingAt: (time: string) => `① ${time}에 이어서 돕니다. 기다리거나 지금 이어서 할 수 있습니다.`,
-      listWaitingManual: '① 예약이 없어 직접 눌러야 이어서 돕니다.',
-      searchResume: '② 이어서 보충할 수 있습니다.',
-      probeResume: '③ 이어서 확인할 수 있습니다.',
-      searchNeeded: (board: string) => `${board} 게시판은 목록으로 더 내려갈 수 없습니다. ② 검색어 보충으로 채우세요.`,
-      probeCreate: '③ 검색으로도 못 찾은 글을 하나씩 확인하세요.',
-      probeSpent: '③ 빈 글 번호 확인은 이미 한 번 했습니다. 다시 만들 수는 없습니다.',
+      resume: {
+        list: '① 목록 수집 차례입니다. 끝나면 ②, ③으로 저절로 이어집니다.',
+        search: (board: string, position: number, count: number) =>
+          `② 검색어 보충 차례입니다 · ${board} 게시판 (목록 끝에 닿은 ${count}개 중 ${position}번째). 끝나면 다음으로 저절로 이어집니다.`,
+        probe: '③ 빈 글 번호 확인 차례입니다. 고른 기간 전체의 빈 번호를 읽습니다.',
+      },
       pickPeriod: '① 수집할 기간을 고르세요.',
       allDone: '할 일이 없습니다. ④ 점검에서 빠진 글이 없는지만 보세요.',
       resumeList: '지금 이어서',
-      prepareSearch: '보충 준비',
       pickPeriodAction: '기간 고르기',
     },
   },
@@ -767,14 +764,6 @@ export const TEXT = {
     },
   },
   boardSearch: {
-    board: '게시판',
-    fromDay: '시작일',
-    preview: (count: number, from: string, to: string) => `검색어 ${count.toLocaleString('ko-KR')}개 · ${from} ~ ${to}`,
-    previewButton: '미리 보기',
-    create: '보충 작업 만들기',
-    start: '지금 보충',
-    resume: '이어서 보충',
-    stop: '멈추기',
     /** A running block: pages it has asked for of its budget, and the query in hand. */
     progress: (requested: number, max: number, query: string) =>
       `이번 차례 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}쪽 · '${query}'`,
@@ -784,17 +773,6 @@ export const TEXT = {
       `빈 구간 id ${span.toLocaleString('ko-KR')}개 중 비어 있는 것 ${missing.toLocaleString('ko-KR')}개. 기준선 ${(ratio * 100).toFixed(1)}%(삭제·비수집 게시판)를 빼면 아직 못 거둔 글 약 ${remaining.toLocaleString('ko-KR')}건`,
     /** The coverage in the one figure a newcomer acts on; the full sum stays under 자세히. */
     remaining: (count: number) => `아직 못 거둔 글 약 ${count.toLocaleString('ko-KR')}건`,
-    /** Replacing a search job, said as what it costs, on the screen rather than in a browser dialog. */
-    replace: {
-      heading: '진행 중인 보충 작업이 있습니다',
-      finishedHeading: '끝난 보충 작업이 있습니다',
-      progress: (done: number, total: number, inserted: number) =>
-        `검색어 ${done} / ${total}까지 걸었고 새 글 ${inserted.toLocaleString('ko-KR')}건을 거뒀습니다`,
-      cost: '새로 만들면 이 작업의 진행 위치가 사라지고 처음부터 시작합니다. 이미 거둔 글은 지워지지 않습니다.',
-      finishedCost: '새로 만들면 이 작업의 검색어별 기록이 지워지고 새 작업을 처음부터 시작합니다. 이미 거둔 글은 지워지지 않습니다.',
-      confirm: '새로 만들기',
-      cancel: '그대로 두기',
-    },
     window: (board: string, from: string, to: string) => `${board} · ${from} ~ ${to}`,
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
     states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
@@ -804,26 +782,8 @@ export const TEXT = {
     totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
     /** A query walked on in a narrower window: its page there, and the day that window ends (`MM-DD`). */
     pageInSegment: (page: string, monthDay: string) => `${page} · ~${monthDay}`,
-    refused: {
-      NO_STORAGE: '수집 DB에 연결되어 있지 않습니다.',
-      NO_POSTS: '이 게시판에 저장된 글이 없어 검색어를 고를 수 없습니다.',
-      NOTHING_BEFORE: '시작일이 저장된 가장 오래된 글보다 뒤입니다.',
-      NO_QUERIES: '제목에서 쓸 만한 검색어를 찾지 못했습니다.',
-      BAD_DAY: '날짜를 읽지 못했습니다.',
-      STOP_RUNNING_FIRST: '보충이 도는 중입니다. 먼저 멈추세요.',
-    },
-    /** The member walk's words, except where "the job" means the search job. */
-    startRefused: {
-      ...MEMBER_START_REFUSED,
-      NO_JOB: '보충 작업을 먼저 만드세요.',
-      JOB_FINISHED: '이 보충 작업은 끝났습니다.',
-    },
   },
   articleProbe: {
-    create: '빈 글 번호 목록 만들기',
-    start: '지금 확인',
-    resume: '이어서 확인',
-    stop: '멈추기',
     /** The gap's first and last day, both `YYYY-MM-DD` KST. */
     window: (firstDay: string, lastDay: string) => `${firstDay} ~ ${lastDay} 사이의 빈 글 번호`,
     /** What a glance wants of the job; the breakdown below it waits under 자세히. */
@@ -834,25 +794,10 @@ export const TEXT = {
       `삭제 ${deleted.toLocaleString('ko-KR')} · 읽기 불가 ${unreadable.toLocaleString('ko-KR')}${other === 0 ? '' : ` · 기타(다른 게시판·공지) ${other.toLocaleString('ko-KR')}`}`,
     /** A running block: ids it has asked for of its budget. */
     progress: (requested: number, max: number) => `이번 차례 ${requested.toLocaleString('ko-KR')} / ${max.toLocaleString('ko-KR')}건`,
-    created: (count: number) => `빈 글 번호 ${count.toLocaleString('ko-KR')}개를 목록에 넣었습니다`,
     /** The newest block's run failed; `at` is `MM-DD HH:MM` KST. */
     runFailed: (at: string, stopReason: string) => `${at} 차례가 멈췄습니다 · ${stopReason}`,
     /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
     blockFailed: TURN_FAILED_LINE,
-    refused: {
-      NO_STORAGE: '수집 DB에 연결되어 있지 않습니다.',
-      NO_SEARCH_JOB: '검색어 보충 작업이 없습니다. 빈 글 번호는 그 기간에서 뽑습니다.',
-      SEARCH_NOT_FINISHED: '검색어 보충이 끝난 뒤에 만들 수 있습니다.',
-      JOB_EXISTS: '빈 글 번호 확인 작업이 이미 있습니다. 한 번 답을 얻은 글 번호는 다시 읽지 않습니다.',
-      STOP_RUNNING_FIRST: '확인이 도는 중입니다. 먼저 멈추세요.',
-      NO_GAP: '빈 구간에 비어 있는 글 번호가 없습니다.',
-    },
-    /** The member walk's words, except where "the job" means the probe job. */
-    startRefused: {
-      ...MEMBER_START_REFUSED,
-      NO_JOB: '빈 글 번호 목록을 먼저 만드세요.',
-      JOB_FINISHED: '빈 글 번호를 모두 확인했습니다.',
-    },
   },
 } as const
 

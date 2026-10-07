@@ -73,6 +73,12 @@ export interface CollectionRepository {
   finishRun(id: string, status: 'succeeded' | 'partial' | 'failed' | 'interrupted', stopReason: string | null, finishedAt: Date): Promise<void>
   /** Records that the cafe would serve no more pages for this feed. */
   markHorizonReached(feed: CollectionFeed, at: Date): Promise<void>
+  /** When the search job of this board's unreached part was given the longer forms of its words. */
+  markSearchExtended(boardId: string, at: Date): Promise<void>
+  /** When the search backfill of this board's unreached part ran out, or had nothing to search. */
+  markSearchFinished(boardId: string, at: Date): Promise<void>
+  /** When every article id hole of the period was answered; written on every row of the job. */
+  markProbeFinished(at: Date): Promise<void>
   /** Turns the operating hours off, or back on, for the whole job as it stands. */
   setForced(forcedAt: Date | null): Promise<void>
   /** Marks runs left `running` by an abnormal exit as interrupted so the feed's single-running-run constraint stops blocking new runs. */
@@ -97,6 +103,12 @@ export interface CollectionFeedState extends FeedStateExpectation {
   readonly forced: boolean
   /** Whether the cafe stopped serving pages before the period was done. */
   readonly horizonReached: boolean
+  /** Whether the search extension of this board's unreached part has been done. Written, never inferred. */
+  readonly searchExtended: boolean
+  /** Whether the search backfill of this board's unreached part has been done. Written, never inferred. */
+  readonly searchFinished: boolean
+  /** Whether every article id hole of the period has been answered. Written, never inferred. */
+  readonly probeFinished: boolean
 }
 
 /** A feed's state together with what identifies it, for reading the job whole. */
@@ -128,6 +140,9 @@ function toFeedState(row: FeedStateRow): CollectionFeedState {
     complete: row.completedAt !== null,
     forced: row.forcedAt !== null,
     horizonReached: row.horizonReachedAt !== null,
+    searchExtended: row.searchExtendedAt !== null,
+    searchFinished: row.searchFinishedAt !== null,
+    probeFinished: row.probeFinishedAt !== null,
   }
 }
 
@@ -242,6 +257,18 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         .where(and(eq(feedState.feedKind, feed.feedKind), eq(feedState.menuId, feed.menuId)))
     },
 
+    async markSearchExtended(boardId, at) {
+      await db.update(feedState).set({ searchExtendedAt: at }).where(and(eq(feedState.feedKind, 'board'), eq(feedState.menuId, boardId)))
+    },
+
+    async markSearchFinished(boardId, at) {
+      await db.update(feedState).set({ searchFinishedAt: at }).where(and(eq(feedState.feedKind, 'board'), eq(feedState.menuId, boardId)))
+    },
+
+    async markProbeFinished(at) {
+      await db.update(feedState).set({ probeFinishedAt: at })
+    },
+
     async setForced(forcedAt) {
       await db.update(feedState).set({ forcedAt })
     },
@@ -265,7 +292,7 @@ export function createCollectionRepository(db: CollectionDatabase): CollectionRe
         if (input.resumeFromCheckpoint && rangeChanged) throw new Error('cannot resume a checkpoint for a different target range')
         const reset = !input.resumeFromCheckpoint && inserted.length === 0
         const state = reset
-          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, forcedAt: null, horizonReachedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
+          ? (await tx.update(feedState).set({ targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs, stateVersion: current.stateVersion + 1, anchorPostId: null, anchorPostedAt: null, pageIdentity: null, referencePage: null, lastRunId: null, completedAt: null, forcedAt: null, horizonReachedAt: null, searchExtendedAt: null, searchFinishedAt: null, probeFinishedAt: null, updatedAt: input.startedAt }).where(and(eq(feedState.feedKind, input.feedKind), eq(feedState.menuId, input.menuId))).returning())[0]
           : current
         if (state === undefined) throw new Error('collection feed reset failed')
         await tx.insert(collectionRuns).values({

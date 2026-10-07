@@ -3,7 +3,10 @@ import type { BoardSearchJobView, BoardSearchView } from '../../src/desktop/boar
 import type { ArticleProbeJob } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { BoardProgress, CollectionJob, CollectionRunSummary, CollectionStatus } from '../../src/desktop/collection-db/statusQuery.js'
+import type { CollectionPipelineStage } from '../../src/desktop/collectionPipelineStage.js'
 import type { CollectionStepInputs } from '../../src/renderer/views/collection/stepFacts.js'
+
+export const PERIOD = { fromDay: '20240101', toDay: '20250102' }
 
 export const board = (queueOrder: number, boardId: string, state: BoardProgress['state']): BoardProgress => ({
   queueOrder, boardId, name: `게시판${boardId}`, state, cursorPostedAtMs: null, insertedPostCount: 0,
@@ -32,7 +35,7 @@ export const searchJob = (overrides: Partial<BoardSearchJobView> = {}): BoardSea
 })
 
 export const search = (job: BoardSearchJobView | null, running = false): BoardSearchView => ({
-  boards: [], running, progress: null, blockFailure: null, job,
+  running, progress: null, blockFailure: null, job,
 })
 
 export const probeJob = (overrides: Partial<ArticleProbeJob> = {}): ArticleProbeJob => ({
@@ -41,9 +44,9 @@ export const probeJob = (overrides: Partial<ArticleProbeJob> = {}): ArticleProbe
 })
 
 export const probe = (job: ArticleProbeJob | null, running = false): ArticleProbeView => ({
-  running, progress: null, blockFailure: null, lastRun: null, job, window: null,
+  running, progress: null, blockFailure: null, lastRun: null, job,
 })
 
 export const inputs = (overrides: Partial<CollectionStepInputs> = {}): CollectionStepInputs => ({
-  status: status(), search: null, probe: null, ...overrides,
+  status: status(), search: null, probe: null, pipeline: { kind: 'idle' } as CollectionPipelineStage, ...overrides,
 })

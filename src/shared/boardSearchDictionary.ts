@@ -4,11 +4,12 @@ import { isBoardSearchQuery } from './cafeBoardSearchEndpoint.js'
  * Picks the title searches that recover a board's posts past the list horizon.
  *
  * The board's own list stops at page 1000, but its title search does not, and
- * it catches a title when one of its words starts with the query — '구매'
- * finds '구매했습니다', '글렌' finds '글렌알라키' (measured 2026-09-25). No one
- * query covers a board, so this builds a union: the stored titles stand in for
- * the missing ones, and each pick is the word that catches the most titles the
- * earlier picks did not. Latin and digit words match less predictably ('gs'
+ * the search matches the analyser's whole-word tokens; '홈플' finds
+ * '동광주홈플' but not '월드컵 홈플러스' (measured 2026-09-26), so a picked word
+ * does not stand for its longer forms, and extendBoardSearchQueries asks those
+ * forms themselves. No one query covers a board, so this builds a union: the
+ * stored titles stand in for the missing ones, and each pick is the word that
+ * catches the most titles the earlier picks did not. Latin and digit words match less predictably ('gs'
  * does not find 'gs25'); the order stays a good one, and each query's real
  * yield is read off the search's own total.
  */
@@ -22,6 +23,8 @@ export interface BoardSearchQuery {
 export const BOARD_SEARCH_QUERY_LIMIT = 300
 export const BOARD_SEARCH_MIN_GAIN = 5
 export const BOARD_SEARCH_CANDIDATE_LIMIT = 4000
+/** How many longer forms of the picked words a job may add after its picks. */
+export const BOARD_SEARCH_EXTENSION_LIMIT = 300
 
 const MIN_WORD_LENGTH = 2
 const WORD_SEPARATOR = /[^0-9a-z가-힣]+/u
@@ -32,7 +35,7 @@ export function titleWords(title: string): readonly string[] {
 
 interface Candidate {
   readonly word: string
-  /** Titles with a word starting with this one, as indexes into the title list. */
+  /** Titles a search for this word would bring, as indexes into the title list. */
   readonly caught: readonly number[]
   /** Titles that use this word itself, for breaking ties. */
   readonly uses: number
@@ -70,13 +73,12 @@ function candidatesOf(words: readonly (readonly string[])[], candidateLimit: num
   return kept.map(([word, count]) => ({ word, caught: caught.get(word) ?? [], uses: count }))
 }
 
-export function buildBoardSearchDictionary(
-  titles: readonly string[],
-  options: { readonly limit?: number; readonly minGain?: number; readonly candidateLimit?: number } = {},
-): readonly BoardSearchQuery[] {
-  const limit = options.limit ?? BOARD_SEARCH_QUERY_LIMIT
-  const minGain = options.minGain ?? BOARD_SEARCH_MIN_GAIN
-  const candidates = candidatesOf(titles.map(titleWords), options.candidateLimit ?? BOARD_SEARCH_CANDIDATE_LIMIT)
+/**
+ * The greedy cover: each pick is the candidate catching the most titles no
+ * earlier pick caught; a tie goes to the word more titles use, then to the
+ * lower code units. It stops at `limit` picks or below `minGain`.
+ */
+function pickGreedily(candidates: readonly Candidate[], limit: number, minGain: number): readonly BoardSearchQuery[] {
   const covered = new Set<number>()
   const picked: BoardSearchQuery[] = []
   const used = new Set<string>()
@@ -102,4 +104,52 @@ export function buildBoardSearchDictionary(
     picked.push({ query: best.word, expectedGain: bestGain })
   }
   return picked
+}
+
+export function buildBoardSearchDictionary(
+  titles: readonly string[],
+  options: { readonly limit?: number; readonly minGain?: number; readonly candidateLimit?: number } = {},
+): readonly BoardSearchQuery[] {
+  const candidates = candidatesOf(titles.map(titleWords), options.candidateLimit ?? BOARD_SEARCH_CANDIDATE_LIMIT)
+  return pickGreedily(candidates, options.limit ?? BOARD_SEARCH_QUERY_LIMIT, options.minGain ?? BOARD_SEARCH_MIN_GAIN)
+}
+
+/** Whether `word` is longer than, and starts with, one of the asked queries. */
+function extendsAsked(word: string, asked: ReadonlySet<string>): boolean {
+  for (let length = MIN_WORD_LENGTH; length < word.length; length += 1) {
+    if (asked.has(word.slice(0, length))) return true
+  }
+  return false
+}
+
+/**
+ * The longer forms of the asked queries that are worth asking themselves.
+ *
+ * The search matches whole words, so '홈플' leaves '월드컵 홈플러스' behind. A
+ * title an asked query matches as a whole word is already found; each pick is
+ * the extending word written in the most titles that no asked query and no
+ * earlier pick finds, by the same greedy cover as `buildBoardSearchDictionary`.
+ */
+export function extendBoardSearchQueries(
+  titles: readonly string[],
+  queries: readonly string[],
+  options: { readonly limit?: number; readonly minGain?: number } = {},
+): readonly BoardSearchQuery[] {
+  const asked = new Set(queries)
+  const caught = new Map<string, number[]>()
+  const uses = new Map<string, number>()
+  titles.forEach((title, index) => {
+    const words = new Set(titleWords(title))
+    const found = [...words].some((word) => asked.has(word))
+    for (const word of words) {
+      if (asked.has(word) || !isBoardSearchQuery(word) || !extendsAsked(word, asked)) continue
+      uses.set(word, (uses.get(word) ?? 0) + 1)
+      if (found) continue
+      const list = caught.get(word) ?? []
+      list.push(index)
+      caught.set(word, list)
+    }
+  })
+  const candidates = [...caught].map(([word, list]): Candidate => ({ word, caught: list, uses: uses.get(word) ?? 0 }))
+  return pickGreedily(candidates, options.limit ?? BOARD_SEARCH_EXTENSION_LIMIT, options.minGain ?? BOARD_SEARCH_MIN_GAIN)
 }

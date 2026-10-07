@@ -260,7 +260,7 @@ void app.whenReady().then(async () => {
       bridge: appContext.bridge,
       automation: appContext.automation,
       collection: () => appContext.collection,
-      collectionRunner: appContext.collectionRunner,
+      collectionPipeline: appContext.collectionPipeline,
       memberCollectionRunner: appContext.memberCollectionRunner,
       memberResyncRunner: appContext.memberResyncRunner,
       boardSearchRunner: appContext.boardSearchRunner,

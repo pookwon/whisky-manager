@@ -525,6 +525,23 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(back[0]).toMatchObject({ feed: { feedKind: 'all_articles', menuId: '0' }, horizonReached: false, forced: false })
   })
 
+  it('records the later steps per period, and a new period starts them over', async () => {
+    const repository = createCollectionRepository(connection.db)
+    const made = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 2_000, at: new Date(5_000) })
+    const first = made[0]!.feed.menuId
+    expect(made.every((row) => !row.searchExtended && !row.searchFinished && !row.probeFinished)).toBe(true)
+
+    await repository.markSearchExtended(first, new Date(6_000))
+    await repository.markSearchFinished(first, new Date(6_000))
+    await repository.markProbeFinished(new Date(7_000))
+    const marked = await repository.listFeedStates()
+    expect(marked.find((row) => row.feed.menuId === first)).toMatchObject({ searchExtended: true, searchFinished: true, probeFinished: true })
+    expect(marked.filter((row) => row.feed.menuId !== first).every((row) => !row.searchExtended && !row.searchFinished && row.probeFinished)).toBe(true)
+
+    const again = await repository.replaceJob({ scope: 'board', targetStartMs: 1_000, targetEndMs: 3_000, at: new Date(8_000) })
+    expect(again.every((row) => !row.searchExtended && !row.searchFinished && !row.probeFinished)).toBe(true)
+  })
+
   it('describes a board job board by board', async () => {
     const repository = createCollectionRepository(connection.db)
     const status = createCollectionStatusQuery(connection.db)
@@ -652,6 +669,28 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect((await search.listQueries()).map((q) => q.query)).toEqual(['이마트'])
     expect(await search.readBoardTitles('137')).toEqual(expect.arrayContaining(['글렌알라키 12 이마트 구매', '글렌 두 병']))
     expect(await search.oldestPostedAtMs('137')).toBe(Date.UTC(2025, 0, 30, 23, 1))
+    expect(await search.readBoardName('137')).toBe('국내구입기 & 정보')
+    expect(await search.readBoardName('0')).toBeNull()
+  })
+
+  it('appends words to the search job after its last, keeping every query\'s progress', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-10-07T00:00:00.000Z')
+    await search.replaceJob({ boardId: '137', fromDay: '20240101', toDay: '20250101', at, queries: [{ query: '홈플', expectedGain: 9 }, { query: '구매', expectedGain: 6 }] })
+    const runId = randomUUID()
+    await search.startRun({ id: runId, boardId: '137', query: '홈플', fromDay: '20240101', toDay: '20250101', startedAt: at })
+    await expect(search.extendJob({ at, queries: [{ query: '홈플러스', expectedGain: 5 }] })).rejects.toThrow()
+    await search.finishRun(runId, 'succeeded', null, at)
+
+    expect(await search.extendJob({ at, queries: [{ query: '홈플러스', expectedGain: 5 }, { query: '구매', expectedGain: 5 }, { query: '구매기', expectedGain: 5 }] })).toBe(2)
+    expect(await search.extendJob({ at, queries: [{ query: '홈플러스', expectedGain: 5 }] })).toBe(0)
+    expect((await search.listQueries()).map((q) => [q.queueOrder, q.query, q.complete, q.fromDay, q.toDay])).toEqual([
+      [1, '홈플', true, '20240101', '20250101'],
+      [2, '구매', false, '20240101', '20250101'],
+      [3, '홈플러스', false, '20240101', '20250101'],
+      [4, '구매기', false, '20240101', '20250101'],
+    ])
   })
 
   it('counts id holes in the search window and in the stretch after it', async () => {
@@ -861,17 +900,19 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     replyCount: null, isNotice: false as const,
   })
 
-  it('makes the probe job once, from the id holes between the window\'s first and last stored post', async () => {
+  it('makes a probe job per window, from the id holes between the window\'s first and last stored post', async () => {
+    const MARCH = { fromDay: '20190301', toDay: '20190401' }
     await seedProbeWindow()
     const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
-    expect(await probe.readJob()).toBeNull()
+    expect(await probe.readJob(MARCH)).toBeNull()
 
     // [2019-03-01, 2019-04-01) KST holds 5000001..5000009: the holes are 2, 4, 5, 6, 7, 8. 5000010 is after the window.
-    expect(await probe.createJob({ fromDay: '20190301', toDay: '20190401' })).toBe(6)
-    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
-    expect(await probe.nextWaitingId()).toBe('5000002')
-    // Answered ids are never read again, so a second job is refused rather than made over them.
-    await expect(probe.createJob({ fromDay: '20190301', toDay: '20190401' })).rejects.toThrow()
+    expect(await probe.createJob(MARCH)).toBe(6)
+    expect(await probe.readJob(MARCH)).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
+    expect(await probe.nextWaitingId(MARCH)).toBe('5000002')
+    // Asked again, the window finds every hole already in the job and adds none.
+    expect(await probe.createJob(MARCH)).toBe(0)
+    expect(await probe.readJob(MARCH)).toMatchObject({ total: 6, probed: 0 })
     expect(await probe.listCollectedBoardIds()).toContain('probe-1')
     expect(await probe.listCollectedBoardIds()).not.toContain('probe-off')
   })
@@ -884,7 +925,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     await probe.recordPageRequest(runId)
     await probe.recordVerdict({ runId, postId: '5000002', observedAt: at, requested: true, verdict: { outcome: 'stored', boardId: 'probe-1', post: probedPost('5000002') } })
-    expect(await probe.nextWaitingId()).toBe('5000004')
+    expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBe('5000004')
 
     // Another walk stored 5000004 meanwhile: it is closed as stored without a request.
     await pool.query(`insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('5000004', 'probe-1', $1, $1, $1)`, [new Date('2019-03-11T00:00:00+09:00')])
@@ -901,11 +942,11 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       await probe.recordPageRequest(runId)
       await probe.recordVerdict({ runId, postId, observedAt: at, requested: true, verdict })
     }
-    expect(await probe.nextWaitingId()).toBeNull()
+    expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBeNull()
     await expect(probe.recordVerdict({ runId, postId: '5000005', observedAt: at, requested: true, verdict: { outcome: 'deleted' } })).rejects.toThrow('not waiting')
     await probe.finishRun(runId, 'succeeded', null, at)
 
-    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 6, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1, notice: 1 })
+    expect(await probe.readJob({ fromDay: '20190301', toDay: '20190401' })).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 6, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1, notice: 1 })
     const rows = await pool.query<{ post_id: string; outcome: string; board_id: string | null; error_code: string | null; run_id: string }>(
       'select post_id::text, outcome, board_id, error_code, run_id from article_probe order by post_id',
     )
@@ -928,6 +969,40 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       feed_kind: 'article_probe', menu_id: '0', status: 'succeeded', request_pages: 5, collection_pages: 5, inserted_post_count: 1, observed_post_count: 1,
       last_committed_post_id: '5000008', target_start_ms: String(Date.UTC(2019, 1, 28, 15)), target_end_ms: String(Date.UTC(2019, 2, 31, 15)),
     })
+  })
+
+  it('makes a later window\'s job beside an earlier window\'s waiting ids, skipping ids another window holds', async () => {
+    const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
+    // March 2019's six ids are all answered above. A window that also spans
+    // March finds the same holes there and must leave them as answered.
+    const SPRING = { fromDay: '20190301', toDay: '20190501' }
+    await pool.query(
+      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('5000013', 'probe-1', $1, $2, $2)`,
+      [new Date('2019-04-10T12:00:00+09:00'), new Date('2026-10-07T00:00:00.000Z')],
+    )
+    // Stored now: 5000001..5000004 (5000002 by its verdict, 5000004 by the
+    // other walk), 5000009, 5000010, 5000013. Holes: 5..8, answered above, and
+    // 11, 12, which are new.
+    expect(await probe.createJob(SPRING)).toBe(2)
+    expect(await probe.readJob(SPRING)).toMatchObject({ total: 2, probed: 0 })
+    expect(await probe.nextWaitingId(SPRING)).toBe('5000011')
+    expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBeNull()
+
+    // 11 and 12 still wait in SPRING when a wider window is asked for: they
+    // stay in SPRING, and the new window takes only the holes no window holds.
+    const WINTER_TO_SPRING = { fromDay: '20190101', toDay: '20190501' }
+    await pool.query(
+      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('4999998', 'probe-1', $1, $2, $2)`,
+      [new Date('2019-02-20T12:00:00+09:00'), new Date('2026-10-08T00:00:00.000Z')],
+    )
+    // Stored from 4999998 to 5000013. Holes: 4999999 and 5000000, which are
+    // new; 5..8, answered in March; 11 and 12, waiting in SPRING.
+    expect(await probe.createJob(WINTER_TO_SPRING)).toBe(2)
+    expect(await probe.readJob(WINTER_TO_SPRING)).toMatchObject({ total: 2, probed: 0 })
+    expect(await probe.nextWaitingId(WINTER_TO_SPRING)).toBe('4999999')
+    expect(await probe.readJob(SPRING)).toMatchObject({ total: 2, probed: 0 })
+    expect(await probe.nextWaitingId(SPRING)).toBe('5000011')
+    expect(await probe.readJob({ fromDay: '20190301', toDay: '20190401' })).toMatchObject({ total: 6, probed: 6, stored: 2 })
   })
 
   it('keeps probe runs off the article collection status, and sweeps only its own orphans', async () => {

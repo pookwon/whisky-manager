@@ -31,7 +31,7 @@ export interface ArticleProbeLastRun {
   readonly startedAtMs: number
 }
 
-export interface CreateArticleProbeJobInput {
+export interface ArticleProbeWindowDays {
   readonly fromDay: string
   readonly toDay: string
 }
@@ -53,17 +53,18 @@ export interface RecordArticleVerdictInput {
 }
 
 export interface ArticleProbeRepository {
-  readJob(): Promise<ArticleProbeJob | null>
+  /** The job of exactly this window; null when none was made for it. */
+  readJob(window: ArticleProbeWindowDays): Promise<ArticleProbeJob | null>
   /**
    * Puts every id missing between the first and last post stored in the window
-   * into the job, and says how many. Refused while a job exists: its answered
-   * ids must not be read again.
+   * into the job, and says how many. An id another window already holds, be it
+   * answered or waiting, is left in that window as it is.
    */
-  createJob(input: CreateArticleProbeJobInput): Promise<number>
+  createJob(window: ArticleProbeWindowDays): Promise<number>
   /** The boards whose live posts are stored; the rest are recorded as another board's. */
   listCollectedBoardIds(): Promise<readonly string[]>
-  /** The smallest id not yet answered; null when every id is. */
-  nextWaitingId(): Promise<string | null>
+  /** The smallest id of this window not yet answered; null when every id is. */
+  nextWaitingId(window: ArticleProbeWindowDays): Promise<string | null>
   /** The board of the stored post with this id; null when none is stored. */
   storedBoardOf(postId: string): Promise<string | null>
   startRun(input: ArticleProbeRunInput): Promise<void>
@@ -89,7 +90,7 @@ function boardOf(verdict: ArticleProbeVerdict): string | null {
 
 export function createArticleProbeRepository(db: CollectionDatabase, collection: CollectionRepository): ArticleProbeRepository {
   return {
-    async readJob() {
+    async readJob(window) {
       const rows = await db
         .select({
           fromDay: articleProbe.windowFromDay,
@@ -103,6 +104,7 @@ export function createArticleProbeRepository(db: CollectionDatabase, collection:
           notice: sql<string>`count(*) filter (where ${articleProbe.outcome} = 'notice')`,
         })
         .from(articleProbe)
+        .where(and(eq(articleProbe.windowFromDay, window.fromDay), eq(articleProbe.windowToDay, window.toDay)))
         .groupBy(articleProbe.windowFromDay, articleProbe.windowToDay)
       const row = rows[0]
       if (row === undefined) return null
@@ -119,30 +121,29 @@ export function createArticleProbeRepository(db: CollectionDatabase, collection:
       }
     },
 
-    async createJob(input) {
-      const startAt = new Date(kstDayKeyRange(input.fromDay).startMs)
-      const endAt = new Date(kstDayKeyRange(input.toDay).startMs)
-      return await db.transaction(async (tx) => {
-        const existing = await tx.select({ postId: articleProbe.postId }).from(articleProbe).limit(1)
-        if (existing.length > 0) throw new Error('an article probe job exists; its answered ids are never read again')
-        // Each stored post and the next one up bound a hole; the holes of the
-        // stretch between the window's first and last stored post are the job.
-        // Walking the stored ids once with lead() takes a fraction of a second
-        // where asking about every id of the span one by one took minutes.
-        const inserted = await tx.execute(sql`
-          insert into ${articleProbe} (post_id, window_from_day, window_to_day)
-          select missing.id, ${input.fromDay}, ${input.toDay}
-          from (
-            select ${posts.postId}::bigint as id, lead(${posts.postId}::bigint) over (order by ${posts.postId}::bigint) as next_id
-            from ${posts}
-            where ${posts.postId}::bigint between
-              (select min(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
-              and (select max(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
-          ) as stored
-          cross join lateral generate_series(stored.id + 1, stored.next_id - 1) as missing(id)
-          where stored.next_id > stored.id + 1`)
-        return inserted.rowCount ?? 0
-      })
+    async createJob(window) {
+      const startAt = new Date(kstDayKeyRange(window.fromDay).startMs)
+      const endAt = new Date(kstDayKeyRange(window.toDay).startMs)
+      // Each stored post and the next one up bound a hole; the holes of the
+      // stretch between the window's first and last stored post are the job.
+      // Walking the stored ids once with lead() takes a fraction of a second
+      // where asking about every id of the span one by one took minutes. An id
+      // another window holds stays in that window, answered or waiting: it is
+      // never read twice.
+      const inserted = await db.execute(sql`
+        insert into ${articleProbe} (post_id, window_from_day, window_to_day)
+        select missing.id, ${window.fromDay}, ${window.toDay}
+        from (
+          select ${posts.postId}::bigint as id, lead(${posts.postId}::bigint) over (order by ${posts.postId}::bigint) as next_id
+          from ${posts}
+          where ${posts.postId}::bigint between
+            (select min(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
+            and (select max(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
+        ) as stored
+        cross join lateral generate_series(stored.id + 1, stored.next_id - 1) as missing(id)
+        where stored.next_id > stored.id + 1
+        on conflict (post_id) do nothing`)
+      return inserted.rowCount ?? 0
     },
 
     async listCollectedBoardIds() {
@@ -150,8 +151,13 @@ export function createArticleProbeRepository(db: CollectionDatabase, collection:
       return rows.map((row) => row.boardId)
     },
 
-    async nextWaitingId() {
-      const rows = await db.select({ postId: articleProbe.postId }).from(articleProbe).where(isNull(articleProbe.outcome)).orderBy(asc(articleProbe.postId)).limit(1)
+    async nextWaitingId(window) {
+      const rows = await db
+        .select({ postId: articleProbe.postId })
+        .from(articleProbe)
+        .where(and(isNull(articleProbe.outcome), eq(articleProbe.windowFromDay, window.fromDay), eq(articleProbe.windowToDay, window.toDay)))
+        .orderBy(asc(articleProbe.postId))
+        .limit(1)
       const row = rows[0]
       return row === undefined ? null : String(row.postId)
     },

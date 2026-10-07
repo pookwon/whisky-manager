@@ -6,20 +6,17 @@ export function nextStepSentence(next: NextStep): string {
   switch (next.kind) {
     case 'running':
       return TEXT.collection.next.running[next.step]
-    case 'listWaiting':
-      return next.nextRunAtMs === null
-        ? TEXT.collection.next.listWaitingManual
-        : TEXT.collection.next.listWaitingAt(formatKstTime(next.nextRunAtMs))
-    case 'searchResume':
-      return TEXT.collection.next.searchResume
-    case 'probeResume':
-      return TEXT.collection.next.probeResume
-    case 'searchNeeded':
-      return TEXT.collection.next.searchNeeded(next.boardName)
-    case 'probeCreate':
-      return TEXT.collection.next.probeCreate
-    case 'probeSpent':
-      return TEXT.collection.next.probeSpent
+    case 'resume': {
+      const { stage } = next
+      switch (stage.kind) {
+        case 'list':
+          return TEXT.collection.next.resume.list
+        case 'search':
+          return TEXT.collection.next.resume.search(stage.boardName ?? stage.boardId, stage.position, stage.count)
+        case 'probe':
+          return TEXT.collection.next.resume.probe
+      }
+    }
     case 'pickPeriod':
       return TEXT.collection.next.pickPeriod
     case 'allDone':
@@ -29,10 +26,9 @@ export function nextStepSentence(next: NextStep): string {
 
 /**
  * When the loop next takes a turn, under a resume sentence: the loop walks the
- * search and the probe too, so a newcomer can wait instead of pressing. The
- * list's own sentence already carries its time.
+ * search and the probe too, so a newcomer can wait instead of pressing.
  */
 export function nextStepScheduleLine(next: NextStep): string | null {
-  if (next.kind !== 'searchResume' && next.kind !== 'probeResume') return null
+  if (next.kind !== 'resume') return null
   return next.nextRunAtMs === null ? TEXT.collection.nextRunNone : TEXT.collection.nextRunAt(formatKstTime(next.nextRunAtMs))
 }

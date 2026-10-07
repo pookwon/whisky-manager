@@ -4,6 +4,7 @@ import { createCollectionRunner } from '../../src/desktop/collectionRunner.js'
 import type { CollectionRepository } from '../../src/desktop/collection-db/repository.js'
 import type { CollectedArticlePage, CollectedPostMetadata } from '../../src/shared/cafeArticleList.js'
 import { createCollectionLock } from '../../src/desktop/collectionLock.js'
+import type { CollectionBlockEnd } from '../../src/desktop/collectionBlockEnd.js'
 
 function post(id: string, postedAt: number): CollectedPostMetadata {
   return { cafeId: '14538121', postId: id, boardId: '1', boardName: '게시판', title: null, prefix: null, authorId: null, authorNickname: null, postedAt, viewCount: 0, commentCount: 0, replyCount: 0, isNotice: false }
@@ -35,12 +36,15 @@ function repository() {
     readFeedState: async () => null,
     listFeedStates: async () => [],
     replaceJob: async () => [],
-    startRun: async (input) => ({ stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, complete: false, forced: false, horizonReached: false, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
+    startRun: async (input) => ({ stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null, cursorUpdatedAtMs: 0, complete: false, forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false, targetStartMs: input.targetStartMs, targetEndMs: input.targetEndMs }),
     recordPageRequest: async () => undefined,
     finishRun: async (id, status, reason) => { finished.push(`${status}:${reason ?? ''}`) },
     markHorizonReached: async () => undefined,
     setForced: async () => undefined,
     reconcileOrphanedRuns: async () => 0,
+    markSearchExtended: async () => undefined,
+    markSearchFinished: async () => undefined,
+    markProbeFinished: async () => undefined,
     persistPage: async (input) => ({ kind: 'stored', insertedPostCount: input.page.items.length, updatedPostCount: 0, nextStateVersion: 1, anchorPostId: input.page.items.at(-1)!.postId }),
   }
   return { repo, finished }
@@ -140,6 +144,15 @@ describe('collection runner over a queue of feeds', () => {
     expect(paced.pauses.filter((pause, index) => index !== 0 && index !== 19)).toEqual(Array(25).fill(BASE_PAUSE))
   })
 
+  it('paces its first read on the requests the block made before it', async () => {
+    const t = transport({ '137': { 1: inPeriod('a') } })
+    const { repo } = repository()
+    const paced = pacedRunner(repo, t.transport)
+    paced.runner.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages: 30, feeds: feeds.slice(0, 1), resumeFromCheckpoint: true, requestsBefore: 19 })
+    await paced.done
+    expect(paced.pauses).toEqual([BASE_PAUSE + TWENTIETH_BREAK, BASE_PAUSE, BASE_PAUSE])
+  })
+
   it('does not go on after a stop', async () => {
     const t = transport({ '137': { 1: inPeriod('a') }, '189': { 1: inPeriod('b') } })
     const { repo, finished } = repository()
@@ -151,5 +164,22 @@ describe('collection runner over a queue of feeds', () => {
     await done
     expect(finished).toEqual(['interrupted:ABORTED'])
     expect(t.asked.filter((a) => a.startsWith('189'))).toEqual([])
+  })
+
+  it('says how each block ended, after it has let go of the lock', async () => {
+    const ended = async (t: ReturnType<typeof transport>, maxPages: number) => {
+      const { repo } = repository()
+      const r = runner(repo, t.transport)
+      return await new Promise<CollectionBlockEnd>((resolve) => {
+        expect(r.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages, feeds, resumeFromCheckpoint: true, onBlockEnd: (end) => {
+          expect(r.isRunning()).toBe(false)
+          resolve(end)
+        } })).toEqual({ kind: 'started' })
+      })
+    }
+    const pages = { '137': { 1: inPeriod('a') }, '189': { 1: inPeriod('b') }, '205': { 1: inPeriod('c') } }
+    expect(await ended(transport(pages), 30)).toEqual({ requests: 9, endedBy: 'drained' })
+    expect(await ended(transport(pages), 4)).toEqual({ requests: 4, endedBy: 'budget' })
+    expect(await ended(transport({ '137': { 1: inPeriod('a') }, '205': { 1: inPeriod('c') } }, ['189']), 30)).toMatchObject({ endedBy: 'failed' })
   })
 })

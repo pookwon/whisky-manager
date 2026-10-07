@@ -77,22 +77,12 @@ function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadat
   }
 }
 
-/**
- * The page past the end of a search that stopped at its result cap answers
- * all-zero page info (captured 2026-09-25: page 81 of 137 "구매" after 80 full
- * pages). An empty page ends the query whatever its page info says, so zero is
- * read there; a page with posts that claims no pages is still malformed.
- */
-function lastPageMinimumFor(articleCount: number): number {
-  return articleCount === 0 ? 0 : 1
-}
-
 export function parseCafeBoardSearchList(value: unknown): CollectedArticlePage {
   const response = record(value, 'response', 'INVALID_ENVELOPE')
   const result = record(response.result, 'response.result', 'INVALID_ENVELOPE')
   if (!Array.isArray(result.articleList)) fail('INVALID_ENVELOPE', 'result.articleList must be an array')
   const items = result.articleList.map((entry, index) => parseSearchArticle(entry, index))
-  return collectedArticlePage(items, result.pageInfo, lastPageMinimumFor(items.length))
+  return collectedArticlePage(items, result.pageInfo)
 }
 
 export function parseCafeBoardSearchListText(text: string): CollectedArticlePage {

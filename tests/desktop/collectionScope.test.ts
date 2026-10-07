@@ -7,7 +7,7 @@ function row(over: Partial<StoredFeedState> & { menuId: string; feedKind?: 'all_
     feed: { feedKind: over.feedKind ?? 'board', menuId: over.menuId },
     stateVersion: 0, anchorPostId: null, anchorPostedAtMs: null, referencePage: null, pageIdentity: null,
     cursorUpdatedAtMs: 0, targetStartMs: 100, targetEndMs: 200,
-    complete: false, forced: false, horizonReached: false, queueOrder: null, boardName: null,
+    complete: false, forced: false, horizonReached: false, searchExtended: false, searchFinished: false, probeFinished: false, queueOrder: null, boardName: null,
     ...over,
   }
 }

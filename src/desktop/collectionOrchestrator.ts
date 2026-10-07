@@ -5,6 +5,8 @@ import type { Random } from '../shared/ports.js'
 import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
+import { isPastListEnd, readConfirmingEmpty } from './collectionListEnd.js'
+import { stopReasonDetail } from './collectionFailure.js'
 import { CollectionPageError } from './collectionPageError.js'
 import { failedRunStopReason } from './failedRunStopReason.js'
 import { pauseUnlessStopped } from './collectionPause.js'
@@ -37,7 +39,10 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
     const message: Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' }> = { type: 'COLLECT_BOARD_PAGE', requestId: newRequestId(), cafeId: CAFE_ARTICLE_LIST.cafeId, menuId, page, pageSize: CAFE_ARTICLE_LIST.pageSize, sortBy: CAFE_ARTICLE_LIST.sortBy, viewType: CAFE_ARTICLE_LIST.viewType }
     const reply = await transport.request(message, TIMEOUTS.boardPageMs)
     if (reply.type === 'BOARD_PAGE_COLLECTED') return reply.result
-    if (reply.type === 'ERROR') throw new CollectionPageError(reply.code)
+    // A parse error's message is the extension saying which rule the page
+    // broke; it rides along so the run's stop reason names it. No other
+    // message does: those come from anywhere and say anything.
+    if (reply.type === 'ERROR') throw new CollectionPageError(reply.code, reply.code === 'BOARD_PAGE_PARSE_ERROR' && reply.message !== reply.code ? stopReasonDetail(reply.message) : undefined)
     throw new CollectionPageError('BOARD_PAGE_UNEXPECTED_REPLY')
   } }
 }
@@ -61,9 +66,11 @@ export function createBoardPageFetcher(transport: ExtensionTransport, newRequest
  * article ids afterwards: they are dense and rise with time, so a deleted post
  * leaves a gap of one or two and a lost page leaves one of fifty. That check is
  * run by hand against the database today; it is not in this repository.
+ *
+ * Nor is a page being empty: that is how a board answers past its end, which
+ * only the walk can tell from a fault.
  */
 function assertPage(page: CollectedArticlePage, requested: number): void {
-  if (page.items.length === 0) throw new CollectionPageError('BOARD_PAGE_EMPTY')
   const ids = new Set<string>()
   for (const [index, item] of page.items.entries()) {
     if (ids.has(item.postId)) throw new CollectionPageError('BOARD_PAGE_DUPLICATE_POST', `page ${requested} #${index} ${item.postId}`)
@@ -86,7 +93,6 @@ function newestPostedAt(page: CollectedArticlePage): number {
 }
 
 function oldest(page: CollectedArticlePage): number { return oldestPost(page).postedAt }
-function fallback(page: CollectedArticlePage, requested: number): boolean { return requested > page.pageInfo.lastNavigationPageNumber }
 
 export interface ScheduledReader {
   probe(page: number): Promise<CollectedArticlePage>
@@ -114,9 +120,11 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     observations.set(value, observedAt)
     return value
   }
+  // Every page goes through here, so the start-page search, the walk, its
+  // rewinds and the resume all take an empty answer only when it repeats.
   return {
-    probe: (page) => read(page, 'probe'),
-    collect: (page) => read(page, 'collection'),
+    probe: (page) => readConfirmingEmpty(() => read(page, 'probe')),
+    collect: (page) => readConfirmingEmpty(() => read(page, 'collection')),
     observedAt(page) {
       const value = observations.get(page)
       if (value === undefined) throw new CollectionPageError('BOARD_PAGE_OBSERVATION_TIME_MISSING')
@@ -126,24 +134,48 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
   }
 }
 
-/** Uses only scheduler reads; silent fallback is an invalid upper bound. */
-export async function findCollectionStartPage(reader: ScheduledReader, targetEndMs: number): Promise<{ baseline: CollectedArticlePage; page: number }> {
+export type CollectionStartPage =
+  | { readonly kind: 'found'; readonly baseline: CollectedArticlePage; readonly page: number }
+  /** Every page the cafe serves is newer than the period: it lies past the horizon. */
+  | { readonly kind: 'horizon' }
+  /** The list ends while still newer than the period: this board holds nothing in it. */
+  | { readonly kind: 'nothing' }
+
+/**
+ * Uses only scheduler reads; a page past the list's end bounds the search but
+ * is never the start. Which end the list ran out at says what an unfound start
+ * means: at the cafe's last servable page the period is beyond reach, anywhere
+ * sooner it is empty.
+ */
+export async function findCollectionStartPage(reader: ScheduledReader, targetEndMs: number): Promise<CollectionStartPage> {
   const baseline = await reader.probe(1)
-  if (oldest(baseline) < targetEndMs) return { baseline, page: 1 }
+  if (isPastListEnd(baseline, 1)) return { kind: 'nothing' }
+  if (oldest(baseline) < targetEndMs) return { kind: 'found', baseline, page: 1 }
   let lower = 1; let upper = 2; let crossed = false
   while (true) {
     const candidate = await reader.probe(upper)
-    if (fallback(candidate, upper)) break
+    if (isPastListEnd(candidate, upper)) break
     if (oldest(candidate) < targetEndMs) { crossed = true; break }
     lower = upper; upper *= 2
     if (!Number.isSafeInteger(upper)) throw new CollectionPageError('TARGET_PAGE_UNAVAILABLE')
   }
   while (upper - lower > 1) {
     const middle = Math.floor((lower + upper) / 2); const candidate = await reader.probe(middle)
-    if (fallback(candidate, middle) || oldest(candidate) < targetEndMs) { upper = middle; if (!fallback(candidate, middle)) crossed = true } else lower = middle
+    if (isPastListEnd(candidate, middle) || oldest(candidate) < targetEndMs) { upper = middle; if (!isPastListEnd(candidate, middle)) crossed = true } else lower = middle
   }
-  if (!crossed) throw new CollectionPageError('TARGET_PAGE_UNAVAILABLE')
-  return { baseline, page: upper }
+  if (crossed) return { kind: 'found', baseline, page: upper }
+  return lower >= FEED_HORIZON_PAGE ? { kind: 'horizon' } : { kind: 'nothing' }
+}
+
+/**
+ * The list ran out at the last page the cafe serves with the period
+ * unfinished. What remains lies beyond the list's reach, which is the feed's
+ * limit and not a fault, so the run ends partial and the feed records it.
+ */
+async function endAtHorizon(deps: CollectionOrchestratorDeps, options: CollectionRunOptions, pagesStored: number, requests: number): Promise<CollectionRunResult> {
+  await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
+  await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
+  return { kind: 'partial', pagesStored, requests, reason: 'FEED_HORIZON' }
 }
 
 interface ContinuityAnchor { readonly page: number; readonly postId: string; readonly postedAtMs: number; readonly pageIdentity: string }
@@ -159,7 +191,7 @@ async function verifyContinuity(reader: ScheduledReader, previous: ContinuityAnc
   const surfaced = next.items.findIndex((item) => item.postId === previous.postId)
   if (surfaced >= 0) return { page: next, pageNumber: nextPageNumber, firstOffset: surfaced + 1 }
   const rewind = await reader.collect(previous.page)
-  if (fallback(rewind, previous.page)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
+  if (isPastListEnd(rewind, previous.page)) throw new CollectionPageError('BOARD_PAGE_SILENT_FALLBACK')
   if (rewind.pageIdentity === previous.pageIdentity) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
   const index = rewind.items.findIndex((item) => item.postId === previous.postId)
   if (index === rewind.items.length - 1) return { page: next, pageNumber: nextPageNumber, firstOffset: 0 }
@@ -209,22 +241,24 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
         // A cursor written at the last page the cafe serves cannot be found
         // again once it drifts past that page — the feed answers from page 1
         // instead. That is the horizon, not a fault.
-        if (state.referencePage !== null && state.referencePage >= FEED_HORIZON_PAGE) {
-          await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
-          await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
-          return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
-        }
+        if (state.referencePage !== null && state.referencePage >= FEED_HORIZON_PAGE) return await endAtHorizon(deps, options, pagesStored, reader.reads)
         throw new CollectionPageError('RESUME_POSITION_LOST')
       }
       if (resumed?.kind === 'found') { pageNumber = resumed.page; firstOffset = resumed.offset; firstPage = resumed.candidate }
-      else { const searched = await findCollectionStartPage(reader, options.run.targetEndMs); pageNumber = searched.page }
+      else {
+        const searched = await findCollectionStartPage(reader, options.run.targetEndMs)
+        if (searched.kind === 'horizon') return await endAtHorizon(deps, options, pagesStored, reader.reads)
+        if (searched.kind === 'nothing') { await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now())); return { kind: 'succeeded', pagesStored, requests: reader.reads } }
+        pageNumber = searched.page
+      }
       let continuity: ContinuityAnchor | null = null
       while (true) {
         let page = firstPage ?? await reader.collect(pageNumber); firstPage = null
-        if (fallback(page, pageNumber)) {
+        if (isPastListEnd(page, pageNumber)) {
           // Asked for a page the feed does not have. Once the walk is under way
-          // that is simply its end: the cafe answers from its newest page, and
-          // there is nothing older left to read. It matters because the walk now
+          // that is simply its end: the cafe answers from its newest page, or
+          // with no posts on a board that ends sooner, and there is nothing
+          // older left to read. It matters because the walk now
           // ends on a page's newest post, so it always asks for one page beyond
           // the last that held anything — and a period reaching back to the
           // cafe's own beginning would otherwise fail on every run forever.
@@ -237,11 +271,7 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
           // Which end matters: below the cafe's last servable page there may
           // be more, and calling that the period's end would mark a job done
           // that is not.
-          if (continuity.page >= FEED_HORIZON_PAGE) {
-            await deps.repository.markHorizonReached(options.feed, new Date(deps.clock.now()))
-            await deps.repository.finishRun(options.run.id, 'partial', 'FEED_HORIZON', new Date(deps.clock.now()))
-            return { kind: 'partial', pagesStored, requests: reader.reads, reason: 'FEED_HORIZON' }
-          }
+          if (continuity.page >= FEED_HORIZON_PAGE) return await endAtHorizon(deps, options, pagesStored, reader.reads)
           await deps.repository.finishRun(options.run.id, 'succeeded', null, new Date(deps.clock.now()))
           return { kind: 'succeeded', pagesStored, requests: reader.reads }
         }
@@ -280,6 +310,9 @@ export function createCollectionOrchestrator(deps: CollectionOrchestratorDeps) {
             cursorUpdatedAtMs: deps.clock.now(),
             targetStartMs: options.run.targetStartMs,
             targetEndMs: options.run.targetEndMs,
+            searchExtended: state.searchExtended,
+            searchFinished: state.searchFinished,
+            probeFinished: state.probeFinished,
           }
           pagesStored += 1
         }

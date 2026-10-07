@@ -2,7 +2,8 @@ import type { CollectionPacing } from '../shared/collectionPacing.js'
 import type { Random } from '../shared/ports.js'
 import type { ArticleFetcher } from './articleFetcher.js'
 import { judgeArticleRead } from './articleProbeVerdict.js'
-import type { ArticleProbeJob, ArticleProbeRepository } from './collection-db/articleProbeRepository.js'
+import type { ArticleProbeJob, ArticleProbeRepository, ArticleProbeWindowDays } from './collection-db/articleProbeRepository.js'
+import type { CollectionBlockEnd, OnCollectionBlockEnd } from './collectionBlockEnd.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import { CollectionPageError } from './collectionPageError.js'
@@ -39,7 +40,8 @@ export interface ArticleProbeBlockFailure extends FailedRunStopReason {
 }
 
 export interface ArticleProbeRunner {
-  start(request: { readonly maxPages: number }): CollectionStartResult
+  /** `requestsBefore`: requests the block made before this walk; its pacing counts on from them. */
+  start(request: { readonly maxPages: number; readonly window: ArticleProbeWindowDays; readonly onBlockEnd?: OnCollectionBlockEnd; readonly requestsBefore?: number }): CollectionStartResult
   stop(): void
   isRunning(): boolean
   /** Null between blocks, and while a block has not started its run. */
@@ -58,6 +60,8 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
     lastBlockFailure = { ...failure, atMs: deps.clock.now() }
   }
   const now = () => new Date(deps.clock.now())
+  /** Requests this block has made; read before the block's progress is cleared. */
+  const requestedSoFar = (): number => blockProgress?.requested ?? 0
 
   const readTurn: ReadTurnDeps = {
     isSessionBusy: () => deps.isSessionBusy(),
@@ -72,15 +76,15 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
    * closed as stored without a request. Any failure ends the block and leaves
    * its id waiting: whatever refused one read would refuse the next.
    */
-  async function walkIds(repository: ArticleProbeRepository, runId: string, maxPages: number, pacing: CollectionPacing): Promise<void> {
+  async function walkIds(repository: ArticleProbeRepository, window: ArticleProbeWindowDays, runId: string, maxPages: number, waitTurn: (ordinal: number) => Promise<void>): Promise<'drained' | 'budget'> {
     const collectedBoardIds = new Set(await repository.listCollectedBoardIds())
     let requested = 0
     for (;;) {
       if (abortRequested) throw new CollectionPageError('ABORTED')
-      const postId = await repository.nextWaitingId()
+      const postId = await repository.nextWaitingId(window)
       if (postId === null) {
         await repository.finishRun(runId, 'succeeded', null, now())
-        return
+        return 'drained'
       }
       const storedOn = await repository.storedBoardOf(postId)
       if (storedOn !== null) {
@@ -89,9 +93,9 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
       }
       if (requested >= maxPages) {
         await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
-        return
+        return 'budget'
       }
-      await waitForReadTurn(readTurn, requested + 1, pacing)
+      await waitTurn(requested + 1)
       await repository.recordPageRequest(runId)
       requested += 1
       blockProgress = { requested, maxPages }
@@ -102,22 +106,25 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
   }
 
   /** One block is one run. It first closes a probe run an earlier block could not: the lock is held, so none is being written. */
-  async function walk(repository: ArticleProbeRepository, maxPages: number): Promise<void> {
+  async function walk(repository: ArticleProbeRepository, maxPages: number, window: ArticleProbeWindowDays, requestsBefore: number): Promise<CollectionBlockEnd> {
     await repository.reconcileOrphanedRuns(now())
-    const job: ArticleProbeJob | null = await repository.readJob()
-    if (job === null || job.probed === job.total || abortRequested) return
+    const job: ArticleProbeJob | null = await repository.readJob(window)
+    if (abortRequested) return { requests: 0, endedBy: 'stopped' }
+    if (job === null || job.probed === job.total) return { requests: 0, endedBy: 'drained' }
     const pacing = deps.pacing()
+    const waitTurn = (ordinal: number) => waitForReadTurn(readTurn, requestsBefore + ordinal, pacing)
     const runId = deps.newId()
     try {
       await repository.startRun({ id: runId, fromDay: job.fromDay, toDay: job.toDay, startedAt: now() })
     } catch (error) {
       // No row to finish, and none to say why.
       keepBlockFailure(failedRunStopReason(error))
-      return
+      return { requests: 0, endedBy: 'failed' }
     }
     blockProgress = { requested: 0, maxPages }
     try {
-      await walkIds(repository, runId, maxPages, pacing)
+      const endedBy = await walkIds(repository, window, runId, maxPages, waitTurn)
+      return { requests: requestedSoFar(), endedBy }
     } catch (error) {
       // A run this write cannot close stays `running` until the next block's
       // sweep; the failure is reported, since nothing else would say why.
@@ -125,9 +132,10 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
         repository.finishRun(runId, status, stopReason, now()).catch((closeError: unknown) => { deps.onError?.(closeError) })
       if (error instanceof CollectionPageError && error.code === 'ABORTED') {
         await close('interrupted', 'ABORTED')
-        return
+        return { requests: requestedSoFar(), endedBy: 'stopped' }
       }
       await close('failed', failedRunStopReason(error).stopReason)
+      return { requests: requestedSoFar(), endedBy: 'failed' }
     }
   }
 
@@ -140,8 +148,12 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
       if (!deps.lock.tryAcquire()) return { kind: 'refused', reason: 'ALREADY_RUNNING' }
       abortRequested = false
       lastBlockFailure = null
-      inFlight = walk(repository, request.maxPages)
+      let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }
+      inFlight = walk(repository, request.maxPages, request.window, request.requestsBefore ?? 0)
+        // A stop decides the verdict however it surfaced: as ABORTED, a failed read, or not at all.
+        .then((walked) => { end = abortRequested ? { ...walked, endedBy: 'stopped' } : walked })
         .catch((error: unknown) => {
+          end = { requests: requestedSoFar(), endedBy: abortRequested ? 'stopped' : 'failed' }
           deps.onError?.(error)
           keepBlockFailure(failedRunStopReason(error))
         })
@@ -149,6 +161,8 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
           inFlight = null
           blockProgress = null
           deps.lock.release()
+          // The next walk may be started from here; a throw is reported, not left to reject the block.
+          try { request.onBlockEnd?.(end) } catch (error) { deps.onError?.(error) }
         })
       return { kind: 'started' }
     },
