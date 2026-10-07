@@ -290,7 +290,7 @@ In `repository.ts`: add the three fields to `CollectionFeedState` with doc comme
     },
 ```
 
-In `startRun`'s reset branch (`rangeChanged` reset) also clear `searchExtendedAt: null, searchFinishedAt: null, probeFinishedAt: null` beside `horizonReachedAt: null` — a feed moved to another range is a new period.
+In `startRun`'s `reset` branch (`reset = !input.resumeFromCheckpoint && inserted.length === 0`: a fresh start on an existing row) also clear `searchExtendedAt: null, searchFinishedAt: null, probeFinishedAt: null` beside `horizonReachedAt: null` — a feed started afresh is a new period.
 
 Run `pnpm typecheck`; add the three fields (`false`) and three methods (`vi.fn()` / no-op resolving `undefined`, matching each fake's style) to every fake it names.
 
@@ -452,7 +452,7 @@ In `tests/desktop/articleProbeRunner.test.ts`:
   })
 ```
 
-In the job, view and renderer API tests: fakes of `readJob`/`nextWaitingId` take the window argument; add to each one assertion that it was called with the search job's window (`{ fromDay: '20250101', toDay: '20250829' }` in their fixtures).
+In the job, view and renderer API tests: fakes of `readJob`/`nextWaitingId` take the window argument; `tests/desktop/articleProbeJob.test.ts` also needs a `search` fake whose `listQueries` returns the finished search job's rows; add to each one assertion that it was called with the search job's window (`{ fromDay: '20250101', toDay: '20250829' }` in their fixtures).
 
 - [ ] **Step 2: Run them to see them fail** — `pnpm vitest run tests/desktop/articleProbeRunner.test.ts` and the integration command → FAIL.
 
@@ -474,7 +474,7 @@ and end the insert with `on conflict (post_id) do nothing` (after the `where sto
 Runner: `walk(repository, maxPages, window)` passes `window` to `readJob` and to `walkIds`, which passes it to `nextWaitingId`. `start(request)` calls `walk(repository, request.maxPages, request.window)`.
 
 Callers, keeping today's behaviour:
-- `articleProbeJob.ts`: deps gain `readonly search: () => BoardSearchRepository | null`. `readProgress` computes `articleProbeWindow(await search.listQueries())`; not ready → `{ exists: false, complete: false, forced: false }`; else keeps the window in a `let` and reads `readJob(window)` as before. `start(maxPages)` → refused `NO_JOB` when no window was kept, else `deps.runner.start({ maxPages, window })`. Wire `search` in `bootstrap.ts` as the other deps (`collection.kind === 'ready' ? collection.boardSearchRepository : null`).
+- `articleProbeJob.ts`: deps gain `readonly search: () => BoardSearchRepository | null`. `readProgress`: `const search = deps.search(); if (search === null) return { exists: false, complete: false, forced: false }`, then `articleProbeWindow(await search.listQueries())`; not ready → `{ exists: false, complete: false, forced: false }`; else keeps the window in a `let` and reads `readJob(window)` as before. `start(maxPages)` → refused `NO_JOB` when no window was kept, else `deps.runner.start({ maxPages, window })`. Wire `search` in `bootstrap.ts` as the other deps (`collection.kind === 'ready' ? collection.boardSearchRepository : null`).
 - `articleProbeView.ts`: compute `window` first; `job = window.kind === 'ready' ? await repository.readJob(window) : null`; the view's `window` field stays `job === null ? window : null`.
 - `rendererApi.ts` `createArticleProbeJob`: compute the window first (refusal as before), then `JOB_EXISTS` when `readJob(window)` is not null, then `createJob(window)`. `startArticleProbe`: window not ready → `NO_JOB`; `readJob(window)`; `start({ maxPages, window })`.
 
@@ -526,7 +526,7 @@ The verdict, per runner, in this order (first that applies):
 |---|---|---|---|---|
 | list | a stop was asked (`abortRequested`) | any feed result `failed` or `cas_conflict`, or the walk threw | requests ≥ `maxPages` | otherwise |
 | search | a stop was asked | any query run closed `failed`, a run that could not start, or the walk threw | requests ≥ `maxPages` | otherwise |
-| probe | a stop was asked | the run closed `failed`, could not start, or the walk threw | the run closed `partial` `PAGE_BUDGET_SPENT` | otherwise (including no job / nothing waiting) |
+| probe | a stop was asked (including `abortRequested` at `walk`'s early return, before any run) | the run closed `failed`, could not start, or the walk threw | the run closed `partial` `PAGE_BUDGET_SPENT` | otherwise (including no job / nothing waiting) |
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -558,7 +558,9 @@ The verdict, per runner, in this order (first that applies):
 ```ts
   it('says how each block ended', async () => {
     const ended = (h: ReturnType<typeof harness>, maxPages: number) =>
-      new Promise<CollectionBlockEnd>((resolve) => { h.runner.start({ maxPages, onBlockEnd: resolve }) })
+      new Promise<CollectionBlockEnd>((resolve) => {
+        h.runner.start({ maxPages, onBlockEnd: (end) => { expect(h.runner.isRunning()).toBe(false); resolve(end) } })
+      })
     expect(await ended(harness([query('글렌', 1), query('구매', 2)], { 글렌: [page([1, 2], 3), page([3], 3)], 구매: [page([4], 1)] }), 10)).toEqual({ requests: 5, endedBy: 'drained' })
     expect(await ended(harness([query('글렌', 1), query('구매', 2)], { 글렌: [page([1], 9), page([2], 9), page([3], 9)] }), 2)).toEqual({ requests: 2, endedBy: 'budget' })
     expect(await ended(harness([query('글렌', 1), query('구매', 2)], { 구매: [page([4], 1)] }, { 글렌: 'BOARD_SEARCH_HTTP_ERROR' }), 10)).toEqual({ requests: 1, endedBy: 'failed' })
@@ -574,7 +576,9 @@ The verdict, per runner, in this order (first that applies):
 ```ts
   it('says how each block ended', async () => {
     const ended = (h: ReturnType<typeof harness>, maxPages: number) =>
-      new Promise<CollectionBlockEnd>((resolve) => { h.runner.start({ maxPages, window: WINDOW, onBlockEnd: resolve }) })
+      new Promise<CollectionBlockEnd>((resolve) => {
+        h.runner.start({ maxPages, window: WINDOW, onBlockEnd: (end) => { expect(h.runner.isRunning()).toBe(false); resolve(end) } })
+      })
     expect(await ended(harness(['2', '3'], { 2: DELETED, 3: DELETED }), 10)).toEqual({ requests: 2, endedBy: 'drained' })
     expect(await ended(harness(['2', '3', '4'], { 2: DELETED, 3: DELETED, 4: DELETED }), 2)).toEqual({ requests: 2, endedBy: 'budget' })
     expect(await ended(harness(['2'], { 2: 'ARTICLE_HTTP_ERROR' }), 10)).toEqual({ requests: 1, endedBy: 'failed' })
@@ -596,7 +600,7 @@ Create `src/desktop/collectionBlockEnd.ts` with the code in Interfaces.
 
 `collectionRunner.ts`:
 - `CollectionStartRequest` gains `readonly onBlockEnd?: OnCollectionBlockEnd` with the doc line "Told how the block ended, once, after the lock is free."
-- `walk` returns its results as now; in `start`, keep `let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }` and a `let spent = 0` that `walk` updates (make `walk` take a `report: (requests: number) => void` it calls after each feed with the running total). In `.then((results) => { end = blockEndOf(results, request.maxPages); deps.onFinished?.(results) })`, in `.catch` keep `end = { requests: spent, endedBy: abortRequested ? 'stopped' : 'failed' }`, and in `.finally` after `deps.lock.release()` call `request.onBlockEnd?.(end)`.
+- `walk` returns its results as now; in `start`, keep `let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }` and a `let spent = 0` that `walk` updates (make `walk` take a `report: (requests: number) => void` it calls after each feed with the running total). In `.then((results) => { end = blockEndOf(results, request.maxPages, abortRequested); deps.onFinished?.(results) })`, in `.catch` keep `end = { requests: spent, endedBy: abortRequested ? 'stopped' : 'failed' }`, and in `.finally` after `deps.lock.release()` call `request.onBlockEnd?.(end)`.
 - Add, beside `walk`:
 
 ```ts
@@ -609,7 +613,7 @@ function blockEndOf(results: readonly CollectionRunResult[], maxPages: number, a
 }
 ```
 
-(pass `abortRequested` as `aborted`).
+(`aborted` is `abortRequested` at the end of the walk).
 
 `boardSearchRunner.ts`:
 - `QueryOutcome` gains `readonly failed: boolean`; `walkQuery` returns `failed: true` from the start-run failure and the non-abort catch, `false` elsewhere.
@@ -840,7 +844,7 @@ Behaviour (§3.3–§3.5):
    - not adopted → `planBoardSearchJob(boardSearch, { boardId, fromDay: stage.period.fromDay })`; refused → `onSkipped(\`search ${boardId}: ${reason}\`)`, `markSearchFinished(boardId, at)`, needs nothing; ready → `replaceJob({ ...plan, at })`, `markSearchExtended(boardId, at)` (its plan already holds the extensions);
    - adopted and `!stage.searchExtended` → `extendJob({ queries: extendBoardSearchQueries(await readBoardTitles(boardId), queries.map((q) => q.query)), at })`, `markSearchExtended(boardId, at)`;
    - then every query complete → `markSearchFinished(boardId, at)`, needs nothing; else the job is ready.
-6. `ensureProbeJob(period)`: `readJob(period)`; null → `createJob(period)` (its throw propagates: another window's ids wait); 0 made → `markProbeFinished(at)`, done; a job whose `probed === total` → `markProbeFinished(at)`, done; else ready.
+6. `ensureProbeJob(period)`: `readJob(period)`; null → `createJob(period)` (its throw propagates to `runStage`, which reports it through `onError` — the error's own text says another window's ids wait — and answers `STEP_FAILED`); 0 made → `markProbeFinished(at)`, done; a job whose `probed === total` → `markProbeFinished(at)`, done; else ready.
 7. `read()`: stores null → null; else `{ stage: collectionPipelineStage(job), forced: stage.kind === 'list' && job.forced }`.
 
 - [ ] **Step 1: Write the failing test** — `tests/desktop/collectionPipeline.test.ts`. The fakes record calls and hold the `onBlockEnd` each runner was given, so a test ends a block by hand:
@@ -952,10 +956,9 @@ describe('collectionPipeline', () => {
   })
 
   it('goes from the list to the search of a board it could not finish in the same block, with what is left', async () => {
-    const h = harness({ feeds: [feed('137', 1)], titles: Array.from({ length: 6 }, () => '홈플 득템') })
+    const h = harness({ feeds: [feed('137', 1)], titles: Array.from({ length: 6 }, () => '홈플') })
     await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })
     await h.end('list', { requests: 40, endedBy: 'drained' }, { feeds: [feed('137', 1, { horizonReached: true })] })
-    // '홈플' covers all six titles first, so '득템' is never picked.
     expect(h.calls).toEqual(['list 100 137', 'replace 137 20240101 홈플', 'extended 137', 'search 60'])
   })
 
@@ -1089,10 +1092,16 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
         chainRunning = false
         return
       }
-      runStage(stores, request, left, { key: stageKey(stage), requests: end.requests }).catch((error: unknown) => {
-        deps.onError?.(error)
-        chainRunning = false
-      })
+      runStage(stores, request, left, { key: stageKey(stage), requests: end.requests })
+        .then((result) => {
+          // A refusal here has no one pressing to be told: a member walk the
+          // loop started meanwhile, or the extension gone.
+          if (result.kind === 'refused' && result.reason !== 'JOB_FINISHED') deps.onSkipped?.(`after ${stageKey(stage)}: next stage refused ${result.reason}`)
+        })
+        .catch((error: unknown) => {
+          deps.onError?.(error)
+          chainRunning = false
+        })
     }
     const started = /* start the stage's runner as Behaviour 2 lists */
     if (started.kind !== 'started') chainRunning = false
@@ -1140,7 +1149,7 @@ git commit -m "feat: chain the list walk, the search backfill and the article pr
 **Files:**
 - Create: `src/desktop/collectionPipelineJob.ts`
 - Modify: `src/desktop/collectionJob.ts` (job names; `start` may be async; delete `createArticleCollectionJob`)
-- Modify: `src/desktop/collectionLoop.ts:136` (`await` the start)
+- Modify: `src/desktop/collectionLoop.ts:142` (`await` the start; the `attempted.kind === 'started'` check after it stays)
 - Modify: `src/desktop/bootstrap.ts` (make the pipeline; loop jobs; `AppContext.collectionPipeline`; shutdown)
 - Delete: `src/desktop/boardSearchJob.ts`, `src/desktop/articleProbeJob.ts`, `tests/desktop/boardSearchJob.test.ts`, `tests/desktop/articleProbeJob.test.ts`, the `createArticleCollectionJob` describes in `tests/desktop/collectionJob.test.ts`
 - Test: `tests/desktop/collectionPipelineJob.test.ts`, `tests/desktop/collectionLoop.test.ts`, `tests/desktop/bootstrap.test.ts` (whatever it asserts about the jobs list)
@@ -1189,7 +1198,7 @@ describe('createCollectionPipelineJob', () => {
 })
 ```
 
-`tests/desktop/collectionLoop.test.ts`: add a case where a fake job's `start` returns a `Promise` resolving `{ kind: 'started' }` and assert the next beat is laid at `work + rest` as the synchronous case is (copy the nearest existing "started" case and make its `start` async).
+`tests/desktop/collectionLoop.test.ts`: its `FakeJobSpec.name` is `'articles' | 'members'` and four assertions filter on `'articles'`; rename `'articles'` → `'pipeline'` in the type, every spec and those assertions. Then add a case where a fake job's `start` returns a `Promise` resolving `{ kind: 'started' }` and assert the next beat is laid at `work + rest` as the synchronous case is (copy the nearest existing "started" case and make its `start` async).
 
 - [ ] **Step 2: Run them to see them fail** — `pnpm vitest run tests/desktop/collectionPipelineJob.test.ts tests/desktop/collectionLoop.test.ts` → FAIL.
 
@@ -1264,7 +1273,7 @@ git commit -m "feat: let the collection loop walk the article steps as one pipel
 ### Task 9: The renderer API goes through the pipeline (sonnet)
 
 **Files:**
-- Modify: `src/desktop/rendererApi.ts`, `src/desktop/ipc.ts`, `src/desktop/preload.ts`, `src/desktop/main.ts`
+- Modify: `src/desktop/rendererApi.ts`, `src/desktop/ipc.ts`, `src/desktop/main.ts` (the `collectionPipeline` dep only). `preload.ts` and `main.ts` register handlers by iterating `IPC_CHANNELS`, so removing the channels from `ipc.ts` is the whole channel change there.
 - Modify: `src/desktop/articleProbeView.ts` (window from the stage; drop `window` field)
 - Delete: `src/desktop/articleProbePlan.ts`, `tests/desktop/articleProbePlan.test.ts`
 - Test: `tests/desktop/rendererApi.test.ts`, `tests/desktop/articleProbeView.test.ts`
@@ -1275,7 +1284,7 @@ git commit -m "feat: let the collection loop walk the article steps as one pipel
   - `CollectionStatusView` ready: `{ readonly kind: 'ready'; readonly status: CollectionStatus; readonly pipeline: CollectionPipelineStage }`.
   - `ArticleProbeView` without `window`; `readArticleProbeView({ repository, period: CollectionPeriodDays | null, running, progress, blockFailure })` — `job = period === null ? null : await repository.readJob(period)`.
   - Removed IPC (channel, `RendererApi` method, preload entry, main handler, types): `previewBoardSearchJob`, `createBoardSearchJob`, `startBoardSearch`, `stopBoardSearch`, `createArticleProbeJob`, `startArticleProbe`, `stopArticleProbe`; types `BoardSearchPlanRefusal`, `BoardSearchPlanView`, `ArticleProbeCreateRefusal`, `ArticleProbeCreateView`.
-  - Kept: `startCollection(request?)`, `stopCollection()`, `getBoardSearchStatus()`, `getArticleProbeStatus()`.
+  - Kept: `startCollection(request?)`, `stopCollection()`, `getBoardSearchStatus()`, `getArticleProbeStatus()`. Deliberate departure from spec §6's single `wm:startCollectionPipeline`: the existing `startCollection`/`stopCollection` channels become the pipeline's start and stop, so the dashboard's collection buttons follow without change.
 
 - [ ] **Step 1: Write the failing tests** — in `tests/desktop/rendererApi.test.ts`:
 
@@ -1427,13 +1436,13 @@ Add one more case:
 - `getArticleProbeStatus()` → pass `period` = the stage's `period` when the stage is `probe` or `done`, else null.
 - Delete the seven methods and the imports only they used (`planBoardSearchJob`, `articleProbeWindow`).
 
-`ipc.ts`, `preload.ts`, `main.ts`: drop the seven channels and their types; add `pipeline` to the ready `CollectionStatusView` (import `type CollectionPipelineStage`).
+`ipc.ts`: drop the seven channels and their types; add `pipeline` to the ready `CollectionStatusView` (import `type CollectionPipelineStage`).
 
 `articleProbeView.ts`: as in Interfaces; drop the `search` input and the `window` field.
 
 Delete `articleProbePlan.ts` and its test (nothing calls `articleProbeWindow` any more — confirm with `grep -rn articleProbeWindow src tests`).
 
-- [ ] **Step 4: Run the tests to see them pass** — `pnpm typecheck` names the renderer files that still call removed methods: leave them for Task 10 only if the typecheck of `tsconfig.json` covers the renderer — it does, so this task must keep the renderer compiling. Make the smallest renderer edits that compile: remove the buttons that call removed methods from `NextStepPanel.tsx`, `BoardSearchStep.tsx`, `ArticleProbeStep.tsx`, delete `BoardSearchJobForm.tsx` with its import in `BoardSearchStep.tsx` and `CollectionStatus.tsx`, drop the reads of `view.window` in `ArticleProbeStep.tsx` and `window: null` in `tests/renderer/collectionStepFixtures.ts`, and add `pipeline` wherever a test builds a ready `CollectionStatusView`. Task 10 then reshapes those screens. `pnpm typecheck && pnpm test && npx eslint src tests scripts` → clean.
+- [ ] **Step 4: Run the tests to see them pass** — `pnpm typecheck` names the renderer files that still call removed methods: leave them for Task 10 only if the typecheck of `tsconfig.json` covers the renderer — it does, so this task must keep the renderer compiling. Note `tsconfig.json` includes `tests/**/*`, so the typecheck covers tests too. Make the smallest renderer edits that compile: delete `articleProbeCreateRefusal` and `articleProbeCreateOutcome` (`articleProbeLines.ts`) and `boardSearchPlanOutcome` (`boardSearchLines.ts`) with their cases in `tests/renderer/articleProbeLines.test.ts` / `boardSearchLines.test.ts` and their call sites (`ArticleProbeStep.tsx`'s create button and `window?.kind === 'ready'` branch; `NextStepPanel.tsx`'s `probeCreate` branch, the `STOP` map entries calling `api.stopBoardSearch`/`api.stopArticleProbe` — use `api.stopCollection` for every step — and the `searchResume`/`probeResume` branches calling the removed starts — use `api.startCollection()`); remove the buttons that call removed methods from `NextStepPanel.tsx`, `BoardSearchStep.tsx`, `ArticleProbeStep.tsx`, delete `BoardSearchJobForm.tsx` with its import in `BoardSearchStep.tsx` and `CollectionStatus.tsx`, drop the reads of `view.window` in `ArticleProbeStep.tsx` and `window: null` in `tests/renderer/collectionStepFixtures.ts`, and add `pipeline` wherever a test builds a ready `CollectionStatusView`. Task 10 then reshapes those screens. `pnpm typecheck && pnpm test && npx eslint src tests scripts` → clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1614,7 +1623,7 @@ export function probeStepState(inputs: CollectionStepInputs): StepState {
 
 `ArticleProbeStep.tsx`: the same — no buttons, no `created`/`refusal` state, no `createRefusal`; `windowLine` from `job` only; keep the fold when finished, the headline, progress, failure line and 자세히.
 
-`articleProbeLines.ts`: delete `articleProbeCreateOutcome`, `articleProbeCreateRefusal`, `articleProbeStartLabel`. `boardSearchLines.ts`: delete `boardSearchStartLabel`. `startRefusals.ts`: delete `searchStartRefusal`, `probeStartRefusal`. Then delete every `TEXT` key only those used (`TEXT.boardSearch.startRefused`, the search form and replace-confirmation words, `TEXT.articleProbe.create`, `createRefused`, `created`, `startRefused`, `resume`, `stop`, and so on) — for each key, `grep -rn "<key>" src` must show no use before you delete it, and must show none after.
+`articleProbeLines.ts`: delete `articleProbeStartLabel` (and `articleProbeCreateOutcome`/`articleProbeCreateRefusal` if Task 9 left them). `boardSearchLines.ts`: delete `boardSearchStartLabel` (and `boardSearchPlanOutcome` if Task 9 left it). `startRefusals.ts`: delete `searchStartRefusal`, `probeStartRefusal`. Then delete every `TEXT` key only those used (`TEXT.boardSearch.startRefused`, the search form and replace-confirmation words, `TEXT.articleProbe.create`, `createRefused`, `created`, `startRefused`, `resume`, `stop`, and so on) — for each key, `grep -rn "<key>" src` must show no use before you delete it, and must show none after.
 
 `CollectionStatus.tsx`: `inputs.pipeline = collection.pipeline`; drop `searchRequest` and `onPrepareSearch`; update the doc comment.
 
@@ -1661,6 +1670,6 @@ psql -X postgresql://lp2k@127.0.0.1:5432/whisky_manager_collection -c "select me
 psql -X -At postgresql://lp2k@127.0.0.1:5432/whisky_manager_collection -c "select board_id, from_day, to_day, count(*), count(completed_at) from board_search_state group by 1,2,3"
 ```
 
-Report what §7 predicts from it: which boards will be searched in order, and that 137's search job (from_day 20240101) will be adopted.
+Report what §7 predicts from it. As read on 2026-10-07: period 2024-01-01 → 2025-01-02 KST; horizon 188 (queue 2), 205 (queue 4); list unfinished 137 (queue 1), 43, 253, 207, 235, 165; `board_search_state` 137 / 20240101–20250101 / 300 queries, 256 complete. If 137's list reaches the horizon (expected: 1,000 pages from today do not reach 2024), 137 is searched first and its job adopted with its 256 kept, keeping `to_day 20250101`; if 137's list instead completes, 188's `replaceJob` discards 137's job. Say which the data supports.
 
 - [ ] **Step 4: Hand-off note** — in the final report, list for the operator: quit the app; `COLLECTION_MIGRATION_DATABASE_URL=postgresql://lp2k@127.0.0.1:5432/whisky_manager_collection pnpm db:collection:migrate`; install the new package; the pipeline then resumes at ① for the 2024 period. No `PROTOCOL_VERSION` change, so the extension needs no reload.
