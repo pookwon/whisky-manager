@@ -42,7 +42,6 @@ export function BoardSearchStep({ view, state }: BoardSearchStepProps): React.JS
       what={TEXT.collection.steps.search.what}
       badge={state.badge}
       reason={state.reason}
-      fold={state.badge === 'notNeeded' ? { summary: TEXT.collection.useAnyway, initiallyOpen: false } : undefined}
     >
       {job !== null && (
         <div className="flex flex-col gap-0.5">

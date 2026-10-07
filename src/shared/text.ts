@@ -255,8 +255,6 @@ export const TEXT = {
     newPeriod: '새 기간 수집',
     /** Under a button that waits for another walk: the lock is shared, so only one walks at a time. */
     otherRunning: '다른 수집이 도는 중입니다. 끝나면 누를 수 있습니다.',
-    /** The fold over a step that is not needed, for an operator who wants it anyway. */
-    useAnyway: '그래도 직접 쓰기',
     /** The panel at the top: the one thing to do now, read off the pipeline stage the screen already has. */
     next: {
       heading: '다음 할 일',

@@ -34,9 +34,7 @@ export function ArticleProbeStep({ view, state }: ArticleProbeStepProps): React.
 
   const fold: StepFold | undefined = finished
     ? { summary: TEXT.collection.steps.probe.folded(job.stored), initiallyOpen: false }
-    : state.badge === 'notNeeded'
-      ? { summary: TEXT.collection.useAnyway, initiallyOpen: false }
-      : undefined
+    : undefined
 
   return (
     <CollectionStep
