@@ -42,7 +42,7 @@
 1번에 끝나지도 한계에 닿지도 않은 게시판이 있다 → list
 한계에 닿았고 search_finished_at이 비어 있는 게시판이 있다
                                           → search(그중 queue_order가 가장 앞선 게시판)
-1번 기간의 3번 작업이 없거나 덜 끝났다        → probe
+1번 기간에 probe_finished_at이 비어 있다        → probe
 그 밖                                     → done
 ```
 
@@ -66,15 +66,16 @@ search 단계에서 게시판 B에 대해:
 
 1. 지금 검색 작업이 B이고 `fromDay`가 같으면 **이어받는다**. 진행 기록을 그대로 둔다.
 2. 아니면 지금처럼 `replaceJob`으로 B의 작업을 새로 만든다.
-3. 어느 쪽이든 `extendJob`(§4.2)으로 확장 낱말을 붙인다.
+3. B의 `search_extended_at`이 비어 있으면 `extendJob`(§4.2)으로 확장 낱말을 붙이고 적는다. 새로 만든 작업은 사전에 이미 확장분이 들어 있으므로 적기만 한다.
 4. 모든 검색어가 끝났으면 `feed_state.search_finished_at`을 적고 다음 게시판으로 간다.
 5. `planBoardSearchJob`이 `NOTHING_BEFORE`/`NO_QUERIES`/`NO_POSTS`로 거절하면 보충할 것이 없다는 뜻이다. `search_finished_at`을 적고 이유를 진단 로그에 남긴다.
 
 ### 3.4 3번 작업을 맞춘다 (`ensureProbeJob`)
 
 - 1번 기간과 같은 창의 3번 작업이 있으면 이어서 읽는다.
-- 없으면 만든다. 다른 창의 작업이 덜 끝나 있으면 만들지 않고 그 작업을 먼저 끝낸다(지금 실제로 생기지 않는 경우).
-- 만들 때 이미 `article_probe`에 있는 번호는 건너뛴다(`on conflict (post_id) do nothing`). 넣은 번호가 0개이면 3번은 끝난 것이다.
+- 없으면 만든다. 다른 창의 번호가 아직 기다리고 있으면 만들지 않는다(지금 실제로 생기지 않는 경우, 진단 로그에 남기고 블록을 끝낸다).
+- 만들 때 이미 `article_probe`에 있는 번호는 건너뛴다(`on conflict (post_id) do nothing`).
+- 넣은 번호가 0개이거나 모든 번호에 답이 나왔으면 1번 기간의 모든 줄에 `probe_finished_at`을 적는다. 그것으로 done이 된다.
 
 ### 3.5 같은 블록에서 이어 돈다
 
@@ -113,8 +114,9 @@ interface CollectionBlockEnd {
 
 ### 4.2 이미 있는 작업에 붙이기 (`extendJob`)
 
-- 지금 사전을 다시 계산해 `board_search_state`에 없는 낱말만 `queue_order = max + 1`부터 넣는다. 창(`from_day/to_day`)은 그 작업의 것을 쓴다.
-- 있는 줄의 진행 기록은 건드리지 않는다. 몇 번을 불러도 결과가 같다.
+- 그 작업의 검색어 전부를 `picked`로 보고 §4.1의 확장만 계산해, `board_search_state`에 없는 낱말을 `queue_order = max + 1`부터 넣는다. 창(`from_day/to_day`)은 그 작업의 것을 쓴다.
+- 있는 줄의 진행 기록은 건드리지 않는다. 같은 낱말은 다시 넣지 않는다.
+- 작업 하나에 **한 번만** 붙인다(`feed_state.search_extended_at`). 매 블록 다시 계산하면 새로 모인 제목 때문에 낱말이 끝없이 늘 수 있다.
 - `board_search` 실행이 도는 동안에는 붙이지 않는다(`replaceJob`과 같은 규칙).
 - 확장분이 붙으면 끝났던 작업도 다시 덜 끝난 작업이 된다. 3번은 확장분까지 끝난 뒤에 간다.
 
@@ -122,12 +124,12 @@ interface CollectionBlockEnd {
 
 마이그레이션 `0010` (drizzle-collection):
 
-- `feed_state.search_finished_at timestamp(3) with time zone null`. 1번 기간을 바꾸면(`replaceJob`) 새 줄이므로 함께 비워진다.
+- `feed_state.search_extended_at`, `feed_state.search_finished_at`, `feed_state.probe_finished_at` — 모두 `timestamp(3) with time zone null`. 1번 기간을 바꾸면(`replaceJob`) 새 줄이므로 함께 비워진다. `probe_finished_at`은 기간 전체의 사실이므로 그 기간의 모든 줄에 함께 적는다(`forced_at`과 같은 방식).
 
 `article_probe`는 구조가 그대로다. 저장소만 바뀐다.
 
-- `readJob(window)`: 창 하나의 집계. 화면용으로 `readLatestJob()`(가장 최근에 만든 창)을 둔다.
-- `createJob`: "아무 줄이나 있으면 던진다"를 "덜 끝난 다른 창이 있으면 던진다"로 바꾸고, 이미 있는 번호는 건너뛴다.
+- `readJob(window)`: 창 하나의 집계. 화면은 1번 기간의 창을 묻는다.
+- `createJob`: "아무 줄이나 있으면 던진다"를 "기다리는 번호가 하나라도 있으면 던진다"로 바꾸고, 이미 있는 번호는 건너뛴다.
 - `nextWaitingId(window)`: 그 창의 기다리는 번호만.
 
 운영 DB에는 마이그레이션을 사람이 직접 건다(앱을 끄고 `pnpm db:collection:migrate`).
