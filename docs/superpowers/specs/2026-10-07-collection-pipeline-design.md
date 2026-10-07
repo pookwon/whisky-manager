@@ -67,7 +67,7 @@ search 단계에서 게시판 B에 대해:
 1. 지금 검색 작업이 B이고 `fromDay`가 같으면 **이어받는다**. 진행 기록을 그대로 둔다.
 2. 아니면 지금처럼 `replaceJob`으로 B의 작업을 새로 만든다.
 3. B의 `search_extended_at`이 비어 있으면 `extendJob`(§4.2)으로 확장 낱말을 붙이고 적는다. 새로 만든 작업은 사전에 이미 확장분이 들어 있으므로 적기만 한다.
-4. 모든 검색어가 끝났으면 `feed_state.search_finished_at`을 적고 다음 게시판으로 간다.
+4. 모든 검색어가 끝났으면 `feed_state.search_finished_at`을 적고 다음 게시판으로 간다. 끝나지 않은 검색어라도 그 작업 창의 마지막 실행이 제 결과 탓의 실패(`QUERY_OWN_FAILURES`: 다른 게시판 글, 창 밖 글, 겹친 글)로 끝났으면 끝난 것으로 친다. 검색이 늘 같은 답을 주는 검색어는 몇 번을 다시 돌아도 끝나지 않아 다음 게시판과 3번을 영영 막기 때문이다. 그 검색어가 놓친 글은 3번이 번호 구멍을 모두 읽으며 거둔다. 그렇게 끝낸 검색어 수는 진단 로그에 남긴다.
 5. `planBoardSearchJob`이 `NOTHING_BEFORE`/`NO_QUERIES`/`NO_POSTS`로 거절하면 보충할 것이 없다는 뜻이다. `search_finished_at`을 적고 이유를 진단 로그에 남긴다.
 
 ### 3.4 3번 작업을 맞춘다 (`ensureProbeJob`)

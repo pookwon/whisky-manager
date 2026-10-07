@@ -61,6 +61,10 @@ export interface BoardSearchRunner {
  */
 const QUERY_OWN_FAILURES: ReadonlySet<string> = new Set(['BOARD_SEARCH_WRONG_BOARD', 'BOARD_SEARCH_OUT_OF_WINDOW', 'BOARD_PAGE_DUPLICATE_POST'])
 
+export function isQueryOwnFailure(code: string): boolean {
+  return QUERY_OWN_FAILURES.has(code)
+}
+
 type QueryOutcome = {
   readonly requests: number
   readonly endsBlock: boolean
@@ -225,7 +229,7 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
       }
       const failure = failedRunStopReason(error)
       await close('failed', failure.stopReason)
-      return { requests, endsBlock: !QUERY_OWN_FAILURES.has(failure.code), failed: true }
+      return { requests, endsBlock: !isQueryOwnFailure(failure.code), failed: true }
     }
   }
 

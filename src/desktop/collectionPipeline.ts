@@ -1,10 +1,11 @@
 import { extendBoardSearchQueries } from '../shared/boardSearchDictionary.js'
 import type { ArticleProbeRepository } from './collection-db/articleProbeRepository.js'
-import type { BoardSearchRepository } from './collection-db/boardSearchRepository.js'
+import type { BoardSearchLastRun, BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
+import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { CollectionRepository } from './collection-db/repository.js'
 import type { ArticleProbeRunner } from './articleProbeRunner.js'
 import { planBoardSearchJob } from './boardSearchPlan.js'
-import type { BoardSearchRunner } from './boardSearchRunner.js'
+import { isQueryOwnFailure, type BoardSearchRunner } from './boardSearchRunner.js'
 import type { CollectionBlockEnd } from './collectionBlockEnd.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import {
@@ -14,10 +15,12 @@ import {
 } from './collectionPipelineStage.js'
 import type { CollectionRunKind, CollectionRunner, CollectionStartResult } from './collectionRunner.js'
 import { describeJob, type JobDescription } from './collectionScope.js'
+import { stopReasonCode } from './failedRunStopReason.js'
 
 export interface CollectionPipelineStores {
   readonly collection: CollectionRepository
   readonly boardSearch: BoardSearchRepository
+  readonly boardSearchLastRuns: BoardSearchLastRunQuery
   readonly articleProbe: ArticleProbeRepository
 }
 
@@ -61,6 +64,15 @@ type PreparedStage =
   | { readonly stage: Extract<CollectionPipelineStage, { kind: 'idle' }>; readonly job: null }
   | { readonly stage: CollectionPipelineStage; readonly job: JobDescription }
 
+/**
+ * A query whose newest run failed on its own results: the search answers it
+ * the same way every time, so walking it again would hold the board forever.
+ * The probe reads every id hole of the period, so the posts it missed are
+ * still reached there.
+ */
+const failedOnItsOwnResults = (lastRun: BoardSearchLastRun | undefined): boolean =>
+  lastRun?.status === 'failed' && lastRun.stopReason !== null && isQueryOwnFailure(stopReasonCode(lastRun.stopReason))
+
 /** What the chain compares to tell a stage that went round without reading. */
 const stageKey = (stage: CollectionPipelineStage): string => (stage.kind === 'search' ? `search:${stage.boardId}` : stage.kind)
 
@@ -103,10 +115,19 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
       added = await boardSearch.extendJob({ queries: extendBoardSearchQueries(titles, queries.map((entry) => entry.query)), at: now })
       await collection.markSearchExtended(stage.boardId, now)
     }
-    if (added === 0 && queries.every((entry) => entry.complete)) {
-      await collection.markSearchFinished(stage.boardId, now)
-      return false
-    }
+    if (added > 0 || !(await isSearchSettled(stores, stage, queries))) return true
+    await collection.markSearchFinished(stage.boardId, now)
+    return false
+  }
+
+  /** Whether every query is complete or keeps failing on its own results; the latter are logged. */
+  async function isSearchSettled(stores: CollectionPipelineStores, stage: SearchStage, queries: readonly BoardSearchQueryState[]): Promise<boolean> {
+    const unfinished = queries.filter((entry) => !entry.complete)
+    const first = unfinished[0]
+    if (first === undefined) return true
+    const lastRuns = await stores.boardSearchLastRuns.read({ boardId: first.boardId, fromDay: first.fromDay, toDay: first.toDay })
+    if (!unfinished.every((entry) => failedOnItsOwnResults(lastRuns.get(entry.query)))) return false
+    deps.onSkipped?.(`search ${stage.boardId}: ${unfinished.length} queries left failing on their own results`)
     return true
   }
 

@@ -622,7 +622,12 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
   // each board it could not finish, then the period's id holes.
   const collectionPipeline = createCollectionPipeline({
     stores: () => (collection.kind === 'ready'
-      ? { collection: collection.repository, boardSearch: collection.boardSearchRepository, articleProbe: collection.articleProbeRepository }
+      ? {
+        collection: collection.repository,
+        boardSearch: collection.boardSearchRepository,
+        boardSearchLastRuns: collection.boardSearchLastRuns,
+        articleProbe: collection.articleProbeRepository,
+      }
       : null),
     listRunner: collectionRunner,
     searchRunner: boardSearchRunner,

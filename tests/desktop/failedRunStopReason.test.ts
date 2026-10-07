@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CollectionPageError } from '../../src/desktop/collectionOrchestrator.js'
-import { failedRunStopReason } from '../../src/desktop/failedRunStopReason.js'
+import { failedRunStopReason, stopReasonCode } from '../../src/desktop/failedRunStopReason.js'
 
 describe('failedRunStopReason', () => {
   it('keeps a bare page error bare', () => {
@@ -13,5 +13,12 @@ describe('failedRunStopReason', () => {
 
   it('names an unclassified failure', () => {
     expect(failedRunStopReason(new Error('connection refused'))).toEqual({ code: 'COLLECTION_FAILURE', stopReason: 'COLLECTION_FAILURE: Error: connection refused' })
+  })
+
+  it('reads the bare code back off any stop reason it wrote', () => {
+    for (const error of [new CollectionPageError('BOARD_SEARCH_HTTP_ERROR'), new CollectionPageError('BOARD_SEARCH_WRONG_BOARD', '9 on 188: again'), new Error('a: b')]) {
+      const written = failedRunStopReason(error)
+      expect(stopReasonCode(written.stopReason)).toBe(written.code)
+    }
   })
 })

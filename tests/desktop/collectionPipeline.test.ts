@@ -7,6 +7,7 @@ import type { ArticleProbeJob, ArticleProbeRepository } from '../../src/desktop/
 import type { CollectionRunner } from '../../src/desktop/collectionRunner.js'
 import type { BoardSearchRunner } from '../../src/desktop/boardSearchRunner.js'
 import type { ArticleProbeRunner } from '../../src/desktop/articleProbeRunner.js'
+import type { BoardSearchLastRun, BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 
 const START = Date.UTC(2023, 11, 31, 15)
 const END = Date.UTC(2025, 0, 1, 15)
@@ -25,7 +26,7 @@ function query(boardId: string, q: string, order: number, complete = false, from
   return { boardId, query: q, fromDay, toDay: '20240301', segmentToDay: null, queueOrder: order, expectedGain: 5, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null }
 }
 
-function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQueryState[]; probe?: ArticleProbeJob | null; made?: number; titles?: string[]; failRead?: boolean; failStart?: 'list' | 'search' | 'probe' }) {
+function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQueryState[]; probe?: ArticleProbeJob | null; made?: number; titles?: string[]; lastRuns?: Record<string, BoardSearchLastRun>; failRead?: boolean; failStart?: 'list' | 'search' | 'probe' }) {
   const calls: string[] = []
   let feeds = setup.feeds
   let queries = setup.queries ?? []
@@ -52,6 +53,12 @@ function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQuerySt
     },
     extendJob: async (input: { queries: { query: string }[] }) => { calls.push(`extend ${input.queries.map((q) => q.query).join(',')}`); return input.queries.length },
   } as unknown as BoardSearchRepository
+  const boardSearchLastRuns: BoardSearchLastRunQuery = {
+    read: async (window) => {
+      calls.push(`last runs ${window.boardId} ${window.fromDay}-${window.toDay}`)
+      return new Map(Object.entries(setup.lastRuns ?? {}))
+    },
+  }
   const articleProbe = {
     readJob: async () => probe,
     createJob: async (window: { fromDay: string; toDay: string }) => {
@@ -78,7 +85,7 @@ function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQuerySt
   /** Whether the pipeline still held its chain when each error was reported. */
   const runningWhenTold: boolean[] = []
   const pipeline = createCollectionPipeline({
-    stores: () => ({ collection, boardSearch, articleProbe }) satisfies CollectionPipelineStores,
+    stores: () => ({ collection, boardSearch, boardSearchLastRuns, articleProbe }) satisfies CollectionPipelineStores,
     listRunner: runner('list') as unknown as CollectionRunner,
     searchRunner: runner('search') as unknown as BoardSearchRunner,
     probeRunner: runner('probe') as unknown as ArticleProbeRunner,
@@ -154,6 +161,34 @@ describe('collectionPipeline', () => {
     const h = harness({ feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })], queries: [query('137', '홈플', 1, true)] })
     await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
     expect(h.calls).toEqual(['searched 137', 'create 20240101-20250102', 'probe 50 20240101-20250102'])
+  })
+
+  it('marks a search finished whose every unfinished query last failed on its own results', async () => {
+    const h = harness({
+      feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })],
+      queries: [query('137', '홈플', 1, true), query('137', '구매', 2)],
+      lastRuns: { 구매: { status: 'failed', stopReason: 'BOARD_SEARCH_OUT_OF_WINDOW: 20231231' } },
+    })
+    await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
+    expect(h.calls).toEqual([
+      'last runs 137 20240101-20240301',
+      'skipped search 137: 1 queries left failing on their own results',
+      'searched 137',
+      'create 20240101-20250102',
+      'probe 50 20240101-20250102',
+    ])
+  })
+
+  it('keeps searching while an unfinished query last failed the way every query would, or has not run', async () => {
+    for (const lastRuns of [{ 구매: { status: 'failed' as const, stopReason: 'BOARD_SEARCH_HTTP_ERROR: 500' } }, {}]) {
+      const h = harness({
+        feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })],
+        queries: [query('137', '홈플', 1, true), query('137', '구매', 2)],
+        lastRuns,
+      })
+      await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
+      expect(h.calls).toEqual(['last runs 137 20240101-20240301', 'search 50'])
+    }
   })
 
   it('is done when the period has no hole left, and refuses to start', async () => {
