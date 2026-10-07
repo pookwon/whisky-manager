@@ -138,8 +138,9 @@ describe('parseCafeArticleList on a board\'s own list', () => {
   })
 
   it('reads the empty page past a board\'s last page, whose page info is all zero, as an empty page', () => {
-    // Board 207 failed on the page past its end: the same answer the board
-    // search gives past its last page (captured 2026-09-25, 137 "구매" page 81).
+    // The answer the board search gives past its last page (captured
+    // 2026-09-25, 137 "구매" page 81). Likely what failed board 207 past its
+    // end too — to be confirmed by the stop reason of its next run.
     const page = parseCafeArticleList({ result: { articleList: [], pageInfo: { lastNavigationPageNumber: 0, visibleNextButton: false } } })
     expect(page.items).toEqual([])
     expect(page.pageInfo).toEqual({ lastNavigationPageNumber: 0, visibleNextButton: false, totalArticleCount: null })

@@ -217,10 +217,11 @@ export function cafeArticlePageIdentity(postIds: readonly string[]): string {
 
 /**
  * The page past the end of a list can answer all-zero page info: the board
- * search past its result cap (captured 2026-09-25: page 81 of 137 "구매" after
- * 80 full pages), and board 207's own list past its last page. An empty page
- * ends a list whatever its page info says, so zero is read there; a page with
- * posts that claims no pages is still malformed.
+ * search past its result cap does (captured 2026-09-25: page 81 of 137 "구매"
+ * after 80 full pages), and it is the likely reason board 207's own list
+ * failed past its last page — to be confirmed by the stop reason of its next
+ * run. An empty page ends a list whatever its page info says, so zero is read
+ * there; a page with posts that claims no pages is still malformed.
  */
 function lastPageMinimumFor(articleCount: number): number {
   return articleCount === 0 ? 0 : 1
