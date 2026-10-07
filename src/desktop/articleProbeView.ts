@@ -24,7 +24,10 @@ export async function readArticleProbeView(inputs: {
   readonly progress: ArticleProbeProgress | null
   readonly blockFailure: ArticleProbeBlockFailure | null
 }): Promise<ArticleProbeView> {
-  const [job, lastRun] = await Promise.all([inputs.repository.readJob(), inputs.repository.readLastRun()])
-  const window = job === null ? articleProbeWindow(await inputs.search.listQueries()) : null
-  return { running: inputs.running, progress: inputs.progress, blockFailure: inputs.blockFailure, lastRun, job, window }
+  const window = articleProbeWindow(await inputs.search.listQueries())
+  const [job, lastRun] = await Promise.all([
+    window.kind === 'ready' ? inputs.repository.readJob(window) : Promise.resolve(null),
+    inputs.repository.readLastRun(),
+  ])
+  return { running: inputs.running, progress: inputs.progress, blockFailure: inputs.blockFailure, lastRun, job, window: job === null ? window : null }
 }

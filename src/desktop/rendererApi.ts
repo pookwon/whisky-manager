@@ -482,10 +482,11 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       const collection = deps.collection()
       if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
       if (deps.articleProbeRunner.isRunning()) return { kind: 'refused', reason: 'STOP_RUNNING_FIRST' }
-      if ((await collection.articleProbeRepository.readJob()) !== null) return { kind: 'refused', reason: 'JOB_EXISTS' }
       const window = articleProbeWindow(await collection.boardSearchRepository.listQueries())
       if (window.kind !== 'ready') return window
-      const idCount = await collection.articleProbeRepository.createJob({ fromDay: window.fromDay, toDay: window.toDay })
+      const days = { fromDay: window.fromDay, toDay: window.toDay }
+      if ((await collection.articleProbeRepository.readJob(days)) !== null) return { kind: 'refused', reason: 'JOB_EXISTS' }
+      const idCount = await collection.articleProbeRepository.createJob(days)
       if (idCount === 0) return { kind: 'refused', reason: 'NO_GAP' }
       return { kind: 'ready', idCount }
     },
@@ -493,11 +494,14 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
     async startArticleProbe(): Promise<StartCollectionResult> {
       const collection = deps.collection()
       if (collection.kind !== 'ready') return { kind: 'refused', reason: 'NO_STORAGE' }
-      const job = await collection.articleProbeRepository.readJob()
+      const planned = articleProbeWindow(await collection.boardSearchRepository.listQueries())
+      if (planned.kind !== 'ready') return { kind: 'refused', reason: 'NO_JOB' }
+      const window = { fromDay: planned.fromDay, toDay: planned.toDay }
+      const job = await collection.articleProbeRepository.readJob(window)
       if (job === null) return { kind: 'refused', reason: 'NO_JOB' }
       if (job.probed === job.total) return { kind: 'refused', reason: 'JOB_FINISHED' }
       const schedule = readCollectionSchedule(settings)
-      const started = deps.articleProbeRunner.start({ maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)) })
+      const started = deps.articleProbeRunner.start({ maxPages: pagesPerWorkBlock(schedule.workBlockMinutes, readCollectionPacing(settings)), window })
       return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
     },
 

@@ -19,7 +19,7 @@ import type { CollectionJob } from '../../src/desktop/collection-db/statusQuery.
 import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport.js'
 import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
-import type { ArticleProbeJob, ArticleProbeRepository } from '../../src/desktop/collection-db/articleProbeRepository.js'
+import type { ArticleProbeJob, ArticleProbeRepository, ArticleProbeWindowDays } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
@@ -111,7 +111,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
   /** Stands in for the search job write, so a refusal can be shown to leave it alone. */
   const boardSearchReplaceJob = vi.fn()
   /** Stands in for the probe job write, and says how many ids it put in. */
-  const articleProbeCreateJob = vi.fn(async () => 9660)
+  const articleProbeCreateJob = vi.fn(async (_window: ArticleProbeWindowDays) => 9660)
+  /** The windows readJob() was asked about, oldest first. */
+  const articleProbeReadJob = vi.fn(async (_window: ArticleProbeWindowDays) => collection.articleProbeJob ?? null)
   const articleProbeStart = vi.fn(() => ({ kind: 'started' as const }))
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
@@ -255,7 +257,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
             boardSearchCoverage: {} as unknown as BoardSearchCoverageQuery,
             boardSearchLastRuns: {} as unknown as BoardSearchLastRunQuery,
             articleProbeRepository: {
-              readJob: async () => collection.articleProbeJob ?? null,
+              readJob: articleProbeReadJob,
               readLastRun: async () => null,
               createJob: articleProbeCreateJob,
             } as unknown as ArticleProbeRepository,
@@ -367,7 +369,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeStart }
+  return { api, repos, settings, clock, started, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeReadJob, articleProbeStart }
 }
 
 async function seedAwaiting(
@@ -1422,15 +1424,17 @@ describe('getArticleProbeStatus', () => {
   })
 
   it('says which window a job would take while there is none', async () => {
-    const { api } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
+    const { api, articleProbeReadJob } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
     expect(await api.getArticleProbeStatus()).toMatchObject({ kind: 'ready', view: { job: null, window: { kind: 'ready', fromDay: '20250101', toDay: '20250829' } } })
+    expect(articleProbeReadJob).toHaveBeenCalledWith(expect.objectContaining({ fromDay: '20250101', toDay: '20250829' }))
   })
 })
 
 describe('createArticleProbeJob', () => {
   it('makes the job over the finished search job\'s window', async () => {
-    const { api, articleProbeCreateJob } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
+    const { api, articleProbeCreateJob, articleProbeReadJob } = build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] })
     expect(await api.createArticleProbeJob()).toEqual({ kind: 'ready', idCount: 9660 })
+    expect(articleProbeReadJob).toHaveBeenCalledWith({ fromDay: '20250101', toDay: '20250829' })
     expect(articleProbeCreateJob).toHaveBeenCalledWith({ fromDay: '20250101', toDay: '20250829' })
   })
 
@@ -1458,15 +1462,17 @@ describe('createArticleProbeJob', () => {
 })
 
 describe('startArticleProbe', () => {
-  it('starts a block with the work block\'s budget', async () => {
-    const { api, articleProbeStart } = build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(3120) })
+  it('starts a block on the search job\'s window with the work block\'s budget', async () => {
+    const { api, articleProbeStart, articleProbeReadJob } = build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(3120), searchQueries: [finishedSearch] })
     expect(await api.startArticleProbe()).toEqual({ kind: 'started' })
-    expect(articleProbeStart).toHaveBeenCalledWith({ maxPages: expect.any(Number) })
+    expect(articleProbeReadJob).toHaveBeenCalledWith({ fromDay: '20250101', toDay: '20250829' })
+    expect(articleProbeStart).toHaveBeenCalledWith({ maxPages: expect.any(Number), window: { fromDay: '20250101', toDay: '20250829' } })
   })
 
-  it('refuses without a job, and with every id answered', async () => {
-    expect(await build(MON_10_00, {}, { job: null }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
-    expect(await build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(9660) }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
+  it('refuses without a finished search job, without a job, and with every id answered', async () => {
+    expect(await build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(3120) }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(await build(MON_10_00, {}, { job: null, searchQueries: [finishedSearch] }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'NO_JOB' })
+    expect(await build(MON_10_00, {}, { job: null, articleProbeJob: probeJob(9660), searchQueries: [finishedSearch] }).api.startArticleProbe()).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
   })
 })
 

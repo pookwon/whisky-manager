@@ -641,6 +641,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       }),
       createArticleProbeJob({
         repository: () => (collection.kind === 'ready' ? collection.articleProbeRepository : null),
+        search: () => (collection.kind === 'ready' ? collection.boardSearchRepository : null),
         runner: articleProbeRunner,
       }),
     ],

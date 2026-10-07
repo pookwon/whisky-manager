@@ -898,17 +898,18 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     replyCount: null, isNotice: false as const,
   })
 
-  it('makes the probe job once, from the id holes between the window\'s first and last stored post', async () => {
+  it('makes a probe job per window, from the id holes between the window\'s first and last stored post', async () => {
+    const MARCH = { fromDay: '20190301', toDay: '20190401' }
     await seedProbeWindow()
     const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
-    expect(await probe.readJob()).toBeNull()
+    expect(await probe.readJob(MARCH)).toBeNull()
 
     // [2019-03-01, 2019-04-01) KST holds 5000001..5000009: the holes are 2, 4, 5, 6, 7, 8. 5000010 is after the window.
-    expect(await probe.createJob({ fromDay: '20190301', toDay: '20190401' })).toBe(6)
-    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
-    expect(await probe.nextWaitingId()).toBe('5000002')
-    // Answered ids are never read again, so a second job is refused rather than made over them.
-    await expect(probe.createJob({ fromDay: '20190301', toDay: '20190401' })).rejects.toThrow()
+    expect(await probe.createJob(MARCH)).toBe(6)
+    expect(await probe.readJob(MARCH)).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
+    expect(await probe.nextWaitingId(MARCH)).toBe('5000002')
+    // Six ids wait, so no further job may be made until they are answered.
+    await expect(probe.createJob(MARCH)).rejects.toThrow()
     expect(await probe.listCollectedBoardIds()).toContain('probe-1')
     expect(await probe.listCollectedBoardIds()).not.toContain('probe-off')
   })
@@ -921,7 +922,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     await probe.recordPageRequest(runId)
     await probe.recordVerdict({ runId, postId: '5000002', observedAt: at, requested: true, verdict: { outcome: 'stored', boardId: 'probe-1', post: probedPost('5000002') } })
-    expect(await probe.nextWaitingId()).toBe('5000004')
+    expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBe('5000004')
 
     // Another walk stored 5000004 meanwhile: it is closed as stored without a request.
     await pool.query(`insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('5000004', 'probe-1', $1, $1, $1)`, [new Date('2019-03-11T00:00:00+09:00')])
@@ -938,11 +939,11 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       await probe.recordPageRequest(runId)
       await probe.recordVerdict({ runId, postId, observedAt: at, requested: true, verdict })
     }
-    expect(await probe.nextWaitingId()).toBeNull()
+    expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBeNull()
     await expect(probe.recordVerdict({ runId, postId: '5000005', observedAt: at, requested: true, verdict: { outcome: 'deleted' } })).rejects.toThrow('not waiting')
     await probe.finishRun(runId, 'succeeded', null, at)
 
-    expect(await probe.readJob()).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 6, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1, notice: 1 })
+    expect(await probe.readJob({ fromDay: '20190301', toDay: '20190401' })).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 6, stored: 2, deleted: 1, unreadable: 1, otherBoard: 1, notice: 1 })
     const rows = await pool.query<{ post_id: string; outcome: string; board_id: string | null; error_code: string | null; run_id: string }>(
       'select post_id::text, outcome, board_id, error_code, run_id from article_probe order by post_id',
     )
@@ -965,6 +966,26 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       feed_kind: 'article_probe', menu_id: '0', status: 'succeeded', request_pages: 5, collection_pages: 5, inserted_post_count: 1, observed_post_count: 1,
       last_committed_post_id: '5000008', target_start_ms: String(Date.UTC(2019, 1, 28, 15)), target_end_ms: String(Date.UTC(2019, 2, 31, 15)),
     })
+  })
+
+  it('makes a later window\'s job once every id waits no more, skipping ids an earlier window answered', async () => {
+    const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
+    // March 2019's six ids are all answered above. A window that also spans
+    // March finds the same holes there and must leave them as answered.
+    const SPRING = { fromDay: '20190301', toDay: '20190501' }
+    await pool.query(
+      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('5000013', 'probe-1', $1, $2, $2)`,
+      [new Date('2019-04-10T12:00:00+09:00'), new Date('2026-10-07T00:00:00.000Z')],
+    )
+    // Stored now: 5000001..5000004 (5000002 by its verdict, 5000004 by the
+    // other walk), 5000009, 5000010, 5000013. Holes: 5..8, answered above, and
+    // 11, 12, which are new.
+    expect(await probe.createJob(SPRING)).toBe(2)
+    expect(await probe.readJob(SPRING)).toMatchObject({ total: 2, probed: 0 })
+    expect(await probe.nextWaitingId(SPRING)).toBe('5000011')
+    expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBeNull()
+    // Two ids wait, so no further job may be made.
+    await expect(probe.createJob({ fromDay: '20190101', toDay: '20190501' })).rejects.toThrow()
   })
 
   it('keeps probe runs off the article collection status, and sweeps only its own orphans', async () => {
