@@ -35,7 +35,7 @@ export function titleWords(title: string): readonly string[] {
 
 interface Candidate {
   readonly word: string
-  /** Titles with a word starting with this one, as indexes into the title list. */
+  /** Titles a search for this word would bring, as indexes into the title list. */
   readonly caught: readonly number[]
   /** Titles that use this word itself, for breaking ties. */
   readonly uses: number
@@ -73,13 +73,12 @@ function candidatesOf(words: readonly (readonly string[])[], candidateLimit: num
   return kept.map(([word, count]) => ({ word, caught: caught.get(word) ?? [], uses: count }))
 }
 
-export function buildBoardSearchDictionary(
-  titles: readonly string[],
-  options: { readonly limit?: number; readonly minGain?: number; readonly candidateLimit?: number } = {},
-): readonly BoardSearchQuery[] {
-  const limit = options.limit ?? BOARD_SEARCH_QUERY_LIMIT
-  const minGain = options.minGain ?? BOARD_SEARCH_MIN_GAIN
-  const candidates = candidatesOf(titles.map(titleWords), options.candidateLimit ?? BOARD_SEARCH_CANDIDATE_LIMIT)
+/**
+ * The greedy cover: each pick is the candidate catching the most titles no
+ * earlier pick caught; a tie goes to the word more titles use, then to the
+ * lower code units. It stops at `limit` picks or below `minGain`.
+ */
+function pickGreedily(candidates: readonly Candidate[], limit: number, minGain: number): readonly BoardSearchQuery[] {
   const covered = new Set<number>()
   const picked: BoardSearchQuery[] = []
   const used = new Set<string>()
@@ -107,6 +106,14 @@ export function buildBoardSearchDictionary(
   return picked
 }
 
+export function buildBoardSearchDictionary(
+  titles: readonly string[],
+  options: { readonly limit?: number; readonly minGain?: number; readonly candidateLimit?: number } = {},
+): readonly BoardSearchQuery[] {
+  const candidates = candidatesOf(titles.map(titleWords), options.candidateLimit ?? BOARD_SEARCH_CANDIDATE_LIMIT)
+  return pickGreedily(candidates, options.limit ?? BOARD_SEARCH_QUERY_LIMIT, options.minGain ?? BOARD_SEARCH_MIN_GAIN)
+}
+
 /** Whether `word` is longer than, and starts with, one of the asked queries. */
 function extendsAsked(word: string, asked: ReadonlySet<string>): boolean {
   for (let length = MIN_WORD_LENGTH; length < word.length; length += 1) {
@@ -121,15 +128,13 @@ function extendsAsked(word: string, asked: ReadonlySet<string>): boolean {
  * The search matches whole words, so '홈플' leaves '월드컵 홈플러스' behind. A
  * title an asked query matches as a whole word is already found; each pick is
  * the extending word written in the most titles that no asked query and no
- * earlier pick finds. Ties go as in `buildBoardSearchDictionary`.
+ * earlier pick finds, by the same greedy cover as `buildBoardSearchDictionary`.
  */
 export function extendBoardSearchQueries(
   titles: readonly string[],
   queries: readonly string[],
   options: { readonly limit?: number; readonly minGain?: number } = {},
 ): readonly BoardSearchQuery[] {
-  const limit = options.limit ?? BOARD_SEARCH_EXTENSION_LIMIT
-  const minGain = options.minGain ?? BOARD_SEARCH_MIN_GAIN
   const asked = new Set(queries)
   const caught = new Map<string, number[]>()
   const uses = new Map<string, number>()
@@ -145,27 +150,6 @@ export function extendBoardSearchQueries(
       caught.set(word, list)
     }
   })
-  const covered = new Set<number>()
-  const picked: BoardSearchQuery[] = []
-  while (picked.length < limit) {
-    let best: string | null = null
-    let bestGain = 0
-    for (const [word, list] of caught) {
-      const gain = list.reduce((count, index) => (covered.has(index) ? count : count + 1), 0)
-      const better =
-        gain > bestGain ||
-        (gain === bestGain &&
-          best !== null &&
-          ((uses.get(word) ?? 0) > (uses.get(best) ?? 0) || ((uses.get(word) ?? 0) === (uses.get(best) ?? 0) && compareCodeUnits(word, best) < 0)))
-      if (better) {
-        best = word
-        bestGain = gain
-      }
-    }
-    if (best === null || bestGain < minGain) break
-    for (const index of caught.get(best) ?? []) covered.add(index)
-    caught.delete(best)
-    picked.push({ query: best, expectedGain: bestGain })
-  }
-  return picked
+  const candidates = [...caught].map(([word, list]): Candidate => ({ word, caught: list, uses: uses.get(word) ?? 0 }))
+  return pickGreedily(candidates, options.limit ?? BOARD_SEARCH_EXTENSION_LIMIT, options.minGain ?? BOARD_SEARCH_MIN_GAIN)
 }
