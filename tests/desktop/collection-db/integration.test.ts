@@ -908,8 +908,9 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(await probe.createJob(MARCH)).toBe(6)
     expect(await probe.readJob(MARCH)).toEqual({ fromDay: '20190301', toDay: '20190401', total: 6, probed: 0, stored: 0, deleted: 0, unreadable: 0, otherBoard: 0, notice: 0 })
     expect(await probe.nextWaitingId(MARCH)).toBe('5000002')
-    // Six ids wait, so no further job may be made until they are answered.
-    await expect(probe.createJob(MARCH)).rejects.toThrow()
+    // Asked again, the window finds every hole already in the job and adds none.
+    expect(await probe.createJob(MARCH)).toBe(0)
+    expect(await probe.readJob(MARCH)).toMatchObject({ total: 6, probed: 0 })
     expect(await probe.listCollectedBoardIds()).toContain('probe-1')
     expect(await probe.listCollectedBoardIds()).not.toContain('probe-off')
   })
@@ -968,7 +969,7 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     })
   })
 
-  it('makes a later window\'s job once every id waits no more, skipping ids an earlier window answered', async () => {
+  it('makes a later window\'s job beside an earlier window\'s waiting ids, skipping ids another window holds', async () => {
     const probe = createArticleProbeRepository(connection.db, createCollectionRepository(connection.db))
     // March 2019's six ids are all answered above. A window that also spans
     // March finds the same holes there and must leave them as answered.
@@ -984,8 +985,22 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(await probe.readJob(SPRING)).toMatchObject({ total: 2, probed: 0 })
     expect(await probe.nextWaitingId(SPRING)).toBe('5000011')
     expect(await probe.nextWaitingId({ fromDay: '20190301', toDay: '20190401' })).toBeNull()
-    // Two ids wait, so no further job may be made.
-    await expect(probe.createJob({ fromDay: '20190101', toDay: '20190501' })).rejects.toThrow()
+
+    // 11 and 12 still wait in SPRING when a wider window is asked for: they
+    // stay in SPRING, and the new window takes only the holes no window holds.
+    const WINTER_TO_SPRING = { fromDay: '20190101', toDay: '20190501' }
+    await pool.query(
+      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at) values ('4999998', 'probe-1', $1, $2, $2)`,
+      [new Date('2019-02-20T12:00:00+09:00'), new Date('2026-10-08T00:00:00.000Z')],
+    )
+    // Stored from 4999998 to 5000013. Holes: 4999999 and 5000000, which are
+    // new; 5..8, answered in March; 11 and 12, waiting in SPRING.
+    expect(await probe.createJob(WINTER_TO_SPRING)).toBe(2)
+    expect(await probe.readJob(WINTER_TO_SPRING)).toMatchObject({ total: 2, probed: 0 })
+    expect(await probe.nextWaitingId(WINTER_TO_SPRING)).toBe('4999999')
+    expect(await probe.readJob(SPRING)).toMatchObject({ total: 2, probed: 0 })
+    expect(await probe.nextWaitingId(SPRING)).toBe('5000011')
+    expect(await probe.readJob({ fromDay: '20190301', toDay: '20190401' })).toMatchObject({ total: 6, probed: 6, stored: 2 })
   })
 
   it('keeps probe runs off the article collection status, and sweeps only its own orphans', async () => {

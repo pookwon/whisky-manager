@@ -114,7 +114,6 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
   async function ensureProbeJob(stores: CollectionPipelineStores, period: CollectionPeriodDays): Promise<boolean> {
     const { articleProbe, collection } = stores
     const job = await articleProbe.readJob(period)
-    // `createJob` throws while another window's ids wait; its text says so.
     const finished = job === null ? (await articleProbe.createJob(period)) === 0 : job.probed === job.total
     if (finished) await collection.markProbeFinished(at())
     return !finished

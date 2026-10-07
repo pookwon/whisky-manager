@@ -57,8 +57,8 @@ export interface ArticleProbeRepository {
   readJob(window: ArticleProbeWindowDays): Promise<ArticleProbeJob | null>
   /**
    * Puts every id missing between the first and last post stored in the window
-   * into the job, and says how many. Refused while any id of any window waits;
-   * ids an earlier window answered are left as they are.
+   * into the job, and says how many. An id another window already holds, be it
+   * answered or waiting, is left in that window as it is.
    */
   createJob(window: ArticleProbeWindowDays): Promise<number>
   /** The boards whose live posts are stored; the rest are recorded as another board's. */
@@ -124,30 +124,26 @@ export function createArticleProbeRepository(db: CollectionDatabase, collection:
     async createJob(window) {
       const startAt = new Date(kstDayKeyRange(window.fromDay).startMs)
       const endAt = new Date(kstDayKeyRange(window.toDay).startMs)
-      return await db.transaction(async (tx) => {
-        const waiting = await tx.select({ postId: articleProbe.postId }).from(articleProbe).where(isNull(articleProbe.outcome)).limit(1)
-        if (waiting.length > 0) throw new Error('an article probe job still has ids waiting; finish it before making another')
-        // Each stored post and the next one up bound a hole; the holes of the
-        // stretch between the window's first and last stored post are the job.
-        // Walking the stored ids once with lead() takes a fraction of a second
-        // where asking about every id of the span one by one took minutes. An
-        // id an earlier window answered keeps its answer and stays in that
-        // window: it is never read again.
-        const inserted = await tx.execute(sql`
-          insert into ${articleProbe} (post_id, window_from_day, window_to_day)
-          select missing.id, ${window.fromDay}, ${window.toDay}
-          from (
-            select ${posts.postId}::bigint as id, lead(${posts.postId}::bigint) over (order by ${posts.postId}::bigint) as next_id
-            from ${posts}
-            where ${posts.postId}::bigint between
-              (select min(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
-              and (select max(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
-          ) as stored
-          cross join lateral generate_series(stored.id + 1, stored.next_id - 1) as missing(id)
-          where stored.next_id > stored.id + 1
-          on conflict (post_id) do nothing`)
-        return inserted.rowCount ?? 0
-      })
+      // Each stored post and the next one up bound a hole; the holes of the
+      // stretch between the window's first and last stored post are the job.
+      // Walking the stored ids once with lead() takes a fraction of a second
+      // where asking about every id of the span one by one took minutes. An id
+      // another window holds stays in that window, answered or waiting: it is
+      // never read twice.
+      const inserted = await db.execute(sql`
+        insert into ${articleProbe} (post_id, window_from_day, window_to_day)
+        select missing.id, ${window.fromDay}, ${window.toDay}
+        from (
+          select ${posts.postId}::bigint as id, lead(${posts.postId}::bigint) over (order by ${posts.postId}::bigint) as next_id
+          from ${posts}
+          where ${posts.postId}::bigint between
+            (select min(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
+            and (select max(${posts.postId}::bigint) from ${posts} where ${posts.postedAt} >= ${startAt} and ${posts.postedAt} < ${endAt})
+        ) as stored
+        cross join lateral generate_series(stored.id + 1, stored.next_id - 1) as missing(id)
+        where stored.next_id > stored.id + 1
+        on conflict (post_id) do nothing`)
+      return inserted.rowCount ?? 0
     },
 
     async listCollectedBoardIds() {
