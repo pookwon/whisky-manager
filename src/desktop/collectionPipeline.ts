@@ -131,6 +131,13 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
     }
   }
 
+  /** Ends the chain before telling, so whoever is told can start again. */
+  function failStep(error: unknown): CollectionStartResult {
+    chainRunning = false
+    deps.onError?.(error)
+    return { kind: 'refused', reason: 'STEP_FAILED' }
+  }
+
   function startRunner(prepared: PreparedStage, request: CollectionPipelineStartRequest, budget: number, onBlockEnd: (end: CollectionBlockEnd) => void): CollectionStartResult {
     const { stage, job } = prepared
     if (stage.kind === 'list' && job !== null) {
@@ -158,9 +165,7 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
     try {
       prepared = await prepare(stores)
     } catch (error) {
-      deps.onError?.(error)
-      chainRunning = false
-      return { kind: 'refused', reason: 'STEP_FAILED' }
+      return failStep(error)
     }
     const { stage } = prepared
     if (stopRequested || (previous !== null && previous.requests === 0 && previous.key === stageKey(stage))) {
@@ -179,12 +184,14 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
           // loop started meanwhile, or the extension gone.
           if (result.kind === 'refused' && result.reason !== 'JOB_FINISHED') deps.onSkipped?.(`after ${stageKey(stage)}: next stage refused ${result.reason}`)
         })
-        .catch((error: unknown) => {
-          deps.onError?.(error)
-          chainRunning = false
-        })
+        .catch(failStep)
     }
-    const started = startRunner(prepared, request, budget, onBlockEnd)
+    let started: CollectionStartResult
+    try {
+      started = startRunner(prepared, request, budget, onBlockEnd)
+    } catch (error) {
+      return failStep(error)
+    }
     if (started.kind !== 'started') chainRunning = false
     return started
   }

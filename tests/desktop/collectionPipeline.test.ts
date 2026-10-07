@@ -25,7 +25,7 @@ function query(boardId: string, q: string, order: number, complete = false, from
   return { boardId, query: q, fromDay, toDay: '20240301', segmentToDay: null, queueOrder: order, expectedGain: 5, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null }
 }
 
-function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQueryState[]; probe?: ArticleProbeJob | null; made?: number; titles?: string[]; failRead?: boolean }) {
+function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQueryState[]; probe?: ArticleProbeJob | null; made?: number; titles?: string[]; failRead?: boolean; failStart?: 'list' | 'search' | 'probe' }) {
   const calls: string[] = []
   let feeds = setup.feeds
   let queries = setup.queries ?? []
@@ -65,6 +65,7 @@ function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQuerySt
   let running = false
   const runner = (name: 'list' | 'search' | 'probe') => ({
     start: (request: { maxPages: number; onBlockEnd?: OnCollectionBlockEnd; window?: { fromDay: string; toDay: string }; feeds?: { menuId: string }[] }) => {
+      if (setup.failStart === name) throw new Error('setting unreadable')
       calls.push(`${name} ${request.maxPages}${request.window ? ` ${request.window.fromDay}-${request.window.toDay}` : ''}${request.feeds ? ` ${request.feeds.map((f) => f.menuId).join(',')}` : ''}`)
       ends[name] = request.onBlockEnd
       running = true
@@ -74,13 +75,18 @@ function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQuerySt
     isRunning: () => running,
   })
   const errors: unknown[] = []
+  /** Whether the pipeline still held its chain when each error was reported. */
+  const runningWhenTold: boolean[] = []
   const pipeline = createCollectionPipeline({
     stores: () => ({ collection, boardSearch, articleProbe }) satisfies CollectionPipelineStores,
     listRunner: runner('list') as unknown as CollectionRunner,
     searchRunner: runner('search') as unknown as BoardSearchRunner,
     probeRunner: runner('probe') as unknown as ArticleProbeRunner,
     clock: { now: () => 0 },
-    onError: (error) => errors.push(error),
+    onError: (error) => {
+      errors.push(error)
+      runningWhenTold.push(pipeline.isRunning())
+    },
     onSkipped: (message) => calls.push(`skipped ${message}`),
   })
   /** Ends the named runner's block as the runner would: lock released, then told. */
@@ -92,7 +98,7 @@ function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQuerySt
     ends[name]?.(blockEnd)
     for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0))
   }
-  return { pipeline, calls, errors, end }
+  return { pipeline, calls, errors, runningWhenTold, end }
 }
 
 describe('collectionPipeline', () => {
@@ -183,7 +189,17 @@ describe('collectionPipeline', () => {
     const broken = harness({ feeds: [], failRead: true })
     expect(await broken.pipeline.start({ maxPages: 1, runKind: 'backfill' })).toEqual({ kind: 'refused', reason: 'STEP_FAILED' })
     expect(broken.errors).toHaveLength(1)
+    expect(broken.runningWhenTold).toEqual([false])
     expect(broken.pipeline.isRunning()).toBe(false)
+  })
+
+  it('frees the chain when a stage\'s runner cannot start', async () => {
+    const h = harness({ feeds: [feed('137', 1)], failStart: 'list' })
+    expect(await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })).toEqual({ kind: 'refused', reason: 'STEP_FAILED' })
+    expect(h.errors).toHaveLength(1)
+    expect(h.runningWhenTold).toEqual([false])
+    expect(h.pipeline.isRunning()).toBe(false)
+    expect(await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })).not.toEqual({ kind: 'refused', reason: 'ALREADY_RUNNING' })
   })
 
   it('reads the stage, and the list\'s around-the-clock flag only while the list walks', async () => {
