@@ -4,11 +4,9 @@ import {
   articleProbeFailureLine,
   articleProbeHeadlineLine,
   articleProbeProgressLine,
-  articleProbeStartLabel,
   articleProbeWindowLine,
 } from '../../src/renderer/views/collection/articleProbeLines.js'
 import type { ArticleProbeJob } from '../../src/desktop/collection-db/articleProbeRepository.js'
-import { TEXT } from '../../src/shared/text.js'
 
 const job = (probed: number, otherBoard = 0, notice = 0): ArticleProbeJob => ({ fromDay: '20250101', toDay: '20250829', total: 9660, probed, stored: 684, deleted: 2391, unreadable: 45, otherBoard, notice })
 // 2026-09-26 17:47 KST.
@@ -24,11 +22,6 @@ describe('article probe wording', () => {
     expect(articleProbeWindowLine({ fromDay: '20250101', toDay: '20250829' })).toBe('2025-01-01 ~ 2025-08-28 사이의 빈 글 번호')
     // Across a month end, on the KST calendar.
     expect(articleProbeWindowLine({ fromDay: '20250101', toDay: '20250301' })).toBe('2025-01-01 ~ 2025-02-28 사이의 빈 글 번호')
-  })
-
-  it('offers to resume once any id is answered', () => {
-    expect(articleProbeStartLabel(job(0))).toBe(TEXT.articleProbe.start)
-    expect(articleProbeStartLabel(job(1))).toBe(TEXT.articleProbe.resume)
   })
 
   it('warns of the block that left no run first, then of a failed last run, and of nothing else', () => {

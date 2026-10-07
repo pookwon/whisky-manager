@@ -10,18 +10,13 @@ export function articleProbeProgressLine(progress: ArticleProbeProgress | null):
 }
 
 /**
- * The gap's days as the operator counts them. `toDay` is the search job's own
- * inclusive end, where the list walk stopped; the ids come from posts before it
- * began, so the gap's last day is the one before.
+ * The gap's days as the operator counts them. `toDay` is the period's
+ * exclusive end (the day after the last); the ids come from posts before it
+ * began, so the gap's last day is the one before — the subtraction stays.
  */
 export function articleProbeWindowLine(window: { readonly fromDay: string; readonly toDay: string }): string {
   const lastDay = kstDayKey(kstDayKeyRange(window.toDay).startMs - MS_PER_DAY)
   return TEXT.articleProbe.window(dayKeyLabel(window.fromDay), dayKeyLabel(lastDay))
-}
-
-/** Resume once any id is answered; until then the job has not started. */
-export function articleProbeStartLabel(job: ArticleProbeJob): string {
-  return job.probed > 0 ? TEXT.articleProbe.resume : TEXT.articleProbe.start
 }
 
 /**

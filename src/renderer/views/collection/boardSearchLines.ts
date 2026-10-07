@@ -31,11 +31,6 @@ export function boardSearchCoverageLine(coverage: BoardSearchCoverage): string |
   return TEXT.boardSearch.coverage(coverage.span, coverage.missing, coverage.baselineMissingRatio, coverage.estimatedRemaining)
 }
 
-/** Resume once any query has a stored page or a narrowed window; until then the job has not started. */
-export function boardSearchStartLabel(job: BoardSearchJobView): string {
-  return job.queries.some((query) => query.lastCommittedPage !== null || query.segmentToDay !== null) ? TEXT.boardSearch.resume : TEXT.boardSearch.start
-}
-
 export type BoardSearchQueryStateKind = 'done' | 'walking' | 'waiting' | 'failed'
 
 /**

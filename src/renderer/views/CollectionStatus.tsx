@@ -15,9 +15,9 @@ import { useApp } from '../store.js'
 /**
  * The collection screen, top to bottom in the order a collection goes: what
  * to do now, then ① the list walk, ② the search backfill past its reach,
- * ③ the article numbers search could not find, ④ the check. This file only
- * puts them in order and carries the next-step panel's presses to the form
- * they open.
+ * ③ the article numbers search could not find, ④ the check. The pipeline
+ * stage drives the next-step panel and the step badges; this file only puts
+ * the steps in order and carries the panel's period-pick press to the form.
  */
 export function CollectionStatus(): React.JSX.Element {
   const collection = useApp((s) => s.collection)
@@ -28,8 +28,6 @@ export function CollectionStatus(): React.JSX.Element {
   const act = useApp((s) => s.act)
   /** Grows with each "기간 고르기" press, which asks ①'s form to open and come into view. */
   const [periodRequest, setPeriodRequest] = useState<number | null>(null)
-  /** Each "보충 준비" press, with the board it is for. */
-  const [searchRequest, setSearchRequest] = useState<{ boardId: string; at: number } | null>(null)
 
   if (collection === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
@@ -52,6 +50,7 @@ export function CollectionStatus(): React.JSX.Element {
     status: collection.status,
     search: boardSearch?.kind === 'ready' ? boardSearch.view : null,
     probe: articleProbe?.kind === 'ready' ? articleProbe.view : null,
+    pipeline: collection.pipeline,
   }
   const running = runningStep(inputs)
   const next = nextStep(inputs, schedule?.nextRunAtMs ?? null)
@@ -66,7 +65,6 @@ export function CollectionStatus(): React.JSX.Element {
         busy={busy}
         act={act}
         onPickPeriod={() => setPeriodRequest((count) => (count ?? 0) + 1)}
-        onPrepareSearch={(boardId) => setSearchRequest({ boardId, at: (searchRequest?.at ?? 0) + 1 })}
       />
       <ListWalkStep
         status={collection.status}
@@ -80,13 +78,10 @@ export function CollectionStatus(): React.JSX.Element {
         <BoardSearchStep
           view={inputs.search}
           state={searchStepState(inputs)}
-          otherRunning={otherThan('search')}
-          busy={busy}
-          act={act}
         />
       )}
       {inputs.probe !== null && (
-        <ArticleProbeStep view={inputs.probe} state={probeStepState(inputs)} otherRunning={otherThan('probe')} busy={busy} act={act} />
+        <ArticleProbeStep view={inputs.probe} state={probeStepState(inputs)} />
       )}
       <CheckStep status={collection.status} />
       <RecentRuns runs={collection.status.recentRuns} />

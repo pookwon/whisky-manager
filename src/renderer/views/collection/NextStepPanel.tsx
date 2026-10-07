@@ -4,36 +4,21 @@ import type { StartCollectionResult } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
 import type { NextStep } from './nextStep.js'
 import { nextStepScheduleLine, nextStepSentence } from './nextStepLines.js'
-import { listStartRefusal, probeStartRefusal, searchStartRefusal } from './startRefusals.js'
-import type { WalkStep } from './stepFacts.js'
-
-/** Each walk's stop, so the panel can stop whichever is running without asking which. */
-const STOP: Record<WalkStep, () => Promise<void>> = {
-  list: () => api.stopCollection(),
-  search: () => api.stopCollection(),
-  probe: () => api.stopCollection(),
-}
-
-const STOP_LABEL: Record<WalkStep, string> = {
-  list: TEXT.collection.stop,
-  search: TEXT.boardSearch.stop,
-  probe: TEXT.articleProbe.stop,
-}
+import { listStartRefusal } from './startRefusals.js'
 
 interface NextStepPanelProps {
   readonly next: NextStep
   readonly busy: boolean
   readonly act: (run: () => Promise<unknown>) => Promise<boolean>
   readonly onPickPeriod: () => void
-  readonly onPrepareSearch: (boardId: string) => void
 }
 
 /**
  * The top of the screen: one sentence saying what to do now, and the one
- * button that does it. Everything it says is read off the steps below; it
- * starts nothing they could not.
+ * button that resumes the pipeline. Everything it says is read off the steps
+ * below; it starts nothing they could not.
  */
-export function NextStepPanel({ next, busy, act, onPickPeriod, onPrepareSearch }: NextStepPanelProps): React.JSX.Element {
+export function NextStepPanel({ next, busy, act, onPickPeriod }: NextStepPanelProps): React.JSX.Element {
   const scheduleLine = nextStepScheduleLine(next)
   /**
    * What the last press here answered, until the next press. The composer keys
@@ -58,20 +43,11 @@ export function NextStepPanel({ next, busy, act, onPickPeriod, onPrepareSearch }
   const action = ((): React.JSX.Element | null => {
     switch (next.kind) {
       case 'running':
-        return button(STOP_LABEL[next.step], () => void act(STOP[next.step]), false)
-      case 'listWaiting':
+        return button(TEXT.collection.stop, () => void act(() => api.stopCollection()), false)
+      case 'resume':
         return button(TEXT.collection.next.resumeList, () => start(() => api.startCollection(), listStartRefusal))
-      case 'searchResume':
-        return button(TEXT.boardSearch.resume, () => start(() => api.startCollection(), searchStartRefusal))
-      case 'probeResume':
-        return button(TEXT.articleProbe.resume, () => start(() => api.startCollection(), probeStartRefusal))
-      case 'searchNeeded':
-        return button(TEXT.collection.next.prepareSearch, () => onPrepareSearch(next.boardId))
-      case 'probeCreate':
-        return null
       case 'pickPeriod':
         return button(TEXT.collection.next.pickPeriodAction, onPickPeriod)
-      case 'probeSpent':
       case 'allDone':
         return null
     }

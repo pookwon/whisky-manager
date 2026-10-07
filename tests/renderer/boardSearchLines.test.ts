@@ -7,24 +7,17 @@ import {
   boardSearchQueryState,
   boardSearchQueryStateText,
   boardSearchRemainingLine,
-  boardSearchStartLabel,
   boardSearchSummaryLine,
   boardSearchTotalLabel,
   dayKeyLabel,
   dayKeyOfDateInput,
 } from '../../src/renderer/views/collection/boardSearchLines.js'
-import type { BoardSearchJobView, BoardSearchQueryView } from '../../src/desktop/boardSearchView.js'
+import type { BoardSearchQueryView } from '../../src/desktop/boardSearchView.js'
 import type { BoardSearchLastRun } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 import { TEXT } from '../../src/shared/text.js'
 
 const query = (q: string, complete: boolean, lastRun: BoardSearchLastRun | null = null): BoardSearchQueryView => ({
   boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
-})
-
-const job = (queries: readonly BoardSearchQueryView[]): BoardSearchJobView => ({
-  boardId: '137', boardName: '국내구입기 & 정보', fromDay: '20250101', toDay: '20250829',
-  queries, completedCount: 0, insertedTotal: 0, current: queries[0]?.query ?? null,
-  coverage: { span: 0, missing: 0, baselineMissingRatio: null, estimatedRemaining: null },
 })
 
 describe('board search wording', () => {
@@ -49,14 +42,6 @@ describe('board search wording', () => {
     expect(boardSearchCoverageLine({ span: 111_973, missing: 41_545, baselineMissingRatio: 0.067, estimatedRemaining: 34_043 })).toBe(
       '빈 구간 id 111,973개 중 비어 있는 것 41,545개. 기준선 6.7%(삭제·비수집 게시판)를 빼면 아직 못 거둔 글 약 34,043건',
     )
-  })
-
-  it('offers to resume once any query has a stored page', () => {
-    expect(boardSearchStartLabel(job([query('글렌', false), query('구매', false)]))).toBe(TEXT.boardSearch.start)
-    expect(boardSearchStartLabel(job([query('글렌', true), query('구매', false)]))).toBe(TEXT.boardSearch.start)
-    expect(boardSearchStartLabel(job([{ ...query('글렌', false), lastCommittedPage: 3 }, query('구매', false)]))).toBe(TEXT.boardSearch.resume)
-    // Just narrowed: the narrower window has no stored page yet, but the query has been walked.
-    expect(boardSearchStartLabel(job([{ ...query('글렌', false), segmentToDay: '20250105' }, query('구매', false)]))).toBe(TEXT.boardSearch.resume)
   })
 
   it('tells a finished, walking and waiting query apart', () => {
