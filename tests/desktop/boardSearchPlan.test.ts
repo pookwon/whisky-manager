@@ -22,4 +22,12 @@ describe('planBoardSearchJob', () => {
     await expect(planBoardSearchJob(repo(['글렌'], OLDEST), { boardId: '137', fromDay: '2025-01-01' })).resolves.toEqual({ kind: 'refused', reason: 'BAD_DAY' })
     await expect(planBoardSearchJob(repo(['ㅎㅎ'], OLDEST), { boardId: '137', fromDay: '20250101' })).resolves.toEqual({ kind: 'refused', reason: 'NO_QUERIES' })
   })
+  it('appends the longer forms of the picked words after the picks', async () => {
+    // '홈플' catches all eleven titles by prefix and is the only pick; the five
+    // '홈플러스' titles have no '홈플' of their own, so the search needs '홈플러스'.
+    const titles = [...Array.from({ length: 6 }, () => '홈플 득템'), ...Array.from({ length: 5 }, () => '월드컵 홈플러스')]
+    const plan = await planBoardSearchJob(repo(titles, OLDEST), { boardId: '137', fromDay: '20250101' })
+    expect(plan.kind === 'ready' ? plan.queries : null).toEqual([{ query: '홈플', expectedGain: 11 }, { query: '홈플러스', expectedGain: 5 }])
+  })
+
 })
