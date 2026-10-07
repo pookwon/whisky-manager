@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
 import type { CollectionStatus } from '../../../desktop/collection-db/statusQuery.js'
+import type { CollectionPipelineStage } from '../../../desktop/collectionPipelineStage.js'
 import { api } from '../../api.js'
 import { collectionCoveragePercent, collectionRangeLabel, elapsedLabel, formatKstDate, relativeTime } from '../../format.js'
 import { Details } from '../dashboard/Details.js'
@@ -27,6 +28,7 @@ function ProgressBar({ percent }: { percent: number }): React.JSX.Element {
 
 interface ListWalkStepProps {
   readonly status: CollectionStatus
+  readonly pipeline: CollectionPipelineStage
   readonly state: StepState
   /** Another walk holds the shared lock, so this one's start would only be refused. */
   readonly otherRunning: boolean
@@ -116,6 +118,7 @@ export function ListWalkStep(props: ListWalkStepProps): React.JSX.Element {
 
       <PeriodForm
         job={job}
+        pipeline={props.pipeline}
         busy={props.busy}
         blockedReason={
           running !== null ? TEXT.collection.refused.STOP_RUNNING_FIRST : props.otherRunning ? TEXT.collection.otherRunning : null

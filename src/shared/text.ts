@@ -182,6 +182,7 @@ export const TEXT = {
       progressUnknown: '아직 한 쪽도 옮기지 않았습니다',
       walkedTo: (at: string) => `${at}까지 내려왔습니다`,
       cost: '기간을 바꾸면 이 작업의 진행 위치가 사라지고 새 기간의 처음부터 시작합니다. 이미 옮긴 글은 지워지지 않습니다.',
+      laterStepsCost: '이 기간의 ② 검색어 보충과 ③ 빈 글 번호 확인도 처음부터 다시 시작합니다.',
       confirm: '기간 바꾸기',
       cancel: '그대로 두기',
     },

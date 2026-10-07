@@ -3,11 +3,13 @@ import { MS_PER_DAY, kstDayKeyRange } from '../../../shared/kst.js'
 import { TEXT } from '../../../shared/text.js'
 import type { CollectionFeedKind } from '../../../desktop/collection-db/repository.js'
 import type { CollectionJob } from '../../../desktop/collection-db/statusQuery.js'
+import type { CollectionPipelineStage } from '../../../desktop/collectionPipelineStage.js'
 import type { CollectionRunRequest } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
 import { collectionCoveragePercent, formatKstDate, formatKstDateTime } from '../../format.js'
 import { Details } from '../dashboard/Details.js'
 import { dayKeyOfDateInput } from './boardSearchLines.js'
+import { replaceLaterStepsLine } from './replacePeriodLines.js'
 import { listStartRefusal } from './startRefusals.js'
 
 /** How far back the form starts, so a first press reads a few days rather than one. */
@@ -46,17 +48,19 @@ function DateField(props: {
 
 /**
  * Replacing a job the operator has not finished, said as what it costs. The
- * job is read live from props, so a block that advances the cursor while this
- * is open cannot leave a stale number in front of the answer.
+ * job and the stage are read live from props, so a block that advances the
+ * cursor while this is open cannot leave a stale number in front of the answer.
  */
 function ReplacePeriod(props: {
   readonly job: CollectionJob
+  readonly pipeline: CollectionPipelineStage
   readonly busy: boolean
   readonly onConfirm: () => void
   readonly onCancel: () => void
 }): React.JSX.Element {
   const { job } = props
   const percent = collectionCoveragePercent(job)
+  const laterStepsLine = replaceLaterStepsLine(props.pipeline)
   return (
     <div className="rounded-lg px-4 py-3" style={{ background: 'var(--surface-sunken)' }}>
       <p className="text-sm font-semibold tone-warn">{TEXT.collection.replace.heading}</p>
@@ -73,6 +77,11 @@ function ReplacePeriod(props: {
       <p className="mt-1 text-sm" style={MUTED}>
         {TEXT.collection.replace.cost}
       </p>
+      {laterStepsLine !== null && (
+        <p className="mt-1 text-sm" style={MUTED}>
+          {laterStepsLine}
+        </p>
+      )}
       <div className="mt-3 flex items-center gap-2">
         <button type="button" className="btn btn-primary" disabled={props.busy} onClick={props.onConfirm}>
           {TEXT.collection.replace.confirm}
@@ -87,6 +96,8 @@ function ReplacePeriod(props: {
 
 interface PeriodFormProps {
   readonly job: CollectionJob | null
+  /** Where the period stands past the list, for what replacing it costs. */
+  readonly pipeline: CollectionPipelineStage
   readonly busy: boolean
   /**
    * Why a new period cannot start now — the list walk itself is running, or
@@ -182,6 +193,7 @@ export function PeriodForm(props: PeriodFormProps): React.JSX.Element {
         {replacing !== null && props.job !== null && (
           <ReplacePeriod
             job={props.job}
+            pipeline={props.pipeline}
             busy={props.busy}
             onConfirm={() => press({ ...replacing, replace: true })}
             onCancel={() => setReplacing(null)}

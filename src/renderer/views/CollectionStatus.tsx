@@ -68,6 +68,7 @@ export function CollectionStatus(): React.JSX.Element {
       />
       <ListWalkStep
         status={collection.status}
+        pipeline={collection.pipeline}
         state={listStepState(inputs)}
         otherRunning={otherThan('list')}
         busy={busy}
