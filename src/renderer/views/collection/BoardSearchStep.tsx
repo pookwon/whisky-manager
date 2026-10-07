@@ -12,7 +12,6 @@ import {
   boardSearchSummaryLine,
   dayKeyLabel,
 } from './boardSearchLines.js'
-import { BoardSearchJobForm, type SearchFormRequest } from './BoardSearchJobForm.js'
 import { BoardSearchQueryTable } from './BoardSearchQueryTable.js'
 import { CollectionStep } from './CollectionStep.js'
 import { searchStartRefusal } from './startRefusals.js'
@@ -26,7 +25,6 @@ interface BoardSearchStepProps {
   readonly otherRunning: boolean
   readonly busy: boolean
   readonly act: (run: () => Promise<unknown>) => Promise<boolean>
-  readonly request: SearchFormRequest | null
 }
 
 /**
@@ -35,7 +33,7 @@ interface BoardSearchStepProps {
  * and per-query table under 자세히, the form for a new job folded once a
  * job exists.
  */
-export function BoardSearchStep({ view, state, otherRunning, busy, act, request }: BoardSearchStepProps): React.JSX.Element {
+export function BoardSearchStep({ view, state, otherRunning, busy, act }: BoardSearchStepProps): React.JSX.Element {
   const [refusal, setRefusal] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const { job, running } = view
@@ -53,7 +51,7 @@ export function BoardSearchStep({ view, state, otherRunning, busy, act, request 
         disabled={busy}
         onClick={() => {
           setRefusal(null)
-          void act(() => api.stopBoardSearch())
+          void act(() => api.stopCollection())
         }}
       >
         {TEXT.boardSearch.stop}
@@ -65,7 +63,7 @@ export function BoardSearchStep({ view, state, otherRunning, busy, act, request 
         disabled={busy || otherRunning}
         onClick={() => {
           setRefusal(null)
-          void act(async () => setRefusal(searchStartRefusal(await api.startBoardSearch())))
+          void act(async () => setRefusal(searchStartRefusal(await api.startCollection())))
         }}
       >
         {boardSearchStartLabel(job)}
@@ -111,7 +109,6 @@ export function BoardSearchStep({ view, state, otherRunning, busy, act, request 
           <BoardSearchQueryTable job={job} running={running} />
         </Details>
       )}
-      <BoardSearchJobForm view={view} busy={busy} act={act} request={request} initiallyOpen={job === null} />
     </CollectionStep>
   )
 }

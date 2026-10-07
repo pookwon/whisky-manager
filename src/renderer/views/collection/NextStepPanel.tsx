@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
 import type { StartCollectionResult } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
-import { articleProbeCreateOutcome } from './articleProbeLines.js'
 import type { NextStep } from './nextStep.js'
 import { nextStepScheduleLine, nextStepSentence } from './nextStepLines.js'
 import { listStartRefusal, probeStartRefusal, searchStartRefusal } from './startRefusals.js'
@@ -11,8 +10,8 @@ import type { WalkStep } from './stepFacts.js'
 /** Each walk's stop, so the panel can stop whichever is running without asking which. */
 const STOP: Record<WalkStep, () => Promise<void>> = {
   list: () => api.stopCollection(),
-  search: () => api.stopBoardSearch(),
-  probe: () => api.stopArticleProbe(),
+  search: () => api.stopCollection(),
+  probe: () => api.stopCollection(),
 }
 
 const STOP_LABEL: Record<WalkStep, string> = {
@@ -63,19 +62,13 @@ export function NextStepPanel({ next, busy, act, onPickPeriod, onPrepareSearch }
       case 'listWaiting':
         return button(TEXT.collection.next.resumeList, () => start(() => api.startCollection(), listStartRefusal))
       case 'searchResume':
-        return button(TEXT.boardSearch.resume, () => start(() => api.startBoardSearch(), searchStartRefusal))
+        return button(TEXT.boardSearch.resume, () => start(() => api.startCollection(), searchStartRefusal))
       case 'probeResume':
-        return button(TEXT.articleProbe.resume, () => start(() => api.startArticleProbe(), probeStartRefusal))
+        return button(TEXT.articleProbe.resume, () => start(() => api.startCollection(), probeStartRefusal))
       case 'searchNeeded':
         return button(TEXT.collection.next.prepareSearch, () => onPrepareSearch(next.boardId))
       case 'probeCreate':
-        return button(TEXT.articleProbe.create, () => {
-          setAnswer(null)
-          void act(async () => {
-            const outcome = articleProbeCreateOutcome(await api.createArticleProbeJob())
-            if (outcome.kind === 'refusal') setAnswer({ text: outcome.text, warn: true })
-          })
-        })
+        return null
       case 'pickPeriod':
         return button(TEXT.collection.next.pickPeriodAction, onPickPeriod)
       case 'probeSpent':

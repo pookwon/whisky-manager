@@ -135,6 +135,7 @@ function view(
       recentRuns: run === null ? [] : [run],
       idGaps: EMPTY_ID_GAP_REPORT,
     },
+    pipeline: { kind: 'idle' },
   }
 }
 

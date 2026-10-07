@@ -41,7 +41,7 @@ export const probeJob = (overrides: Partial<ArticleProbeJob> = {}): ArticleProbe
 })
 
 export const probe = (job: ArticleProbeJob | null, running = false): ArticleProbeView => ({
-  running, progress: null, blockFailure: null, lastRun: null, job, window: null,
+  running, progress: null, blockFailure: null, lastRun: null, job,
 })
 
 export const inputs = (overrides: Partial<CollectionStepInputs> = {}): CollectionStepInputs => ({

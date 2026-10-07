@@ -5,8 +5,6 @@ import { api } from '../../api.js'
 import { Details } from '../dashboard/Details.js'
 import {
   articleProbeBreakdownLine,
-  articleProbeCreateOutcome,
-  articleProbeCreateRefusal,
   articleProbeFailureLine,
   articleProbeHeadlineLine,
   articleProbeProgressLine,
@@ -33,48 +31,24 @@ interface ArticleProbeStepProps {
  * left to press.
  */
 export function ArticleProbeStep({ view, state, otherRunning, busy, act }: ArticleProbeStepProps): React.JSX.Element {
-  /** What the last create press said, until the next press. */
-  const [created, setCreated] = useState<string | null>(null)
   /** Why the last press did nothing, until the next press. */
   const [refusal, setRefusal] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const { job, running, window } = view
+  const { job, running } = view
   const finished = job !== null && job.probed >= job.total
   const progressLine = running ? articleProbeProgressLine(view.progress) : null
   const failureLine = articleProbeFailureLine(view.blockFailure, view.lastRun)
-  const createRefusal = job === null ? articleProbeCreateRefusal(window) : null
-  const windowLine = job !== null ? articleProbeWindowLine(job) : window?.kind === 'ready' ? articleProbeWindowLine(window) : null
-
-  const clear = (): void => {
-    setCreated(null)
-    setRefusal(null)
-  }
+  const windowLine = job !== null ? articleProbeWindowLine(job) : null
 
   const action =
-    job === null ? (
-      <button
-        type="button"
-        className="btn btn-primary"
-        disabled={busy || window?.kind !== 'ready'}
-        onClick={() => {
-          clear()
-          void act(async () => {
-            const outcome = articleProbeCreateOutcome(await api.createArticleProbeJob())
-            if (outcome.kind === 'created') setCreated(outcome.text)
-            else setRefusal(outcome.text)
-          })
-        }}
-      >
-        {TEXT.articleProbe.create}
-      </button>
-    ) : finished ? undefined : running ? (
+    job === null || finished ? undefined : running ? (
       <button
         type="button"
         className="btn"
         disabled={busy}
         onClick={() => {
-          clear()
-          void act(() => api.stopArticleProbe())
+          setRefusal(null)
+          void act(() => api.stopCollection())
         }}
       >
         {TEXT.articleProbe.stop}
@@ -85,8 +59,8 @@ export function ArticleProbeStep({ view, state, otherRunning, busy, act }: Artic
         className="btn btn-primary"
         disabled={busy || otherRunning}
         onClick={() => {
-          clear()
-          void act(async () => setRefusal(probeStartRefusal(await api.startArticleProbe())))
+          setRefusal(null)
+          void act(async () => setRefusal(probeStartRefusal(await api.startCollection())))
         }}
       >
         {articleProbeStartLabel(job)}
@@ -119,13 +93,7 @@ export function ArticleProbeStep({ view, state, otherRunning, busy, act }: Artic
           {TEXT.collection.otherRunning}
         </p>
       )}
-      {created !== null && (
-        <p className="text-sm tabular-nums" style={MUTED}>
-          {created}
-        </p>
-      )}
       {failureLine !== null && <p className="text-sm tone-warn">{failureLine}</p>}
-      {createRefusal !== null && <p className="text-sm tone-warn">{createRefusal}</p>}
       {refusal !== null && <p className="text-sm tone-warn">{refusal}</p>}
       {job !== null && (
         <Details summary={TEXT.collection.details} open={detailsOpen} onToggle={() => setDetailsOpen((value) => !value)}>

@@ -3,14 +3,7 @@ import { TEXT } from '../../../shared/text.js'
 import type { BoardSearchCoverage } from '../../../desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchBlockFailure, BoardSearchProgress } from '../../../desktop/boardSearchRunner.js'
 import type { BoardSearchJobView, BoardSearchQueryView } from '../../../desktop/boardSearchView.js'
-import type { BoardSearchPlanView } from '../../../desktop/ipc.js'
 import { formatKstDateTime } from '../../format.js'
-
-/** What a preview or create press answered: a plan to read, or a refusal to fix. */
-export interface BoardSearchPlanOutcome {
-  readonly kind: 'plan' | 'refusal'
-  readonly text: string
-}
 
 const DAY_KEY = /^(\d{4})(\d{2})(\d{2})$/
 
@@ -36,12 +29,6 @@ export function boardSearchSummaryLine(job: BoardSearchJobView): string {
 export function boardSearchCoverageLine(coverage: BoardSearchCoverage): string | null {
   if (coverage.estimatedRemaining === null || coverage.baselineMissingRatio === null) return null
   return TEXT.boardSearch.coverage(coverage.span, coverage.missing, coverage.baselineMissingRatio, coverage.estimatedRemaining)
-}
-
-export function boardSearchPlanOutcome(plan: BoardSearchPlanView, fromDay: string): BoardSearchPlanOutcome {
-  return plan.kind === 'ready'
-    ? { kind: 'plan', text: TEXT.boardSearch.preview(plan.queryCount, dayKeyLabel(fromDay), dayKeyLabel(plan.toDay)) }
-    : { kind: 'refusal', text: TEXT.boardSearch.refused[plan.reason] }
 }
 
 /** Resume once any query has a stored page or a narrowed window; until then the job has not started. */

@@ -6,6 +6,7 @@ import type { BoardSearchView } from './boardSearchView.js'
 import type { ArticleProbeView } from './articleProbeView.js'
 import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
+import type { CollectionPipelineStage } from './collectionPipelineStage.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
 import type { ApproveResult } from './approvals.js'
 import type { CollectionFeedKind } from './collection-db/repository.js'
@@ -50,14 +51,7 @@ export const IPC_CHANNELS = {
   startMemberResync: 'wm:startMemberResync',
   setMemberResyncInterval: 'wm:setMemberResyncInterval',
   getBoardSearchStatus: 'wm:getBoardSearchStatus',
-  previewBoardSearchJob: 'wm:previewBoardSearchJob',
-  createBoardSearchJob: 'wm:createBoardSearchJob',
-  startBoardSearch: 'wm:startBoardSearch',
-  stopBoardSearch: 'wm:stopBoardSearch',
   getArticleProbeStatus: 'wm:getArticleProbeStatus',
-  createArticleProbeJob: 'wm:createArticleProbeJob',
-  startArticleProbe: 'wm:startArticleProbe',
-  stopArticleProbe: 'wm:stopArticleProbe',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -183,27 +177,11 @@ export type BoardSearchStatusView =
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
   | { readonly kind: 'ready'; readonly view: BoardSearchView }
 
-/** Why a search job could not be made or previewed. */
-export type BoardSearchPlanRefusal = 'NO_STORAGE' | 'NO_POSTS' | 'NOTHING_BEFORE' | 'NO_QUERIES' | 'BAD_DAY' | 'STOP_RUNNING_FIRST'
-
-/** What a search job would be, or why there is none. */
-export type BoardSearchPlanView =
-  | { readonly kind: 'ready'; readonly toDay: string; readonly queryCount: number }
-  | { readonly kind: 'refused'; readonly reason: BoardSearchPlanRefusal }
-
 /** The article probe follows the same three-state shape as the other collection screens. */
 export type ArticleProbeStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
   | { readonly kind: 'ready'; readonly view: ArticleProbeView }
-
-/** Why a probe job could not be made. */
-export type ArticleProbeCreateRefusal = 'NO_STORAGE' | 'NO_SEARCH_JOB' | 'SEARCH_NOT_FINISHED' | 'JOB_EXISTS' | 'STOP_RUNNING_FIRST' | 'NO_GAP'
-
-/** How many ids a new probe job holds, or why none was made. */
-export type ArticleProbeCreateView =
-  | { readonly kind: 'ready'; readonly idCount: number }
-  | { readonly kind: 'refused'; readonly reason: ArticleProbeCreateRefusal }
 
 /**
  * Collection storage is optional, so its screen has three answers rather than
@@ -214,7 +192,7 @@ export type ArticleProbeCreateView =
 export type CollectionStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
-  | { readonly kind: 'ready'; readonly status: CollectionStatus }
+  | { readonly kind: 'ready'; readonly status: CollectionStatus; readonly pipeline: CollectionPipelineStage }
 
 /**
  * The schedule as the screen edits it, with the two things only the app knows:
@@ -360,22 +338,8 @@ export interface RendererApi {
   setMemberResyncInterval(days: number): Promise<MemberResyncIntervalDays>
   /** Where the search backfill stands; `disabled` without a collection database. */
   getBoardSearchStatus(): Promise<BoardSearchStatusView>
-  /** What a search job for this board and start day would be, without making it. */
-  previewBoardSearchJob(request: { boardId: string; fromDay: string }): Promise<BoardSearchPlanView>
-  /** Makes the search job anew, replacing any other; refused while a search block runs. */
-  createBoardSearchJob(request: { boardId: string; fromDay: string }): Promise<BoardSearchPlanView>
-  /** Starts a block of the search backfill now. */
-  startBoardSearch(): Promise<StartCollectionResult>
-  /** Asks a search block in flight to end at its next page boundary. */
-  stopBoardSearch(): Promise<void>
   /** Where reading the gap's ids stands; `disabled` without a collection database. */
   getArticleProbeStatus(): Promise<ArticleProbeStatusView>
-  /** Makes the probe job from the finished search job's window; refused while one exists. */
-  createArticleProbeJob(): Promise<ArticleProbeCreateView>
-  /** Starts a block of id reads now. */
-  startArticleProbe(): Promise<StartCollectionResult>
-  /** Asks a probe block in flight to end before its next id. */
-  stopArticleProbe(): Promise<void>
   getCollectionSchedule(): Promise<CollectionScheduleView>
   /** The log screen's timeline, newest first, already capped. */
   getRecentLog(): Promise<readonly LogEntry[]>

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { TEXT } from '../../shared/text.js'
 import { ArticleProbeStep } from './collection/ArticleProbeStep.js'
 import { BoardSearchStep } from './collection/BoardSearchStep.js'
-import type { SearchFormRequest } from './collection/BoardSearchJobForm.js'
 import { CheckStep } from './collection/CheckStep.js'
 import { CollectionUnavailable } from './collection/CollectionUnavailable.js'
 import { ListWalkStep } from './collection/ListWalkStep.js'
@@ -30,7 +29,7 @@ export function CollectionStatus(): React.JSX.Element {
   /** Grows with each "기간 고르기" press, which asks ①'s form to open and come into view. */
   const [periodRequest, setPeriodRequest] = useState<number | null>(null)
   /** Each "보충 준비" press, with the board it is for. */
-  const [searchRequest, setSearchRequest] = useState<SearchFormRequest | null>(null)
+  const [searchRequest, setSearchRequest] = useState<{ boardId: string; at: number } | null>(null)
 
   if (collection === null) return <div style={{ color: 'var(--ink-muted)' }}>…</div>
 
@@ -67,7 +66,7 @@ export function CollectionStatus(): React.JSX.Element {
         busy={busy}
         act={act}
         onPickPeriod={() => setPeriodRequest((count) => (count ?? 0) + 1)}
-        onPrepareSearch={(boardId) => setSearchRequest((previous) => ({ boardId, at: (previous?.at ?? 0) + 1 }))}
+        onPrepareSearch={(boardId) => setSearchRequest({ boardId, at: (searchRequest?.at ?? 0) + 1 })}
       />
       <ListWalkStep
         status={collection.status}
@@ -84,7 +83,6 @@ export function CollectionStatus(): React.JSX.Element {
           otherRunning={otherThan('search')}
           busy={busy}
           act={act}
-          request={searchRequest}
         />
       )}
       {inputs.probe !== null && (

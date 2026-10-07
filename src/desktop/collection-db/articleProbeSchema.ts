@@ -25,7 +25,7 @@ export const articleProbe = pgTable(
   'article_probe',
   {
     postId: bigint('post_id', { mode: 'number' }).primaryKey(),
-    /** KST `yyyymmdd`: the search job's window the id was drawn from; `to` is the search's own, inclusive. */
+    /** KST `yyyymmdd`: the pipeline period this job covers; `to` is the exclusive end — ids come from posts before that day's 00:00 KST. Filled once per window. */
     windowFromDay: text('window_from_day').notNull(),
     windowToDay: text('window_to_day').notNull(),
     /** Null until the id is answered. */

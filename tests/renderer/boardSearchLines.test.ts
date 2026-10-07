@@ -3,7 +3,6 @@ import {
   boardSearchBlockFailureLine,
   boardSearchCoverageLine,
   boardSearchPageLabel,
-  boardSearchPlanOutcome,
   boardSearchProgressLine,
   boardSearchQueryState,
   boardSearchQueryStateText,
@@ -50,17 +49,6 @@ describe('board search wording', () => {
     expect(boardSearchCoverageLine({ span: 111_973, missing: 41_545, baselineMissingRatio: 0.067, estimatedRemaining: 34_043 })).toBe(
       '빈 구간 id 111,973개 중 비어 있는 것 41,545개. 기준선 6.7%(삭제·비수집 게시판)를 빼면 아직 못 거둔 글 약 34,043건',
     )
-  })
-
-  it('tells a plan from a refusal', () => {
-    expect(boardSearchPlanOutcome({ kind: 'ready', toDay: '20250829', queryCount: 300 }, '20250101')).toEqual({
-      kind: 'plan',
-      text: '검색어 300개 · 2025-01-01 ~ 2025-08-29',
-    })
-    expect(boardSearchPlanOutcome({ kind: 'refused', reason: 'NOTHING_BEFORE' }, '20250101')).toEqual({
-      kind: 'refusal',
-      text: TEXT.boardSearch.refused.NOTHING_BEFORE,
-    })
   })
 
   it('offers to resume once any query has a stored page', () => {
