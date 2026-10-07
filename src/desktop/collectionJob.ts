@@ -1,9 +1,7 @@
 import { kstDayStartMs } from '../shared/kst.js'
-import type { CollectionRepository } from './collection-db/repository.js'
 import type { MemberRepository } from './collection-db/memberRepository.js'
-import type { CollectionRunner, CollectionStartResult } from './collectionRunner.js'
+import type { CollectionStartResult } from './collectionRunner.js'
 import type { MemberCollectionRunner } from './memberCollectionRunner.js'
-import { describeJob, type JobDescription } from './collectionScope.js'
 
 export interface CollectionJobProgress {
   readonly exists: boolean
@@ -12,40 +10,15 @@ export interface CollectionJobProgress {
 }
 
 /**
- * One collectable thing, so the loop can round-robin over the article walk and
- * the member walk without knowing either. `startDailyMaintenance` is the member
- * job's daily top-up; the article job has none.
+ * One collectable thing, so the loop can round-robin over the collection
+ * pipeline and the member walks without knowing either. `startDailyMaintenance`
+ * is the member job's daily top-up; the pipeline job has none.
  */
 export interface CollectionJob {
-  readonly name: 'articles' | 'members' | 'memberResync' | 'boardSearch' | 'articleProbe'
+  readonly name: 'pipeline' | 'members' | 'memberResync'
   readProgress(): Promise<CollectionJobProgress>
-  start(maxPages: number): CollectionStartResult
+  start(maxPages: number): CollectionStartResult | Promise<CollectionStartResult>
   startDailyMaintenance?(maxPages: number, nowMs: number): Promise<CollectionStartResult | null>
-}
-
-export function createArticleCollectionJob(deps: {
-  repository: () => CollectionRepository | null
-  runner: CollectionRunner
-}): CollectionJob {
-  let last: JobDescription | null = null
-  return {
-    name: 'articles',
-    async readProgress() {
-      const repository = deps.repository()
-      last = repository === null ? null : describeJob(await repository.listFeedStates())
-      return { exists: last !== null, complete: last?.complete ?? false, forced: last?.forced ?? false }
-    },
-    start(maxPages) {
-      if (last === null) return { kind: 'refused', reason: 'NO_JOB' }
-      return deps.runner.start({
-        range: { startMs: last.targetStartMs, endMs: last.targetEndMs },
-        kind: 'incremental',
-        maxPages,
-        feeds: last.remaining.map((row) => row.feed),
-        resumeFromCheckpoint: true,
-      })
-    },
-  }
 }
 
 export function createMemberCollectionJob(deps: {

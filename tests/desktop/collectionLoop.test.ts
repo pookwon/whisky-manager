@@ -16,7 +16,7 @@ const NOW = Date.UTC(2026, 7, 30, 23)
 const kst = (ms: number): string => new Date(ms + 9 * HOUR).toISOString().slice(0, 16).replace('T', ' ')
 
 interface FakeJobSpec {
-  name: 'articles' | 'members'
+  name: 'pipeline' | 'members'
   progress: CollectionJobProgress
   startResult?: CollectionStartResult
   maintenance?: (nowMs: number) => CollectionStartResult | null
@@ -93,7 +93,7 @@ function harness(schedule: CollectionSchedule, specs: FakeJobSpec[], pacing: Col
 const enabled: CollectionSchedule = { ...DEFAULT_COLLECTION_SCHEDULE, enabled: true }
 
 const articleSpec = (overrides: Partial<CollectionJobProgress> = {}, startResult?: CollectionStartResult): FakeJobSpec => ({
-  name: 'articles',
+  name: 'pipeline',
   progress: { exists: true, complete: false, forced: false, ...overrides },
   ...(startResult !== undefined ? { startResult } : {}),
 })
@@ -121,7 +121,7 @@ describe('collection loop', () => {
     const fired = await h.advance(12 * HOUR)
 
     expect(fired).toBe(3)
-    expect(h.started.filter((s) => s.name === 'articles')).toHaveLength(3)
+    expect(h.started.filter((s) => s.name === 'pipeline')).toHaveLength(3)
   })
 
   it('continues the stored job rather than a window of its own', async () => {
@@ -254,7 +254,7 @@ describe('collection loop', () => {
     h.loop.refresh()
     await h.advance(DAY + 12 * HOUR)
 
-    expect(h.started.filter((s) => s.name === 'articles')).toHaveLength(6)
+    expect(h.started.filter((s) => s.name === 'pipeline')).toHaveLength(6)
   })
 
   it('replaces the pending beat when the schedule is saved again', () => {
@@ -278,20 +278,20 @@ describe('collection loop', () => {
 
   it('round-robins between two unfinished jobs in alternating order', async () => {
     const h = harness(enabled, [
-      { name: 'articles', progress: { exists: true, complete: false, forced: false } },
+      { name: 'pipeline', progress: { exists: true, complete: false, forced: false } },
       { name: 'members', progress: { exists: true, complete: false, forced: false } },
     ])
     h.loop.refresh()
     // 09:00-21:00 window with 2h work + 2h rest = 3 beats; add a 4th by advancing further
     await h.advance(DAY)
     const names = h.started.map((s) => s.name)
-    // Must alternate: articles, members, articles, members, …
+    // Must alternate: pipeline, members, pipeline, members, …
     for (let i = 1; i < names.length; i += 1) {
       expect(names[i]).not.toBe(names[i - 1])
     }
-    expect(names[0]).toBe('articles')
+    expect(names[0]).toBe('pipeline')
     expect(names[1]).toBe('members')
-    expect(names).toContain('articles')
+    expect(names).toContain('pipeline')
     expect(names).toContain('members')
   })
 
@@ -299,15 +299,15 @@ describe('collection loop', () => {
     // The app beats the moment it starts, before the extension has dialled
     // back in. That refusal is not a block the first job had; two minutes
     // later the retry must go to the same job, not hand the block to the next.
-    const first: FakeJobSpec = { name: 'articles', progress: { exists: true, complete: false, forced: false }, startResult: { kind: 'refused', reason: 'BRIDGE_OFFLINE' } }
+    const first: FakeJobSpec = { name: 'pipeline', progress: { exists: true, complete: false, forced: false }, startResult: { kind: 'refused', reason: 'BRIDGE_OFFLINE' } }
     const h = harness(enabled, [first, { name: 'members', progress: { exists: true, complete: false, forced: false } }])
     h.loop.refresh()
     await h.advance(1 * HOUR)
-    expect(h.started.map((s) => s.name)).toEqual(['articles'])
+    expect(h.started.map((s) => s.name)).toEqual(['pipeline'])
 
     h.setSpecs([{ ...first, startResult: { kind: 'started' } }, { name: 'members', progress: { exists: true, complete: false, forced: false } }])
     await h.advance(2 * MINUTE)
-    expect(h.started.map((s) => s.name)).toEqual(['articles', 'articles'])
+    expect(h.started.map((s) => s.name)).toEqual(['pipeline', 'pipeline'])
   })
 
   it('runs the member top-up once when the walk is complete and it is due', async () => {
@@ -344,9 +344,9 @@ describe('collection loop', () => {
       clock: { now: () => inWindow },
       jobs: () => [
         {
-          name: 'articles' as const,
+          name: 'pipeline' as const,
           readProgress: async () => ({ exists: true, complete: false, forced: false }),
-          start: (_maxPages: number) => { started.push('articles'); return { kind: 'started' as const } },
+          start: (_maxPages: number) => { started.push('pipeline'); return { kind: 'started' as const } },
         },
         {
           name: 'members' as const,
@@ -365,10 +365,51 @@ describe('collection loop', () => {
     // Let the async beat (allSettled + jobs) resolve.
     await new Promise((r) => setTimeout(r, 50))
 
-    // The article job must have started despite the members job's readProgress rejecting.
-    expect(started).toContain('articles')
+    // The pipeline job must have started despite the members job's readProgress rejecting.
+    expect(started).toContain('pipeline')
     // onError must have been called with the members rejection.
     expect(errors.length).toBeGreaterThan(0)
     expect((errors[0] as Error).message).toBe('db gone')
+  })
+
+  it('lays the next beat at work + rest when start returns a Promise', async () => {
+    const asyncStarted: { name: string; maxPages: number }[] = []
+    type PendingTimer = { fn: () => void; dueAt: number; handle: number }
+    const state: { pending: PendingTimer | null; now: number; handles: number } = { pending: null, now: NOW, handles: 0 }
+    const loop = createCollectionLoop({
+      pacing: () => DEFAULT_COLLECTION_PACING,
+      schedule: () => enabled,
+      clock: { now: () => state.now },
+      jobs: () => [{
+        name: 'pipeline' as const,
+        readProgress: async () => ({ exists: true, complete: false, forced: false }),
+        start: async (maxPages: number): Promise<CollectionStartResult> => {
+          asyncStarted.push({ name: 'pipeline', maxPages })
+          return { kind: 'started' }
+        },
+      }],
+      setTimer: (fn, ms) => {
+        state.handles += 1
+        state.pending = { fn, dueAt: state.now + ms, handle: state.handles }
+        return state.handles
+      },
+      clearTimer: (handle) => {
+        if (state.pending?.handle === handle) state.pending = null
+      },
+    })
+    loop.refresh()
+    const target = state.now + 12 * HOUR
+    let fired = 0
+    while (state.pending !== null && state.pending.dueAt <= target) {
+      if ((fired += 1) > 200) throw new Error('busy loop')
+      const due = state.pending
+      state.now = Math.max(state.now, due.dueAt)
+      state.pending = null
+      due.fn()
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    }
+    state.now = target
+    expect(fired).toBe(3)
+    expect(asyncStarted.filter((s) => s.name === 'pipeline')).toHaveLength(3)
   })
 })
