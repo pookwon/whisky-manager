@@ -64,9 +64,13 @@ function harness(
     /** The query whose run cannot be inserted, as when the board already has a running search run. */
     readonly startRejectsFor?: string
     readonly sweepRejects?: boolean
+    readonly pacing?: CollectionPacing
   } = {},
 ) {
   const events: string[] = []
+  /** How long the walk slept before each read. */
+  const pauses: number[] = []
+  let slept = 0
   /** What the runner handed its onError, by message. */
   const errors: string[] = []
   /** How many events had happened at each sweep of orphaned runs. */
@@ -106,6 +110,8 @@ function harness(
       events.push(`read ${q} p${p}`)
       requests.push(`${q} ${fromDay}-${toDay} p${p}`)
       onRead(q, p)
+      pauses.push(slept)
+      slept = 0
       if (fail[q] !== undefined) throw new CollectionPageError(fail[q])
       return (pages[`${q}@${toDay}`] ?? (toDay === '20250829' ? pages[q] : undefined))?.[p - 1] ?? EMPTY
     },
@@ -113,14 +119,28 @@ function harness(
   let id = 0
   const runner = createBoardSearchRunner({
     repository: () => (setup.storage === false ? null : repository), fetcher, isConnected: () => setup.connected !== false, clock: { now: () => 0 }, random: { intInclusive: (min: number) => min },
-    pacing: () => NO_WAIT, sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
+    pacing: () => setup.pacing ?? NO_WAIT, sleep: async (ms) => { slept += ms }, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
     onError: (error) => { errors.push(error instanceof Error ? error.message : String(error)) },
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
-  return { runner, events, errors, sweeps, windows, requests, settle }
+  return { runner, events, errors, sweeps, windows, requests, pauses, settle }
+}
+
+/** One second a page and two more every twentieth, so an ordinal shows in the pause before its read. */
+const PACED: CollectionPacing = {
+  perPage: { minSeconds: 1, maxSeconds: 1 },
+  everyTwentyPages: { minSeconds: 2, maxSeconds: 2 },
+  everyHundredPages: { minSeconds: 0, maxSeconds: 0 },
 }
 
 describe('boardSearchRunner', () => {
+  it('paces its first read on the requests the block made before it', async () => {
+    const h = harness([query('글렌', 1)], { 글렌: [page([1], 2)] }, {}, undefined, { pacing: PACED })
+    h.runner.start({ maxPages: 10, requestsBefore: 18 })
+    await h.settle()
+    expect(h.pauses).toEqual([1_000, 3_000])
+  })
+
   it('walks each query to its empty page and moves on within the budget', async () => {
     const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [page([1, 2], 3), page([3], 3)], 구매: [page([4], 1)] })
     expect(h.runner.start({ maxPages: 10 })).toEqual({ kind: 'started' })

@@ -71,9 +71,9 @@ function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQuerySt
   const ends: { list?: OnCollectionBlockEnd | undefined; search?: OnCollectionBlockEnd | undefined; probe?: OnCollectionBlockEnd | undefined } = {}
   let running = false
   const runner = (name: 'list' | 'search' | 'probe') => ({
-    start: (request: { maxPages: number; onBlockEnd?: OnCollectionBlockEnd; window?: { fromDay: string; toDay: string }; feeds?: { menuId: string }[] }) => {
+    start: (request: { maxPages: number; requestsBefore?: number; onBlockEnd?: OnCollectionBlockEnd; window?: { fromDay: string; toDay: string }; feeds?: { menuId: string }[] }) => {
       if (setup.failStart === name) throw new Error('setting unreadable')
-      calls.push(`${name} ${request.maxPages}${request.window ? ` ${request.window.fromDay}-${request.window.toDay}` : ''}${request.feeds ? ` ${request.feeds.map((f) => f.menuId).join(',')}` : ''}`)
+      calls.push(`${name} ${request.maxPages}${request.window ? ` ${request.window.fromDay}-${request.window.toDay}` : ''}${request.feeds ? ` ${request.feeds.map((f) => f.menuId).join(',')}` : ''}${request.requestsBefore ? ` after ${request.requestsBefore}` : ''}`)
       ends[name] = request.onBlockEnd
       running = true
       return { kind: 'started' as const }
@@ -120,7 +120,7 @@ describe('collectionPipeline', () => {
     const h = harness({ feeds: [feed('137', 1)], titles: Array.from({ length: 6 }, () => '홈플') })
     await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })
     await h.end('list', { requests: 40, endedBy: 'drained' }, { feeds: [feed('137', 1, { horizonReached: true })] })
-    expect(h.calls).toEqual(['list 100 137', 'replace 137 20240101 홈플', 'extended 137', 'search 60'])
+    expect(h.calls).toEqual(['list 100 137', 'replace 137 20240101 홈플', 'extended 137', 'search 60 after 40'])
   })
 
   it('adopts the search job of the same board and start day, keeping its progress and giving it the longer words once', async () => {
@@ -196,6 +196,14 @@ describe('collectionPipeline', () => {
     expect(await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })).toEqual({ kind: 'refused', reason: 'JOB_FINISHED' })
     expect(h.calls).toEqual(['create 20240101-20250102', 'probed'])
     expect(h.pipeline.isRunning()).toBe(false)
+  })
+
+  it('counts the pacing of a chained stage on from every request the block made before it', async () => {
+    const h = harness({ feeds: [feed('137', 1)], titles: Array.from({ length: 6 }, () => '홈플'), made: 2 })
+    await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })
+    await h.end('list', { requests: 40, endedBy: 'drained' }, { feeds: [feed('137', 1, { horizonReached: true })] })
+    await h.end('search', { requests: 25, endedBy: 'drained' }, { feeds: [feed('137', 1, { horizonReached: true, searchExtended: true, searchFinished: true })] })
+    expect(h.calls.slice(-2)).toEqual(['create 20240101-20250102', 'probe 35 20240101-20250102 after 65'])
   })
 
   it('ends the chain when a block spent its budget, failed or was stopped', async () => {

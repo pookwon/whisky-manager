@@ -25,6 +25,8 @@ export interface CollectionStartRequest {
   readonly resumeFromCheckpoint?: boolean
   /** Told how the block ended, once, after the lock is free. */
   readonly onBlockEnd?: OnCollectionBlockEnd
+  /** Requests the block made before this walk; its pacing counts on from them. */
+  readonly requestsBefore?: number
 }
 
 /**
@@ -129,7 +131,7 @@ export function createCollectionRunner(deps: CollectionRunnerDeps): CollectionRu
           startedAt: new Date(deps.clock.now()),
         },
         maxPages: request.maxPages - spent,
-        requestsBefore: spent,
+        requestsBefore: (request.requestsBefore ?? 0) + spent,
       })
       results.push(result)
       spent += result.requests

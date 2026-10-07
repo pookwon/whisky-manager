@@ -161,6 +161,8 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
   function startRunner(prepared: PreparedStage, request: CollectionPipelineStartRequest, budget: number, onBlockEnd: (end: CollectionBlockEnd) => void): CollectionStartResult {
     if (prepared.job === null) return { kind: 'refused', reason: 'NO_JOB' }
     const { stage, job } = prepared
+    // A stage chained in a block paces on from the block's count, as one walk would.
+    const requestsBefore = request.maxPages - budget
     if (stage.kind === 'list') {
       return deps.listRunner.start({
         range: { startMs: job.targetStartMs, endMs: job.targetEndMs },
@@ -169,10 +171,11 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
         feeds: job.remaining.map((row) => row.feed),
         resumeFromCheckpoint: true,
         onBlockEnd,
+        requestsBefore,
       })
     }
-    if (stage.kind === 'search') return deps.searchRunner.start({ maxPages: budget, onBlockEnd })
-    if (stage.kind === 'probe') return deps.probeRunner.start({ maxPages: budget, window: stage.period, onBlockEnd })
+    if (stage.kind === 'search') return deps.searchRunner.start({ maxPages: budget, onBlockEnd, requestsBefore })
+    if (stage.kind === 'probe') return deps.probeRunner.start({ maxPages: budget, window: stage.period, onBlockEnd, requestsBefore })
     return { kind: 'refused', reason: 'JOB_FINISHED' }
   }
 

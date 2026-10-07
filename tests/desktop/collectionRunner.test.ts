@@ -144,6 +144,15 @@ describe('collection runner over a queue of feeds', () => {
     expect(paced.pauses.filter((pause, index) => index !== 0 && index !== 19)).toEqual(Array(25).fill(BASE_PAUSE))
   })
 
+  it('paces its first read on the requests the block made before it', async () => {
+    const t = transport({ '137': { 1: inPeriod('a') } })
+    const { repo } = repository()
+    const paced = pacedRunner(repo, t.transport)
+    paced.runner.start({ range: { startMs: 100, endMs: 200 }, kind: 'incremental', maxPages: 30, feeds: feeds.slice(0, 1), resumeFromCheckpoint: true, requestsBefore: 19 })
+    await paced.done
+    expect(paced.pauses).toEqual([BASE_PAUSE + TWENTIETH_BREAK, BASE_PAUSE, BASE_PAUSE])
+  })
+
   it('does not go on after a stop', async () => {
     const t = transport({ '137': { 1: inPeriod('a') }, '189': { 1: inPeriod('b') } })
     const { repo, finished } = repository()

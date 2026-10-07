@@ -40,9 +40,13 @@ function harness(
     readonly sweepRejects?: boolean
     readonly failedFinishRejects?: boolean
     readonly onRead?: (postId: string) => void
+    readonly pacing?: CollectionPacing
   } = {},
 ) {
   const events: string[] = []
+  /** How long the walk slept before each read. */
+  const pauses: number[] = []
+  let slept = 0
   const errors: string[] = []
   const sweeps: number[] = []
   /** What the runner asked of the repository, by window. */
@@ -84,6 +88,8 @@ function harness(
     read: async (postId) => {
       events.push(`read ${postId}`)
       setup.onRead?.(postId)
+      pauses.push(slept)
+      slept = 0
       const answer = answers[postId]
       if (typeof answer === 'string') throw new CollectionPageError(answer, `id ${postId}`)
       if (answer === undefined) throw new Error(`no answer for ${postId}`)
@@ -93,14 +99,28 @@ function harness(
   let id = 0
   const runner = createArticleProbeRunner({
     repository: () => (setup.storage === false ? null : repository), fetcher, isConnected: () => setup.connected !== false, clock: { now: () => 0 }, random: { intInclusive: (min: number) => min },
-    pacing: () => NO_WAIT, sleep: async () => undefined, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
+    pacing: () => setup.pacing ?? NO_WAIT, sleep: async (ms) => { slept += ms }, isSessionBusy: () => false, lock: createCollectionLock(), newId: () => `run-${++id}`,
     onError: (error) => { errors.push(error instanceof Error ? error.message : String(error)) },
   })
   const settle = async () => { while (runner.isRunning()) await new Promise((resolve) => setTimeout(resolve, 0)) }
-  return { runner, events, errors, sweeps, asked, settle }
+  return { runner, events, errors, sweeps, asked, pauses, settle }
+}
+
+/** One second a page and two more every twentieth, so an ordinal shows in the pause before its read. */
+const PACED: CollectionPacing = {
+  perPage: { minSeconds: 1, maxSeconds: 1 },
+  everyTwentyPages: { minSeconds: 2, maxSeconds: 2 },
+  everyHundredPages: { minSeconds: 0, maxSeconds: 0 },
 }
 
 describe('articleProbeRunner', () => {
+  it('paces its first read on the requests the block made before it', async () => {
+    const h = harness(['2', '3'], { 2: DELETED, 3: DELETED }, { pacing: PACED })
+    h.runner.start({ maxPages: 10, window: WINDOW, requestsBefore: 18 })
+    await h.settle()
+    expect(h.pauses).toEqual([1_000, 3_000])
+  })
+
   it('reads each waiting id in order and records what the cafe said', async () => {
     const h = harness(['2', '3', '4', '5', '6'], { 2: live('2', '137'), 3: DELETED, 4: LOGIN, 5: live('5', '188'), 6: live('6', '137', true) })
     expect(h.runner.start({ maxPages: 10, window: WINDOW })).toEqual({ kind: 'started' })

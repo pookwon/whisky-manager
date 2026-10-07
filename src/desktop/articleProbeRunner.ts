@@ -40,7 +40,8 @@ export interface ArticleProbeBlockFailure extends FailedRunStopReason {
 }
 
 export interface ArticleProbeRunner {
-  start(request: { readonly maxPages: number; readonly window: ArticleProbeWindowDays; readonly onBlockEnd?: OnCollectionBlockEnd }): CollectionStartResult
+  /** `requestsBefore`: requests the block made before this walk; its pacing counts on from them. */
+  start(request: { readonly maxPages: number; readonly window: ArticleProbeWindowDays; readonly onBlockEnd?: OnCollectionBlockEnd; readonly requestsBefore?: number }): CollectionStartResult
   stop(): void
   isRunning(): boolean
   /** Null between blocks, and while a block has not started its run. */
@@ -75,7 +76,7 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
    * closed as stored without a request. Any failure ends the block and leaves
    * its id waiting: whatever refused one read would refuse the next.
    */
-  async function walkIds(repository: ArticleProbeRepository, window: ArticleProbeWindowDays, runId: string, maxPages: number, pacing: CollectionPacing): Promise<'drained' | 'budget'> {
+  async function walkIds(repository: ArticleProbeRepository, window: ArticleProbeWindowDays, runId: string, maxPages: number, waitTurn: (ordinal: number) => Promise<void>): Promise<'drained' | 'budget'> {
     const collectedBoardIds = new Set(await repository.listCollectedBoardIds())
     let requested = 0
     for (;;) {
@@ -94,7 +95,7 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
         await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
         return 'budget'
       }
-      await waitForReadTurn(readTurn, requested + 1, pacing)
+      await waitTurn(requested + 1)
       await repository.recordPageRequest(runId)
       requested += 1
       blockProgress = { requested, maxPages }
@@ -105,12 +106,13 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
   }
 
   /** One block is one run. It first closes a probe run an earlier block could not: the lock is held, so none is being written. */
-  async function walk(repository: ArticleProbeRepository, maxPages: number, window: ArticleProbeWindowDays): Promise<CollectionBlockEnd> {
+  async function walk(repository: ArticleProbeRepository, maxPages: number, window: ArticleProbeWindowDays, requestsBefore: number): Promise<CollectionBlockEnd> {
     await repository.reconcileOrphanedRuns(now())
     const job: ArticleProbeJob | null = await repository.readJob(window)
     if (abortRequested) return { requests: 0, endedBy: 'stopped' }
     if (job === null || job.probed === job.total) return { requests: 0, endedBy: 'drained' }
     const pacing = deps.pacing()
+    const waitTurn = (ordinal: number) => waitForReadTurn(readTurn, requestsBefore + ordinal, pacing)
     const runId = deps.newId()
     try {
       await repository.startRun({ id: runId, fromDay: job.fromDay, toDay: job.toDay, startedAt: now() })
@@ -121,7 +123,7 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
     }
     blockProgress = { requested: 0, maxPages }
     try {
-      const endedBy = await walkIds(repository, window, runId, maxPages, pacing)
+      const endedBy = await walkIds(repository, window, runId, maxPages, waitTurn)
       return { requests: requestedSoFar(), endedBy }
     } catch (error) {
       // A run this write cannot close stays `running` until the next block's
@@ -147,7 +149,7 @@ export function createArticleProbeRunner(deps: ArticleProbeRunnerDeps): ArticleP
       abortRequested = false
       lastBlockFailure = null
       let end: CollectionBlockEnd = { requests: 0, endedBy: 'failed' }
-      inFlight = walk(repository, request.maxPages, request.window)
+      inFlight = walk(repository, request.maxPages, request.window, request.requestsBefore ?? 0)
         // A stop decides the verdict however it surfaced: as ABORTED, a failed read, or not at all.
         .then((walked) => { end = abortRequested ? { ...walked, endedBy: 'stopped' } : walked })
         .catch((error: unknown) => {
