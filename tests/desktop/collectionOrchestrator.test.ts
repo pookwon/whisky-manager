@@ -568,18 +568,66 @@ describe('collection planning and orchestration', () => {
     // older than the period, so that empty page is the only end their walk meets.
     const { repo, finished, horizon } = repositoryWithCheckpoint({ anchorPostId: 'a', anchorPostedAtMs: 280, referencePage: 2, stateVersion: 1 })
     const pages: Record<number, ReturnType<typeof page>> = { 2: page([post('a', 280), post('b', 270)], 3) }
-    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n) => pages[n] ?? page([], 3) } })
+    const fetched: number[] = []
+    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n) => { fetched.push(n); return pages[n] ?? page([], 3) } } })
     const result = await orchestrator.run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 30 })
     expect(result).toMatchObject({ kind: 'succeeded' })
     expect(finished).toEqual(['succeeded:'])
     expect(horizon).toEqual([])
+    // Two empty answers in a row are the end; one could be the cafe stumbling.
+    expect(fetched).toEqual([2, 3, 3])
   })
 
-  it('reads an empty page as the end of the list while looking for the period', async () => {
+  it('carries on a walk past an empty answer the second read fills', async () => {
+    const { repo, finished, persisted } = repositoryWithCheckpoint({ anchorPostId: 'a', anchorPostedAtMs: 280, referencePage: 2, stateVersion: 1 })
+    const pages: Record<number, ReturnType<typeof page>> = {
+      2: page([post('a', 280), post('b', 270)], 3),
+      3: page([post('b', 270), post('c', 260), post('d', 250)], 3),
+    }
+    let pageThreeReads = 0
+    const fetched: number[] = []
+    const read = async (n: number) => {
+      fetched.push(n)
+      if (n === 3 && (pageThreeReads += 1) === 1) return page([], 3)
+      return pages[n] ?? page([], 3)
+    }
+    const result = await createCollectionOrchestrator({ ...deps(repo), fetcher: { read } }).run({ feed, run: { ...run, resumeFromCheckpoint: true }, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'succeeded' })
+    expect(finished).toEqual(['succeeded:'])
+    // b from the anchor's page, then page 3 as its second read answered it.
+    expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['b', 'c', 'd'])
+    expect(fetched).toEqual([2, 3, 3, 4, 4])
+  })
+
+  it('reads two empty answers as the end of the list while looking for the period, whatever their page info says', async () => {
     // Boards 43 and 253: page 4 is past the list's end and answers empty, so it
-    // bounds the search rather than failing it — whatever its page info says.
-    const pages = { 1: page([post('1', 300)]), 2: page([post('2', 295)]), 3: page([post('3', 280)]), 4: page([], 10) }
-    await expect(findCollectionStartPage(probeReader(pages), 290)).resolves.toMatchObject({ kind: 'found', page: 3 })
+    // bounds the search rather than failing it. It is read twice first: a
+    // single empty answer could be the cafe stumbling, and believing it would
+    // bound the search short.
+    const { repo } = repository()
+    const pages = { 1: page([post('1', 300)]), 2: page([post('2', 295)]), 3: page([post('3', 280)]) }
+    const fetched: number[] = []
+    const read = async (n: number) => { fetched.push(n); return pages[n as keyof typeof pages] ?? page([], 10) }
+    const result = await createCollectionOrchestrator({ ...deps(repo), fetcher: { read } }).run({ feed, run, maxPages: 30 })
+    expect(result).toMatchObject({ kind: 'succeeded', pagesStored: 1 })
+    expect(fetched.slice(0, 5)).toEqual([1, 2, 4, 4, 3])
+  })
+
+  it('carries on the start-page search past an empty answer the second read fills', async () => {
+    // A horizon board answering one page empty must not come out holding nothing.
+    const { repo, finished, persisted } = repository()
+    const horizon: CollectionFeed[] = []
+    repo.markHorizonReached = async (reached) => { horizon.push(reached) }
+    let stumbled = false
+    const read = async (n: number) => {
+      if (n === 4 && !stumbled) { stumbled = true; return page([], 10) }
+      return n <= FEED_HORIZON_PAGE ? page([post(`p${n}`, 300)], Math.min(FEED_HORIZON_PAGE, n + 9)) : page([post('fresh', 300)], 10)
+    }
+    const result = await createCollectionOrchestrator({ ...deps(repo), fetcher: { read } }).run({ feed, run, maxPages: 40 })
+    expect(result).toMatchObject({ kind: 'partial', reason: 'FEED_HORIZON' })
+    expect(finished).toEqual(['partial:FEED_HORIZON'])
+    expect(horizon).toEqual([feed])
+    expect(persisted).toHaveLength(0)
   })
 
   it('walks a board whose list ends inside the period from the page the search found to its empty end', async () => {
@@ -589,11 +637,15 @@ describe('collection planning and orchestration', () => {
       2: page([post('n3', 294), post('n4', 292)]),
       3: page([post('in-1', 280), post('in-2', 250)]),
     }
-    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n: number) => pages[n as keyof typeof pages] ?? page([], 10) } })
+    const fetched: number[] = []
+    const orchestrator = createCollectionOrchestrator({ ...deps(repo), fetcher: { read: async (n: number) => { fetched.push(n); return pages[n as keyof typeof pages] ?? page([], 10) } } })
     const result = await orchestrator.run({ feed, run, maxPages: 30 })
     expect(result).toMatchObject({ kind: 'succeeded', pagesStored: 1 })
     expect(finished).toEqual(['succeeded:'])
     expect(persisted.flatMap((input) => input.page.items.map((item) => item.postId))).toEqual(['in-1', 'in-2'])
+    // Every empty answer is read once more before it is believed: twice in the
+    // search's bound, twice at the walk's end.
+    expect(fetched).toEqual([1, 2, 4, 4, 3, 3, 4, 4])
   })
 
   it('leaves the unclassified exception on the run so the list says what broke', async () => {

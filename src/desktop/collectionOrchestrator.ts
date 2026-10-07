@@ -5,7 +5,7 @@ import type { Random } from '../shared/ports.js'
 import { collectionDelayMs, type CollectionPacing } from '../shared/collectionPacing.js'
 import type { CollectionFeed, CollectionFeedState, CollectionRepository, CreateCollectionRunInput } from './collection-db/repository.js'
 import { locateResumePosition } from './collectionResume.js'
-import { isPastListEnd } from './collectionListEnd.js'
+import { isPastListEnd, readConfirmingEmpty } from './collectionListEnd.js'
 import { CollectionPageError } from './collectionPageError.js'
 import { failedRunStopReason } from './failedRunStopReason.js'
 import { pauseUnlessStopped } from './collectionPause.js'
@@ -118,9 +118,11 @@ function createScheduledReader(deps: CollectionOrchestratorDeps, runId: string, 
     observations.set(value, observedAt)
     return value
   }
+  // Every page goes through here, so the start-page search, the walk, its
+  // rewinds and the resume all take an empty answer only when it repeats.
   return {
-    probe: (page) => read(page, 'probe'),
-    collect: (page) => read(page, 'collection'),
+    probe: (page) => readConfirmingEmpty(() => read(page, 'probe')),
+    collect: (page) => readConfirmingEmpty(() => read(page, 'collection')),
     observedAt(page) {
       const value = observations.get(page)
       if (value === undefined) throw new CollectionPageError('BOARD_PAGE_OBSERVATION_TIME_MISSING')
