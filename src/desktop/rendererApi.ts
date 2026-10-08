@@ -115,6 +115,10 @@ export interface RendererApiDeps {
   readonly getDayPreview: () => import('./preview.js').StartupPreview | null
   /** Epoch timestamp when the bridge was last seen up, or null if it never was. */
   readonly lastBridgeConnectedAt: () => number | null
+  /** This build's version, as the shell reports it. */
+  readonly appVersion: string
+  /** The connected extension's version, or null when none is connected or it sent none. */
+  readonly extensionVersion: () => string | null
   /** When that automation's next session is scheduled to run, or null if it is not running. */
   readonly nextSessionAt: (automationId: string) => number | null
   /** What that automation's session in flight is doing, or null when none is running. */
@@ -500,6 +504,8 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         lastWarm: deps.lastWarm(),
         bridgeStatus: calculateBridgeStatus(),
         extensionEverPaired: settings.get(BOUND_EXTENSION_ID_KEY) !== undefined,
+        appVersion: deps.appVersion,
+        extensionVersion: deps.extensionVersion(),
         withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
         activeHourStart: deps.limits.activeHourStart,
         activeHourEnd: deps.limits.activeHourEnd,

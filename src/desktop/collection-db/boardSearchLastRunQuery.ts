@@ -8,6 +8,9 @@ type RunStatus = (typeof collectionRuns.$inferSelect)['status']
 export interface BoardSearchLastRun {
   readonly status: RunStatus
   readonly stopReason: string | null
+  /** Epoch ms, so the row can say when it failed; a run still going has no end. */
+  readonly startedAtMs: number
+  readonly finishedAtMs: number | null
 }
 
 export interface BoardSearchJobWindow {
@@ -34,6 +37,8 @@ export function createBoardSearchLastRunQuery(db: CollectionDatabase): BoardSear
           query: collectionRuns.searchQuery,
           status: collectionRuns.status,
           stopReason: collectionRuns.stopReason,
+          startedAt: collectionRuns.startedAt,
+          finishedAt: collectionRuns.finishedAt,
         })
         .from(collectionRuns)
         .where(
@@ -45,7 +50,13 @@ export function createBoardSearchLastRunQuery(db: CollectionDatabase): BoardSear
           ),
         )
         .orderBy(collectionRuns.searchQuery, desc(collectionRuns.startedAt))
-      return new Map(rows.flatMap((row) => (row.query === null ? [] : [[row.query, { status: row.status, stopReason: row.stopReason }] as const])))
+      return new Map(
+        rows.flatMap((row) =>
+          row.query === null
+            ? []
+            : [[row.query, { status: row.status, stopReason: row.stopReason, startedAtMs: row.startedAt.getTime(), finishedAtMs: row.finishedAt?.getTime() ?? null }] as const],
+        ),
+      )
     },
   }
 }

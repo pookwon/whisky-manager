@@ -127,6 +127,13 @@ describe('isExtensionMessage', () => {
     ).toBe(true)
   })
 
+  it('accepts a HELLO with the extension version, and rejects one that is not a string', () => {
+    const hello = { type: 'HELLO', token: 't', extensionId: 'abc', protocolVersion: PROTOCOL_VERSION }
+    expect(isExtensionMessage({ ...hello, extensionVersion: '1.9.15' })).toBe(true)
+    expect(isExtensionMessage({ ...hello, extensionVersion: 1915 })).toBe(false)
+    expect(isExtensionMessage({ ...hello, token: 7 })).toBe(false)
+  })
+
   it('accepts a COMMENTS reply', () => {
     expect(isExtensionMessage({ type: 'COMMENTS', requestId: 'r9', authors: ['cafe-ops'] })).toBe(true)
   })

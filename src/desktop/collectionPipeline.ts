@@ -16,7 +16,7 @@ import {
 } from './collectionPipelineStage.js'
 import type { CollectionRunKind, CollectionRunner, CollectionStartResult } from './collectionRunner.js'
 import { describeJob, type JobDescription } from './collectionScope.js'
-import { stopReasonCode } from './failedRunStopReason.js'
+import { stopReasonCode } from '../shared/stopReasonCode.js'
 
 export interface CollectionPipelineStores {
   readonly collection: CollectionRepository

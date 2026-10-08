@@ -4,6 +4,7 @@ import type { ArticleProbeBlockFailure, ArticleProbeProgress } from '../../../de
 import type { ArticleProbeJob, ArticleProbeLastRun } from '../../../desktop/collection-db/articleProbeRepository.js'
 import { formatKstDateTime } from '../../format.js'
 import { dayKeyLabel } from './boardSearchLines.js'
+import { describeStopReason } from './stopReasonLines.js'
 
 export function articleProbeProgressLine(progress: ArticleProbeProgress | null): string | null {
   return progress === null ? null : TEXT.articleProbe.progress(progress.requested, progress.maxPages)
@@ -25,9 +26,9 @@ export function articleProbeWindowLine(window: { readonly fromDay: string; reado
  * not a failure and says nothing.
  */
 export function articleProbeFailureLine(blockFailure: ArticleProbeBlockFailure | null, lastRun: ArticleProbeLastRun | null): string | null {
-  if (blockFailure !== null) return TEXT.articleProbe.blockFailed(formatKstDateTime(blockFailure.atMs), blockFailure.stopReason)
+  if (blockFailure !== null) return TEXT.articleProbe.blockFailed(formatKstDateTime(blockFailure.atMs), describeStopReason(blockFailure.stopReason))
   if (lastRun === null || lastRun.status !== 'failed') return null
-  return TEXT.articleProbe.runFailed(formatKstDateTime(lastRun.startedAtMs), lastRun.stopReason ?? lastRun.status)
+  return TEXT.articleProbe.runFailed(formatKstDateTime(lastRun.startedAtMs), lastRun.stopReason === null ? lastRun.status : describeStopReason(lastRun.stopReason))
 }
 
 export function articleProbeHeadlineLine(job: ArticleProbeJob): string {

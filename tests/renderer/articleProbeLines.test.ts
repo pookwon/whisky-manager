@@ -26,8 +26,9 @@ describe('article probe wording', () => {
 
   it('warns of the block that left no run first, then of a failed last run, and of nothing else', () => {
     const failed = { status: 'failed' as const, stopReason: 'ARTICLE_PROBE_UNKNOWN_ANSWER: id 700001 500 9999', startedAtMs: AT }
-    expect(articleProbeFailureLine({ code: 'COLLECTION_FAILURE', stopReason: 'COLLECTION_FAILURE: x', atMs: AT }, failed)).toBe('09-26 17:47 차례가 실행을 남기지 못하고 끝났습니다 · COLLECTION_FAILURE: x')
-    expect(articleProbeFailureLine(null, failed)).toBe('09-26 17:47 차례가 멈췄습니다 · ARTICLE_PROBE_UNKNOWN_ANSWER: id 700001 500 9999')
+    expect(articleProbeFailureLine({ code: 'COLLECTION_FAILURE', stopReason: 'COLLECTION_FAILURE: x', atMs: AT }, failed)).toBe('09-26 17:47 차례가 실행을 남기지 못하고 끝났습니다 · 수집 중 오류가 발생했습니다 (COLLECTION_FAILURE: x)')
+    expect(articleProbeFailureLine(null, failed)).toBe('09-26 17:47 차례가 멈췄습니다 · 글 번호 확인 응답을 판단하지 못했습니다 (ARTICLE_PROBE_UNKNOWN_ANSWER: id 700001 500 9999)')
+    expect(articleProbeFailureLine(null, { status: 'failed', stopReason: 'NEW_CODE', startedAtMs: AT })).toBe('09-26 17:47 차례가 멈췄습니다 · NEW_CODE')
     expect(articleProbeFailureLine(null, { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT', startedAtMs: AT })).toBeNull()
     expect(articleProbeFailureLine(null, null)).toBeNull()
   })

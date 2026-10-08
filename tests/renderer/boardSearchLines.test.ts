@@ -16,6 +16,10 @@ import type { BoardSearchQueryView } from '../../src/desktop/boardSearchView.js'
 import type { BoardSearchLastRun } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 import { TEXT } from '../../src/shared/text.js'
 
+// 2026-10-08 17:54 KST.
+const RUN_AT = Date.UTC(2026, 9, 8, 8, 54)
+const run = (status: BoardSearchLastRun['status'], stopReason: string | null, finishedAtMs: number | null = RUN_AT): BoardSearchLastRun => ({ status, stopReason, startedAtMs: RUN_AT - 60_000, finishedAtMs })
+
 const query = (q: string, complete: boolean, lastRun: BoardSearchLastRun | null = null): BoardSearchQueryView => ({
   boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, belowProbeYield: false, lastRunId: null, lastRun,
 })
@@ -45,7 +49,7 @@ describe('board search wording', () => {
   })
 
   it('tells a finished, walking and waiting query apart', () => {
-    const walking = { status: 'running', stopReason: null } as const
+    const walking = run('running', null, null)
     expect(boardSearchQueryState(query('글렌', true), true)).toBe('done')
     expect(boardSearchQueryState(query('구매', false, walking), true)).toBe('walking')
     expect(boardSearchQueryState(query('구매', false), false)).toBe('waiting')
@@ -59,22 +63,26 @@ describe('board search wording', () => {
   })
 
   it('marks a query whose last run failed, until it is walked again', () => {
-    const failed = { status: 'failed', stopReason: 'BOARD_SEARCH_OUT_OF_WINDOW' } as const
+    const failed = run('failed', 'BOARD_SEARCH_OUT_OF_WINDOW')
     // A query's own failure moves the block on while the failed query is still
     // the first unfinished one: the row stays failed while the next one walks.
     expect(boardSearchQueryState(query('글렌', false, failed), true)).toBe('failed')
     expect(boardSearchQueryState(query('글렌', false, failed), false)).toBe('failed')
     expect(boardSearchQueryState(query('글렌', true, failed), false)).toBe('done')
-    expect(boardSearchQueryState(query('글렌', false, { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' }), false)).toBe('waiting')
+    expect(boardSearchQueryState(query('글렌', false, run('partial', 'PAGE_BUDGET_SPENT')), false)).toBe('waiting')
   })
 
-  it('says why a failed query stopped', () => {
-    const failed = query('글렌', false, { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR' })
-    expect(boardSearchQueryStateText(failed, 'failed')).toBe(TEXT.boardSearch.failedWith('BOARD_SEARCH_HTTP_ERROR'))
-    expect(TEXT.boardSearch.failedWith('BOARD_SEARCH_HTTP_ERROR')).toContain('BOARD_SEARCH_HTTP_ERROR')
-    expect(boardSearchQueryStateText(query('글렌', false, { status: 'failed', stopReason: null }), 'failed')).toBe(TEXT.boardSearch.states.failed)
+  it('says when and why a failed query stopped, with the code kept for the report', () => {
+    const failed = query('글렌', false, run('failed', 'BOARD_SEARCH_PARSE_ERROR: INVALID_ARTICLE: result.articleList[5].item.headName is missing'))
+    expect(boardSearchQueryStateText(failed, 'failed')).toBe(
+      '실패 10-08 17:54 · 검색 결과 응답을 해석하지 못했습니다 (BOARD_SEARCH_PARSE_ERROR: INVALID_ARTICLE: result.articleList[5].item.headName is missing)',
+    )
+    // A code this build does not know is shown as itself.
+    expect(boardSearchQueryStateText(query('글렌', false, run('failed', 'SOMETHING_NEW: x')), 'failed')).toBe('실패 10-08 17:54 · SOMETHING_NEW: x')
+    // A run that never ended is dated by its start.
+    expect(boardSearchQueryStateText(query('글렌', false, run('failed', null, null)), 'failed')).toBe('실패 10-08 17:53')
     // A partial run's reason is the budget, not a fault; the row does not repeat it.
-    expect(boardSearchQueryStateText(query('글렌', false, { status: 'partial', stopReason: 'PAGE_BUDGET_SPENT' }), 'waiting')).toBe(TEXT.boardSearch.states.waiting)
+    expect(boardSearchQueryStateText(query('글렌', false, run('partial', 'PAGE_BUDGET_SPENT')), 'waiting')).toBe(TEXT.boardSearch.states.waiting)
   })
 
   it('shows the search total as a floor once it reaches the cap the search reports', () => {
@@ -98,7 +106,7 @@ describe('board search wording', () => {
     // 2026-09-26 03:06:32 KST.
     const atMs = Date.UTC(2026, 8, 25, 18, 6, 32)
     const stopReason = 'COLLECTION_FAILURE: error: duplicate key value violates unique constraint "runs_one_running_feed"'
-    expect(boardSearchBlockFailureLine({ code: 'COLLECTION_FAILURE', stopReason, atMs })).toBe(TEXT.boardSearch.blockFailed('09-26 03:06', stopReason))
+    expect(boardSearchBlockFailureLine({ code: 'COLLECTION_FAILURE', stopReason, atMs })).toBe(TEXT.boardSearch.blockFailed('09-26 03:06', `수집 중 오류가 발생했습니다 (${stopReason})`))
     expect(TEXT.boardSearch.blockFailed('09-26 03:06', 'x')).toBe('09-26 03:06 차례가 실행을 남기지 못하고 끝났습니다 · x')
     expect(boardSearchBlockFailureLine(null)).toBeNull()
   })

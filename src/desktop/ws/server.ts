@@ -17,6 +17,11 @@ export interface ExtensionTransport {
 
 export interface BridgeServer extends ExtensionTransport {
   readonly port: number
+  /**
+   * The connected extension's manifest version; null while none is connected
+   * and null for an extension too old to send one.
+   */
+  extensionVersion(): string | null
   /** Rotates trust so only the new token can bind a replacement extension. */
   resetPairing(token: string): void
   close(): Promise<void>
@@ -47,6 +52,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
   const wss = new WebSocketServer({ host: '127.0.0.1', port: options.port ?? 0, maxPayload: BRIDGE_MAX_PAYLOAD_BYTES })
   const pending = new Map<string, Pending>()
   let peer: WebSocket | null = null
+  let peerExtensionVersion: string | null = null
   let bound = options.boundExtensionId
   let expectedToken = options.token
 
@@ -96,6 +102,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
         }
         authorised = true
         peer = socket
+        peerExtensionVersion = parsed.extensionVersion ?? null
         if (bound === null) {
           bound = verdict.boundExtensionId
           options.onBind?.(verdict.boundExtensionId)
@@ -137,7 +144,10 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
     // A request whose socket is gone can never be answered. Failing it now
     // spares the caller its whole timeout, and the timer with it.
     socket.on('close', () => {
-      if (peer === socket) peer = null
+      if (peer === socket) {
+        peer = null
+        peerExtensionVersion = null
+      }
       rejectPending('extension disconnected', socket)
     })
   })
@@ -147,6 +157,10 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 
     isConnected() {
       return peer !== null
+    },
+
+    extensionVersion() {
+      return peer === null ? null : peerExtensionVersion
     },
 
     request(message, timeoutMs, onInterim) {
@@ -175,6 +189,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       bound = null
       rejectPending('bridge pairing reset')
       peer = null
+      peerExtensionVersion = null
       // More than one socket can have completed HELLO before the latest one
       // became `peer`. Pairing reset revokes all live trust, not just the most
       // recently selected transport.
@@ -188,6 +203,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
       // accepted or half-authorised socket before waiting for the listener.
       for (const socket of wss.clients) socket.terminate()
       peer = null
+      peerExtensionVersion = null
       await new Promise<void>((resolve) => wss.close(() => resolve()))
     },
   }

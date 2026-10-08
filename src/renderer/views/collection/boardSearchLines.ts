@@ -4,6 +4,7 @@ import type { BoardSearchCoverage } from '../../../desktop/collection-db/boardSe
 import type { BoardSearchBlockFailure, BoardSearchProgress } from '../../../desktop/boardSearchRunner.js'
 import type { BoardSearchJobView, BoardSearchQueryView } from '../../../desktop/boardSearchView.js'
 import { formatKstDateTime } from '../../format.js'
+import { describeStopReason } from './stopReasonLines.js'
 
 const DAY_KEY = /^(\d{4})(\d{2})(\d{2})$/
 
@@ -44,10 +45,15 @@ export function boardSearchQueryState(query: BoardSearchQueryView, running: bool
   return query.lastRun?.status === 'failed' ? 'failed' : 'waiting'
 }
 
-/** A failed row carries its stop reason, so why it failed is on the screen and not only in the database. */
+/**
+ * A failed row carries when its run ended and its stop reason, so why it failed
+ * and under which build is on the screen and not only in the database.
+ */
 export function boardSearchQueryStateText(query: BoardSearchQueryView, state: BoardSearchQueryStateKind): string {
-  const reason = state === 'failed' ? (query.lastRun?.stopReason ?? null) : null
-  return reason === null ? TEXT.boardSearch.states[state] : TEXT.boardSearch.failedWith(reason)
+  const run = state === 'failed' ? query.lastRun : null
+  if (run === null || run === undefined) return TEXT.boardSearch.states[state]
+  const at = formatKstDateTime(run.finishedAtMs ?? run.startedAtMs)
+  return run.stopReason === null ? TEXT.boardSearch.failedAt(at) : TEXT.boardSearch.failedWith(at, describeStopReason(run.stopReason))
 }
 
 export function boardSearchProgressLine(progress: BoardSearchProgress | null): string | null {
@@ -59,7 +65,7 @@ export function boardSearchProgressLine(progress: BoardSearchProgress | null): s
  * button would come back as if nothing had been pressed.
  */
 export function boardSearchBlockFailureLine(failure: BoardSearchBlockFailure | null): string | null {
-  return failure === null ? null : TEXT.boardSearch.blockFailed(formatKstDateTime(failure.atMs), failure.stopReason)
+  return failure === null ? null : TEXT.boardSearch.blockFailed(formatKstDateTime(failure.atMs), describeStopReason(failure.stopReason))
 }
 
 /** The search's own total, read as "at least" once it reaches the count it stops at. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CollectionPageError } from '../../src/desktop/collectionOrchestrator.js'
-import { failedRunStopReason, stopReasonCode } from '../../src/desktop/failedRunStopReason.js'
+import { failedRunStopReason } from '../../src/desktop/failedRunStopReason.js'
+import { stopReasonCode } from '../../src/shared/stopReasonCode.js'
 
 describe('failedRunStopReason', () => {
   it('keeps a bare page error bare', () => {

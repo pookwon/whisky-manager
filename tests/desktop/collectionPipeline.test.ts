@@ -168,7 +168,7 @@ describe('collectionPipeline', () => {
     const h = harness({
       feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })],
       queries: [query('137', '홈플', 1, true), query('137', '구매', 2)],
-      lastRuns: { 구매: { status: 'failed', stopReason: 'BOARD_SEARCH_OUT_OF_WINDOW: 20231231' } },
+      lastRuns: { 구매: { status: 'failed', stopReason: 'BOARD_SEARCH_OUT_OF_WINDOW: 20231231', startedAtMs: 1, finishedAtMs: 2 } },
     })
     await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
     expect(h.calls).toEqual([
@@ -206,7 +206,7 @@ describe('collectionPipeline', () => {
   })
 
   it('keeps searching while an unfinished query last failed the way every query would, or has not run', async () => {
-    for (const lastRuns of [{ 구매: { status: 'failed' as const, stopReason: 'BOARD_SEARCH_HTTP_ERROR: 500' } }, {}]) {
+    for (const lastRuns of [{ 구매: { status: 'failed' as const, stopReason: 'BOARD_SEARCH_HTTP_ERROR: 500', startedAtMs: 1, finishedAtMs: 2 } }, {}]) {
       const h = harness({
         feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })],
         queries: [query('137', '홈플', 1, true), query('137', '구매', 2)],
