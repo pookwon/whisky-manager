@@ -6,6 +6,7 @@ import type { CollectionRepository } from './collection-db/repository.js'
 import type { ArticleProbeRunner } from './articleProbeRunner.js'
 import { planBoardSearchJob } from './boardSearchPlan.js'
 import { isQueryOwnFailure, type BoardSearchRunner } from './boardSearchRunner.js'
+import { BOARD_SEARCH_GIVE_UP_STREAK, isSearchGivenUp } from './boardSearchYield.js'
 import type { CollectionBlockEnd } from './collectionBlockEnd.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
 import {
@@ -122,11 +123,19 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
     return false
   }
 
-  /** Whether every query is complete or keeps failing on its own results; the latter are logged. */
+  /**
+   * Whether every query is complete or keeps failing on its own results, or
+   * the last ones stopped paying for themselves: the probe reads what is left
+   * for less. The latter two are logged.
+   */
   async function isSearchSettled(stores: CollectionPipelineStores, stage: SearchStage, queries: readonly BoardSearchQueryState[]): Promise<boolean> {
     const unfinished = queries.filter((entry) => !entry.complete)
     const first = unfinished[0]
     if (first === undefined) return true
+    if (isSearchGivenUp(queries)) {
+      deps.onSkipped?.(`search ${stage.boardId}: last ${BOARD_SEARCH_GIVE_UP_STREAK} queries below the probe's yield, ${unfinished.length} left to the probe`)
+      return true
+    }
     const lastRuns = await stores.boardSearchLastRuns.read({ boardId: first.boardId, fromDay: first.fromDay, toDay: first.toDay })
     if (!unfinished.every((entry) => failedOnItsOwnResults(lastRuns.get(entry.query)))) return false
     deps.onSkipped?.(`search ${stage.boardId}: ${unfinished.length} queries left failing on their own results`)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { BOARD_SEARCH_GIVE_UP_STREAK } from '../../src/desktop/boardSearchYield.js'
 import { createCollectionPipeline, type CollectionPipelineStores } from '../../src/desktop/collectionPipeline.js'
 import type { CollectionBlockEnd, OnCollectionBlockEnd } from '../../src/desktop/collectionBlockEnd.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
@@ -22,8 +23,8 @@ function feed(menuId: string, queueOrder: number, facts: Partial<StoredFeedState
   }
 }
 
-function query(boardId: string, q: string, order: number, complete = false, fromDay = '20240101'): BoardSearchQueryState {
-  return { boardId, query: q, fromDay, toDay: '20240301', segmentToDay: null, queueOrder: order, expectedGain: 5, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null }
+function query(boardId: string, q: string, order: number, complete = false, fromDay = '20240101', belowProbeYield = false): BoardSearchQueryState {
+  return { boardId, query: q, fromDay, toDay: '20240301', segmentToDay: null, queueOrder: order, expectedGain: 5, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, belowProbeYield, lastRunId: null }
 }
 
 function harness(setup: { feeds: StoredFeedState[]; queries?: BoardSearchQueryState[]; probe?: ArticleProbeJob | null; made?: number; titles?: string[]; lastRuns?: Record<string, BoardSearchLastRun>; failRead?: boolean; failStart?: 'list' | 'search' | 'probe' }) {
@@ -177,6 +178,31 @@ describe('collectionPipeline', () => {
       'create 20240101-20250102',
       'probe 50 20240101-20250102',
     ])
+  })
+
+  it('gives a board\'s search up to the probe once its last queries stopped paying for themselves', async () => {
+    const below = Array.from({ length: BOARD_SEARCH_GIVE_UP_STREAK }, (_, index) => query('137', `w${index}`, index + 1, true, '20240101', true))
+    const h = harness({
+      feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })],
+      queries: [query('137', '글렌', 0, true), ...below, query('137', '구매기', 99)],
+    })
+    await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
+    expect(h.calls).toEqual([
+      `skipped search 137: last ${BOARD_SEARCH_GIVE_UP_STREAK} queries below the probe's yield, 1 left to the probe`,
+      'searched 137',
+      'create 20240101-20250102',
+      'probe 50 20240101-20250102',
+    ])
+  })
+
+  it('keeps searching while the run of queries below the probe\'s yield is short of giving up', async () => {
+    const below = Array.from({ length: BOARD_SEARCH_GIVE_UP_STREAK - 1 }, (_, index) => query('137', `w${index}`, index + 1, true, '20240101', true))
+    const h = harness({
+      feeds: [feed('137', 1, { horizonReached: true, searchExtended: true })],
+      queries: [...below, query('137', '구매기', 99)],
+    })
+    await h.pipeline.start({ maxPages: 50, runKind: 'backfill' })
+    expect(h.calls).toEqual(['last runs 137 20240101-20240301', 'search 50'])
   })
 
   it('keeps searching while an unfinished query last failed the way every query would, or has not run', async () => {
