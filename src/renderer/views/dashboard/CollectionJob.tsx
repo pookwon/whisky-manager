@@ -104,6 +104,9 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
   const status = props.collection.kind === 'ready' ? props.collection.status : null
   const job = status?.job ?? null
   const running = status?.running ?? null
+  const walking = props.collection.kind === 'ready' && props.collection.walking
+  const active = walking || running !== null
+  const stopping = props.collection.kind === 'ready' && props.collection.stopping
   const lastFinished = status?.recentRuns.find((run) => run.status !== 'running') ?? null
 
   const days = job === null ? [] : periodDays(job)
@@ -131,19 +134,19 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
               <button
                 type="button"
                 className="btn"
-                disabled={props.busy || running !== null || status === null}
+                disabled={props.busy || active || status === null}
                 onClick={props.onCollectNow}
               >
-                {running !== null ? TEXT.collection.collectNowPending : TEXT.collection.collectNow}
+                {active ? TEXT.collection.collectNowPending : TEXT.collection.collectNow}
               </button>
               {props.onStartSchedule === null ? (
                 <button
                   type="button"
                   className="btn"
-                  disabled={props.busy || running === null}
+                  disabled={props.busy || !active || stopping}
                   onClick={props.onStop}
                 >
-                  {TEXT.collection.stop}
+                  {stopping ? TEXT.collection.stopping : TEXT.collection.stop}
                 </button>
               ) : (
                 <button

@@ -146,6 +146,8 @@ export const TEXT = {
     collectNow: '이어서 수집',
     collectNowPending: '수집 중…',
     stop: '중지',
+    /** The press that landed, in the stop button's own place, until the walk has finished its page and ended. */
+    stopping: '중지하는 중…',
     /** Ignoring the operating hours for the job in hand, and saying so. */
     /**
      * Said in full because it sits where '중지' otherwise sits: the two are one
@@ -375,6 +377,8 @@ export const TEXT = {
       sessionWaitingNoTime: '다음 세션을 기다리는 중입니다',
       collectionRunning: (elapsed: string, rest: number) =>
         `이번 블록 ${elapsed} — 끝나면 휴식 ${rest}분 뒤 다음 블록이 이어받습니다`,
+      /** A walk is under way but its run row is not written yet, so there is no elapsed time to give. */
+      collectionWalking: '수집이 진행 중입니다 — 이번 블록이 끝나면 휴식에 들어갑니다',
       collectionResting: (time: string) =>
         `다음 블록 ${time} · 블록 사이 휴식 중입니다 — 작업은 그대로 남아 있습니다`,
       collectionOutside: (window: string, time: string) =>
@@ -701,6 +705,7 @@ export const TEXT = {
     start: '회원 수집 시작',
     resume: '이어서 수집',
     stop: '중지',
+    stopping: '중지하는 중…',
     force: '활동 시간 무시',
     forceRelease: '활동 시간 지키기',
     forcedOn: '활동 시간을 무시하고 있습니다. 다 옮기면 저절로 풀립니다.',

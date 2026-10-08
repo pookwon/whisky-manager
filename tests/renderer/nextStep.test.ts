@@ -16,6 +16,16 @@ describe('nextStep', () => {
     expect(nextStep(inputs({ probe: probe(probeJob(), true), pipeline: { kind: 'probe', period: PERIOD } }), null)).toEqual({ kind: 'running', step: 'probe' })
   })
 
+  it('names the stage about to run while a walk is under way but has no run row yet', () => {
+    expect(nextStep(inputs({ walking: true, pipeline: { kind: 'list', period: PERIOD } }), null)).toEqual({ kind: 'running', step: 'list' })
+    expect(nextStep(inputs({ walking: true, pipeline: SEARCH }), null)).toEqual({ kind: 'running', step: 'search' })
+    expect(nextStep(inputs({ walking: true, pipeline: { kind: 'probe', period: PERIOD } }), null)).toEqual({ kind: 'running', step: 'probe' })
+  })
+
+  it('does not take a stage for a walk the pipeline has not started', () => {
+    expect(nextStep(inputs({ walking: false, pipeline: SEARCH }), null)).toMatchObject({ kind: 'resume' })
+  })
+
   it('offers to resume the stage the pipeline is at', () => {
     expect(nextStep(inputs({ status: status({ job: listJob() }), pipeline: { kind: 'list', period: PERIOD } }), 5)).toEqual({ kind: 'resume', stage: { kind: 'list', period: PERIOD }, nextRunAtMs: 5 })
     expect(nextStep(inputs({ pipeline: SEARCH }), null)).toEqual({ kind: 'resume', stage: SEARCH, nextRunAtMs: null })

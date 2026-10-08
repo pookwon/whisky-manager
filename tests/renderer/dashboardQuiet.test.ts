@@ -136,6 +136,8 @@ function view(
       idGaps: EMPTY_ID_GAP_REPORT,
     },
     pipeline: { kind: 'idle' },
+    walking: false,
+    stopping: false,
   }
 }
 
@@ -153,6 +155,15 @@ const SCHEDULE: CollectionScheduleView = {
 }
 
 describe('collectionJobState', () => {
+  it('reads a walk just started as running before its run row exists', () => {
+    const collection = { ...view(null), walking: true }
+    const state = collectionJobState({ nowMs: NOW, collection, schedule: SCHEDULE, bridgeStatus: 'CONNECTED' })
+
+    expect(state.tone).toBe('accent')
+    expect(state.status).toBe(TEXT.dashboard.job.running)
+    expect(state.why).toBe(TEXT.dashboard.quiet.collectionWalking)
+  })
+
   it('explains storage that was never configured as a choice, not a fault', () => {
     const state = collectionJobState({
       nowMs: NOW,

@@ -51,6 +51,7 @@ export function CollectionStatus(): React.JSX.Element {
     search: boardSearch?.kind === 'ready' ? boardSearch.view : null,
     probe: articleProbe?.kind === 'ready' ? articleProbe.view : null,
     pipeline: collection.pipeline,
+    walking: collection.walking,
   }
   const running = runningStep(inputs)
   const next = nextStep(inputs, schedule?.nextRunAtMs ?? null)
@@ -63,6 +64,7 @@ export function CollectionStatus(): React.JSX.Element {
         key={next.kind}
         next={next}
         busy={busy}
+        stopping={collection.stopping}
         act={act}
         onPickPeriod={() => setPeriodRequest((count) => (count ?? 0) + 1)}
       />
@@ -70,6 +72,8 @@ export function CollectionStatus(): React.JSX.Element {
         status={collection.status}
         pipeline={collection.pipeline}
         state={listStepState(inputs)}
+        listRunning={running === 'list'}
+        stopping={collection.stopping}
         otherRunning={otherThan('list')}
         busy={busy}
         act={act}

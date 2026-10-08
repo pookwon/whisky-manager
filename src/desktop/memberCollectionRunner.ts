@@ -40,6 +40,8 @@ export interface MemberCollectionRunner {
   start(request: MemberCollectionStartRequest): CollectionStartResult
   stop(): void
   isRunning(): boolean
+  /** A stop was asked and the walk has not ended yet: it finishes its page first. */
+  isStopping(): boolean
 }
 
 export function createMemberCollectionRunner(deps: MemberCollectionRunnerDeps): MemberCollectionRunner {
@@ -95,6 +97,9 @@ export function createMemberCollectionRunner(deps: MemberCollectionRunnerDeps): 
     },
     isRunning() {
       return inFlight !== null
+    },
+    isStopping() {
+      return inFlight !== null && abortRequested
     },
   }
 }

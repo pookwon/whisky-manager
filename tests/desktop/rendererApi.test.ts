@@ -85,6 +85,10 @@ interface CollectionOverrides {
   readonly replaceJobRows?: readonly StoredFeedState[]
   /** Whether a board search block is in flight. */
   readonly boardSearchBusy?: boolean
+  readonly memberWalkBusy?: boolean
+  readonly pipelineStopping?: boolean
+  readonly memberStopping?: boolean
+  readonly memberResyncBusy?: boolean
   /** The probe job readJob() returns; null or absent when none has been made. */
   readonly articleProbeJob?: ArticleProbeJob | null
   /** Whether a probe block is in flight. */
@@ -140,6 +144,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     },
     stop: () => { pipelineStops.count += 1 },
     isRunning: () => collection.pipelineBusy === true,
+    isStopping: () => collection.pipelineStopping === true,
   }
   const repos: AppRepos = {
     executions: createExecutionsRepo(db),
@@ -315,7 +320,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       stop: () => {
         memberStopped.push(true)
       },
-      isRunning: () => false,
+      isRunning: () => collection.memberWalkBusy ?? false,
+      isStopping: () => collection.memberStopping ?? false,
     },
     memberResyncRunner: {
       start: (request: MemberCollectionStartRequest) => {
@@ -325,7 +331,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
       stop: () => {
         memberResyncStopped.push(true)
       },
-      isRunning: () => false,
+      isRunning: () => collection.memberResyncBusy ?? false,
+      isStopping: () => false,
     },
     boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false, progress: () => null, blockFailure: () => null },
     articleProbeRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.articleProbeBusy ?? false, progress: () => null, blockFailure: () => null },
@@ -1192,6 +1199,26 @@ describe('running the collection around the clock', () => {
   })
 })
 
+describe('getMemberCollectionStatus running', () => {
+  it.each([
+    ['member walk', { memberWalkBusy: true }],
+    ['member re-walk', { memberResyncBusy: true }],
+  ])('reads a %s as running before its run row exists', async (_name, busy) => {
+    const { api } = build(MON_10_00, {}, { job: null, ...busy })
+    expect(await api.getMemberCollectionStatus()).toMatchObject({ kind: 'ready', status: { running: true } })
+  })
+
+  it('says a stop is pending while the member walk winds down after one was asked', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, memberWalkBusy: true, memberStopping: true })
+    expect(await api.getMemberCollectionStatus()).toMatchObject({ kind: 'ready', stopping: true })
+  })
+
+  it('reads no runner and no row as not running', async () => {
+    const { api } = build(MON_10_00, {}, { job: null })
+    expect(await api.getMemberCollectionStatus()).toMatchObject({ kind: 'ready', status: { running: false } })
+  })
+})
+
 describe('getMemberCollectionStatus', () => {
   it('reports disabled when there is no collection database', async () => {
     const { api } = build()
@@ -1410,6 +1437,26 @@ describe('getCollectionStatus', () => {
     }
     const { api } = build(MON_10_00, {}, { job })
     expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', pipeline: { kind: 'list' } })
+  })
+
+  it('says a walk is under way as soon as the pipeline does, before any run row exists', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, pipelineBusy: true })
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', walking: true, status: { running: null } })
+  })
+
+  it('says a stop is pending while the pipeline winds down after one was asked', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, pipelineBusy: true, pipelineStopping: true })
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', walking: true, stopping: true })
+  })
+
+  it('says no stop is pending when none was asked', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, pipelineBusy: true })
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', stopping: false })
+  })
+
+  it('says no walk is under way while the pipeline is idle', async () => {
+    const { api } = build(MON_10_00, {}, { job: null })
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', walking: false })
   })
 })
 

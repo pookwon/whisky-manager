@@ -169,7 +169,13 @@ export interface DashboardSnapshot {
 export type MemberCollectionStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
-  | { readonly kind: 'ready'; readonly status: MemberCollectionStatus; readonly resync: MemberResyncView }
+  | {
+      readonly kind: 'ready'
+      readonly status: MemberCollectionStatus
+      readonly resync: MemberResyncView
+      /** A stop was asked and the walk is finishing its page; the stop button reads that instead of looking unpressed. */
+      readonly stopping: boolean
+    }
 
 /** The search backfill follows the same three-state shape as the other collection screens. */
 export type BoardSearchStatusView =
@@ -192,7 +198,19 @@ export type ArticleProbeStatusView =
 export type CollectionStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
-  | { readonly kind: 'ready'; readonly status: CollectionStatus; readonly pipeline: CollectionPipelineStage }
+  | {
+      readonly kind: 'ready'
+      readonly status: CollectionStatus
+      readonly pipeline: CollectionPipelineStage
+      /**
+       * A walk is under way or about to write its run row. `status.running`
+       * is that row, and it lands a moment after a start returns — a screen
+       * reading only the row shows a pressed button as pressable again.
+       */
+      readonly walking: boolean
+      /** A stop was asked and the walk is finishing its page; the stop button reads that instead of looking unpressed. */
+      readonly stopping: boolean
+    }
 
 /**
  * The schedule as the screen edits it, with the two things only the app knows:
