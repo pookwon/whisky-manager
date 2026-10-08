@@ -6,6 +6,14 @@ import type { Random } from '../shared/ports.js'
 import type { BoardSearchQueryState, BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import type { BoardSearchPageFetcher } from './boardSearchPageFetcher.js'
 import { assertBoardSearchPage, assertBoardSearchPageFollows } from './boardSearchPageCheck.js'
+import {
+  BELOW_PROBE_YIELD,
+  endsBelowProbeYield,
+  isSearchGivenUp,
+  recordRequestYield,
+  shouldStopBelowProbeYield,
+  type EndedBoardSearchQuery,
+} from './boardSearchYield.js'
 import type { CollectionBlockEnd, OnCollectionBlockEnd } from './collectionBlockEnd.js'
 import type { CollectionLock } from './collectionLock.js'
 import type { CollectionClock } from './collectionOrchestrator.js'
@@ -73,6 +81,8 @@ type QueryOutcome = {
   readonly failed: boolean
   /** The failure of a run that could not be started, which no row records. */
   readonly unrecorded?: FailedRunStopReason
+  /** Set when the query's run finished it; null while the query still has pages to walk. */
+  readonly finished: { readonly belowProbeYield: boolean } | null
 }
 
 /** What a page says about the window the query walks. */
@@ -170,18 +180,30 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
      * seen on — nothing records which — so its empty page 1 is an end.
      */
     let firstPageHoldsPosts = query.segmentToDay !== null && query.lastCommittedPage === 1
+    /** New posts each of this run's latest requests brought in: a request is the price whatever it returns. */
+    let recentYield: readonly number[] = []
+    let inserted = 0
+    /** A resumed run's first read is its stored page again: nothing new is there to find, so it is no sign of the yield. */
+    const isReread = () => requests === 1 && query.lastCommittedPage !== null
+    const recordYield = (count: number): void => {
+      if (!isReread()) recentYield = recordRequestYield(recentYield, count)
+    }
+    const finish = async (belowProbeYield: boolean): Promise<QueryOutcome> => {
+      await repository.finishRun(runId, 'succeeded', belowProbeYield ? BELOW_PROBE_YIELD : null, now())
+      return { requests, endsBlock: false, failed: false, finished: { belowProbeYield } }
+    }
     const now = () => new Date(deps.clock.now())
     try {
       await repository.startRun({ id: runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, startedAt: now() })
     } catch (error) {
       // No row to finish. Whatever refused this insert would refuse the next.
-      return { requests, endsBlock: true, failed: true, unrecorded: failedRunStopReason(error) }
+      return { requests, endsBlock: true, failed: true, unrecorded: failedRunStopReason(error), finished: null }
     }
     try {
       for (;;) {
         if (requests >= budget) {
           await repository.finishRun(runId, 'partial', 'PAGE_BUDGET_SPENT', now())
-          return { requests, endsBlock: false, failed: false }
+          return { requests, endsBlock: false, failed: false, finished: null }
         }
         await waitTurn(spentBefore + requests + 1)
         await repository.recordPageRequest(runId)
@@ -195,18 +217,20 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
             throw new CollectionPageError('BOARD_SEARCH_SEGMENT_EMPTY', `segment to ${window.toDay}`)
           }
           step = segmentStepAtEmptyPage(pageNumber, result, previousPage, window)
+          recordYield(0)
         } else {
           assertBoardSearchPage(result, window)
           if (previousPage !== null) assertBoardSearchPageFollows(result, previousPage.oldestPostedAt)
-          await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
+          const written = await repository.persistPage({ runId, boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, page: pageNumber, observedAt, result })
+          recordYield(written.insertedPostCount)
+          inserted += written.insertedPostCount
           step = segmentStepAfter(pageNumber, result, window)
           previousPage = { oldestPostedAt: oldestPostedAt(result), isFull: isFullPage(result) }
           firstPageHoldsPosts = false
         }
-        if (step.kind === 'complete') {
-          await repository.finishRun(runId, 'succeeded', null, now())
-          return { requests, endsBlock: false, failed: false }
-        }
+        if (step.kind === 'complete') return await finish(endsBelowProbeYield({ insertedBefore: query.insertedCount, inserted, requests }))
+        // The rest of the query is the probe's: it reads those ids for less than these pages cost.
+        if (shouldStopBelowProbeYield(recentYield)) return await finish(true)
         if (step.kind === 'narrow') {
           await repository.narrowSegment({ boardId: query.boardId, query: query.query, fromDay: query.fromDay, toDay: query.toDay, segmentToDay: step.segmentToDay, at: now() })
           window = { ...window, toDay: step.segmentToDay }
@@ -226,17 +250,19 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
         repository.finishRun(runId, status, stopReason, now()).catch((closeError: unknown) => { deps.onError?.(closeError) })
       if (error instanceof CollectionPageError && error.code === 'ABORTED') {
         await close('interrupted', 'ABORTED')
-        return { requests, endsBlock: true, failed: false }
+        return { requests, endsBlock: true, failed: false, finished: null }
       }
       const failure = failedRunStopReason(error)
       await close('failed', failure.stopReason)
-      return { requests, endsBlock: !isQueryOwnFailure(failure.code), failed: true }
+      return { requests, endsBlock: !isQueryOwnFailure(failure.code), failed: true, finished: null }
     }
   }
 
   /**
    * A block over the queue: unused budget passes on and a query's own failure
    * moves on; a stop, or a failure every query would share, ends the block.
+   * So does a long enough run of queries that did not pay, counted on from the
+   * stored ones: the block drains, and the pipeline gives the board up.
    * It first closes any search run an earlier block could not: the lock is
    * held, so none is being written, and a board's one running search run
    * would refuse every run this block starts.
@@ -247,15 +273,20 @@ export function createBoardSearchRunner(deps: BoardSearchRunnerDeps): BoardSearc
     const waitTurn = (ordinal: number) => waitForReadTurn(readTurn, requestsBefore + ordinal, pacing)
     let spent = 0
     let failed = false
-    for (const query of await repository.listQueries()) {
+    const queries = await repository.listQueries()
+    // The queue with this block's endings applied, counted as the pipeline counts the stored one.
+    let ended: readonly EndedBoardSearchQuery[] = queries
+    for (const [index, query] of queries.entries()) {
       if (query.complete) continue
-      if (abortRequested || spent >= maxPages) break
+      if (abortRequested || spent >= maxPages || isSearchGivenUp(ended)) break
       blockProgress = { query: query.query, requestedPages: spent, maxPages }
       const outcome = await walkQuery(repository, query, maxPages - spent, spent, waitTurn)
       spent += outcome.requests
       report(spent)
       failed ||= outcome.failed
       if (outcome.unrecorded !== undefined) keepBlockFailure(outcome.unrecorded)
+      const finished = outcome.finished
+      if (finished !== null) ended = ended.map((entry, at) => (at === index ? { complete: true, belowProbeYield: finished.belowProbeYield } : entry))
       if (outcome.endsBlock) break
     }
     return { spent, failed }

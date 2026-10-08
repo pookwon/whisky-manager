@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBoardSearchRunner } from '../../src/desktop/boardSearchRunner.js'
+import { BOARD_SEARCH_GIVE_UP_STREAK } from '../../src/desktop/boardSearchYield.js'
 import { createCollectionLock } from '../../src/desktop/collectionLock.js'
 import type { CollectionBlockEnd } from '../../src/desktop/collectionBlockEnd.js'
 import { CollectionPageError } from '../../src/desktop/collectionPageError.js'
@@ -48,8 +49,8 @@ const ZEROS: CollectedArticlePage = { items: [], pageInfo: { totalArticleCount: 
 /** One post from another board: the query's own results are wrong, not the request. */
 const STRAY = { ...page([9], 1), items: [{ ...postAt(9), boardId: '188' }] }
 
-function query(q: string, order: number, lastCommittedPage: number | null = null, complete = false, segmentToDay: string | null = null): BoardSearchQueryState {
-  return { boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay, queueOrder: order, expectedGain: 1, lastCommittedPage, insertedCount: 0, totalCount: null, complete, lastRunId: null }
+function query(q: string, order: number, lastCommittedPage: number | null = null, complete = false, segmentToDay: string | null = null, belowProbeYield = false): BoardSearchQueryState {
+  return { boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay, queueOrder: order, expectedGain: 1, lastCommittedPage, insertedCount: 0, totalCount: null, complete, belowProbeYield, lastRunId: null }
 }
 
 function harness(
@@ -65,6 +66,8 @@ function harness(
     readonly startRejectsFor?: string
     readonly sweepRejects?: boolean
     readonly pacing?: CollectionPacing
+    /** New posts a stored page brings in; a full page's worth unless a test is about the yield. */
+    readonly inserted?: (query: string, page: number) => number
   } = {},
 ) {
   const events: string[] = []
@@ -98,7 +101,7 @@ function harness(
     },
     recordPageRequest: async () => undefined,
     narrowSegment: async (input) => { events.push(`narrow ${input.query} ${input.fromDay}-${input.toDay} to ${input.segmentToDay}`) },
-    persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); windows.push(`${input.fromDay}-${input.toDay}`); return { insertedPostCount: input.result.items.length, updatedPostCount: 0 } },
+    persistPage: async (input) => { events.push(`store ${input.query} p${input.page}`); windows.push(`${input.fromDay}-${input.toDay}`); return { insertedPostCount: setup.inserted?.(input.query, input.page) ?? CAFE_BOARD_SEARCH.perPage, updatedPostCount: 0 } },
     finishRun: async (id, status, reason) => {
       events.push(`finish ${status}${reason === null ? '' : ' ' + reason}`)
       if (status === 'failed' && queryOfRun.get(id) === setup.failedFinishRejectsFor) throw new Error('database went away')
@@ -421,7 +424,8 @@ describe('boardSearchRunner', () => {
       const h = harness([query('글렌', 1), query('구매', 2)], { 글렌: [ZEROS], 구매: [page([4], 1)] })
       h.runner.start({ maxPages: 10 })
       await h.settle()
-      expect(h.events.slice(0, 3)).toEqual(['start 글렌', 'read 글렌 p1', 'finish succeeded'])
+      // A request for nothing: the probe would have spent it on an id.
+      expect(h.events.slice(0, 3)).toEqual(['start 글렌', 'read 글렌 p1', 'finish succeeded BELOW_PROBE_YIELD'])
     })
 
     it('fails, ending the block, when a resumed query first reads the empty zero page', async () => {
@@ -457,7 +461,8 @@ describe('boardSearchRunner', () => {
     })
 
     it('ends a resumed narrowed query whose first page was never stored and is empty', async () => {
-      const h = harness([query('구매', 1, null, false, '20250105')], {})
+      // It narrowed, so it filled the cap before: that paid for this last request.
+      const h = harness([{ ...query('구매', 1, null, false, '20250105'), insertedCount: 2000 }], {})
       h.runner.start({ maxPages: 10 })
       await h.settle()
       expect(h.events).toEqual(['start 구매', 'read 구매 p1', 'finish succeeded'])
@@ -472,6 +477,72 @@ describe('boardSearchRunner', () => {
       expect(h.events.some((event) => event.startsWith('narrow'))).toBe(false)
       expect(h.requests.slice(0, 2)).toEqual(['글렌 20250101-20250829 p1', '글렌 20250101-20250829 p2'])
       expect(h.requests.at(-1)).toBe(`구매 20250101-20250829 p${CAP + 1}`)
+    })
+  })
+
+  describe('below the article probe\'s yield', () => {
+    const three = [page([1], 9), page([2], 9), page([3], 9)]
+    const finished = (q: string, order: number, belowProbeYield: boolean) => query(q, order, 3, true, null, belowProbeYield)
+
+    it('stops a query once two requests bring in fewer than two posts, and moves on', async () => {
+      const h = harness([query('구매했습니다', 1), query('홈플러스', 2)], { 구매했습니다: three, 홈플러스: [page([7], 1)] }, {}, undefined, {
+        inserted: (q) => (q === '구매했습니다' ? 0 : 1),
+      })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.events.slice(0, 6)).toEqual([
+        'start 구매했습니다', 'read 구매했습니다 p1', 'store 구매했습니다 p1', 'read 구매했습니다 p2', 'store 구매했습니다 p2', 'finish succeeded BELOW_PROBE_YIELD',
+      ])
+      expect(h.events[6]).toBe('start 홈플러스')
+    })
+
+    it('walks on past one thin page between paying ones', async () => {
+      const h = harness([query('글렌', 1)], { 글렌: three }, {}, undefined, { inserted: (_, p) => (p === 2 ? 0 : 30) })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.requests).toHaveLength(4)
+      expect(h.events.at(-1)).toBe('finish succeeded')
+    })
+
+    it('drains the block once the stored and walked queries make a long enough run below it', async () => {
+      const stored = Array.from({ length: BOARD_SEARCH_GIVE_UP_STREAK - 1 }, (_, index) => finished(`w${index}`, index + 1, true))
+      const next = BOARD_SEARCH_GIVE_UP_STREAK
+      const h = harness([...stored, query('구매했어요', next), query('위스키', next + 1)], { 구매했어요: three, 위스키: three }, {}, undefined, { inserted: () => 0 })
+      const end = await new Promise<CollectionBlockEnd>((resolve) => { h.runner.start({ maxPages: 50, onBlockEnd: resolve }) })
+      expect(end).toEqual({ requests: 2, endedBy: 'drained' })
+      expect(h.events.some((event) => event === 'start 위스키')).toBe(false)
+    })
+
+    it('does not read a resumed run\'s stored page again as a page that brought nothing', async () => {
+      const h = harness([query('글렌', 1, 2)], { 글렌: [page([1], 9), page([2], 9), page([3], 9), page([4], 9)] }, {}, undefined, {
+        inserted: (_, p) => (p === 2 ? 0 : 1),
+      })
+      h.runner.start({ maxPages: 10 })
+      await h.settle()
+      expect(h.requests.map((request) => request.split(' p')[1])).toEqual(['2', '3', '4', '5'])
+    })
+
+    it('counts the run as the stored queue does when it ends a query placed before the stored run', async () => {
+      // 실패 failed on its own results before; the run behind it is the paid 글렌 and the stored ones below.
+      const stored = Array.from({ length: BOARD_SEARCH_GIVE_UP_STREAK - 1 }, (_, index) => finished(`w${index}`, index + 3, true))
+      const h = harness([query('실패', 1), finished('글렌', 2, false), ...stored, query('구매했어요', 30), query('위스키', 31)], { 실패: three, 구매했어요: three, 위스키: three }, {}, undefined, {
+        inserted: (q) => (q === '실패' ? 30 : 0),
+      })
+      h.runner.start({ maxPages: 50 })
+      await h.settle()
+      expect(h.events).toContain('start 구매했어요')
+      expect(h.events).not.toContain('start 위스키')
+    })
+
+    it('counts the run afresh after a query that paid', async () => {
+      const stored = [
+        ...Array.from({ length: BOARD_SEARCH_GIVE_UP_STREAK - 1 }, (_, index) => finished(`w${index}`, index + 1, true)),
+        finished('글렌', BOARD_SEARCH_GIVE_UP_STREAK, false),
+      ]
+      const h = harness([...stored, query('구매했어요', 30), query('위스키', 31)], { 구매했어요: three, 위스키: three }, {}, undefined, { inserted: () => 0 })
+      h.runner.start({ maxPages: 50 })
+      await h.settle()
+      expect(h.events).toContain('start 위스키')
     })
   })
 

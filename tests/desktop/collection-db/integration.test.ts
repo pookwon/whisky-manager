@@ -693,6 +693,32 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     ])
   })
 
+  it('reads a query ended below the probe\'s yield off its ending run, even one that stored no page', async () => {
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-10-08T00:00:00.000Z')
+    await search.replaceJob({ boardId: '137', fromDay: '20240101', toDay: '20250101', at, queries: [{ query: '구매했습니다', expectedGain: 9 }, { query: '홈플러스', expectedGain: 6 }, { query: '구매기', expectedGain: 5 }] })
+    const searchPage = parseCafeBoardSearchListText(
+      readFileSync(fileURLToPath(new URL('../../fixtures/cafe-board-search-sample.json', import.meta.url)), 'utf8'),
+    )
+    const stored = randomUUID()
+    await search.startRun({ id: stored, boardId: '137', query: '구매했습니다', fromDay: '20240101', toDay: '20250101', startedAt: at })
+    await search.persistPage({ runId: stored, boardId: '137', query: '구매했습니다', fromDay: '20240101', toDay: '20250101', page: 1, observedAt: at, result: searchPage })
+    await search.finishRun(stored, 'succeeded', 'BELOW_PROBE_YIELD', at)
+    const empty = randomUUID()
+    await search.startRun({ id: empty, boardId: '137', query: '홈플러스', fromDay: '20240101', toDay: '20250101', startedAt: at })
+    await search.finishRun(empty, 'succeeded', 'BELOW_PROBE_YIELD', at)
+    const paid = randomUUID()
+    await search.startRun({ id: paid, boardId: '137', query: '구매기', fromDay: '20240101', toDay: '20250101', startedAt: at })
+    await search.finishRun(paid, 'succeeded', null, at)
+
+    expect((await search.listQueries()).map((q) => [q.query, q.complete, q.belowProbeYield, q.lastRunId])).toEqual([
+      ['구매했습니다', true, true, stored],
+      ['홈플러스', true, true, empty],
+      ['구매기', true, false, paid],
+    ])
+  })
+
   it('counts id holes in the search window and in the stretch after it', async () => {
     const coverage = await createBoardSearchCoverageQuery(connection.db).read({ fromDay: '20250101', toDay: '20250201' }, 'a')
     // The search fixture's two posts (667850, 667901) are the only ones in January 2025 here.
