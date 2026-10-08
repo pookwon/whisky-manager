@@ -2,6 +2,7 @@ import { and, asc, eq, min, sql } from 'drizzle-orm'
 import type { BoardSearchQuery } from '../../shared/boardSearchDictionary.js'
 import type { CollectedArticlePage } from '../../shared/cafeArticleList.js'
 import { kstDayKey, kstDayKeyRange } from '../../shared/kst.js'
+import { BELOW_PROBE_YIELD } from '../boardSearchYield.js'
 import type { CollectionDatabase } from './client.js'
 import { writePostRows } from './postPageWrite.js'
 import type { CollectionRepository } from './repository.js'
@@ -21,6 +22,8 @@ export interface BoardSearchQueryState {
   readonly insertedCount: number
   readonly totalCount: number | null
   readonly complete: boolean
+  /** Whether the query ended because its pages stopped bringing in a new post each: the probe reads those ids cheaper. */
+  readonly belowProbeYield: boolean
   readonly lastRunId: string | null
 }
 
@@ -86,7 +89,7 @@ export interface BoardSearchRepository {
 
 type StateRow = typeof boardSearchState.$inferSelect
 
-function toQueryState(row: StateRow): BoardSearchQueryState {
+function toQueryState(row: StateRow, lastStopReason: string | null): BoardSearchQueryState {
   return {
     boardId: row.boardId,
     query: row.query,
@@ -99,6 +102,7 @@ function toQueryState(row: StateRow): BoardSearchQueryState {
     insertedCount: row.insertedCount,
     totalCount: row.totalCount,
     complete: row.completedAt !== null,
+    belowProbeYield: row.completedAt !== null && lastStopReason === BELOW_PROBE_YIELD,
     lastRunId: row.lastRunId,
   }
 }
@@ -120,8 +124,13 @@ function sameQueryWindow(boardId: string, query: string, fromDay: string, toDay:
 export function createBoardSearchRepository(db: CollectionDatabase, collection: CollectionRepository): BoardSearchRepository {
   return {
     async listQueries() {
-      const rows = await db.select().from(boardSearchState).orderBy(asc(boardSearchState.queueOrder))
-      return rows.map(toQueryState)
+      // The last run is the one that stored the query's last page, or the one that ended it.
+      const rows = await db
+        .select({ state: boardSearchState, lastStopReason: collectionRuns.stopReason })
+        .from(boardSearchState)
+        .leftJoin(collectionRuns, eq(collectionRuns.id, boardSearchState.lastRunId))
+        .orderBy(asc(boardSearchState.queueOrder))
+      return rows.map((row) => toQueryState(row.state, row.lastStopReason))
     },
 
     async readBoardName(boardId) {
@@ -268,11 +277,12 @@ export function createBoardSearchRepository(db: CollectionDatabase, collection: 
           })
         const run = updated[0]
         if (run === undefined) throw new Error('board search run is not running')
-        // Only reaching the empty page past the end finishes a query.
+        // Only a success finishes a query: the empty page past the end, or pages that stopped paying.
         if (status !== 'succeeded' || run.query === null) return
         // The run's target range is the window it was started on, end exclusive.
         const window = sameQueryWindow(run.boardId, run.query, kstDayKey(run.targetStartMs), kstDayKey(run.targetEndMs - 1))
-        await tx.update(boardSearchState).set({ completedAt: finishedAt, updatedAt: finishedAt }).where(window)
+        // The ending run is the last run even when it stored no page, so its stop reason is the query's.
+        await tx.update(boardSearchState).set({ completedAt: finishedAt, lastRunId: runId, updatedAt: finishedAt }).where(window)
       })
     },
 

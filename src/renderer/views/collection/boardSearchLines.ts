@@ -31,7 +31,7 @@ export function boardSearchCoverageLine(coverage: BoardSearchCoverage): string |
   return TEXT.boardSearch.coverage(coverage.span, coverage.missing, coverage.baselineMissingRatio, coverage.estimatedRemaining)
 }
 
-export type BoardSearchQueryStateKind = 'done' | 'walking' | 'waiting' | 'failed'
+export type BoardSearchQueryStateKind = 'done' | 'belowProbeYield' | 'walking' | 'waiting' | 'failed'
 
 /**
  * Read from the query's own newest run, not from the job's first unfinished
@@ -39,7 +39,7 @@ export type BoardSearchQueryStateKind = 'done' | 'walking' | 'waiting' | 'failed
  * failed query stays first until a later block walks it again.
  */
 export function boardSearchQueryState(query: BoardSearchQueryView, running: boolean): BoardSearchQueryStateKind {
-  if (query.complete) return 'done'
+  if (query.complete) return query.belowProbeYield ? 'belowProbeYield' : 'done'
   if (running && query.lastRun?.status === 'running') return 'walking'
   return query.lastRun?.status === 'failed' ? 'failed' : 'waiting'
 }

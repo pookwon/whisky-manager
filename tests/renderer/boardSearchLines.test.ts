@@ -17,7 +17,7 @@ import type { BoardSearchLastRun } from '../../src/desktop/collection-db/boardSe
 import { TEXT } from '../../src/shared/text.js'
 
 const query = (q: string, complete: boolean, lastRun: BoardSearchLastRun | null = null): BoardSearchQueryView => ({
-  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, lastRunId: null, lastRun,
+  boardId: '137', query: q, fromDay: '20250101', toDay: '20250829', segmentToDay: null, queueOrder: 1, expectedGain: 1, lastCommittedPage: null, insertedCount: 0, totalCount: null, complete, belowProbeYield: false, lastRunId: null, lastRun,
 })
 
 describe('board search wording', () => {
@@ -50,6 +50,12 @@ describe('board search wording', () => {
     expect(boardSearchQueryState(query('구매', false, walking), true)).toBe('walking')
     expect(boardSearchQueryState(query('구매', false), false)).toBe('waiting')
     expect(boardSearchQueryState(query('이마트', false), true)).toBe('waiting')
+  })
+
+  it('tells a query that ended below the probe\'s yield from one that paid', () => {
+    const below = { ...query('구매했습니다', true), belowProbeYield: true }
+    expect(boardSearchQueryState(below, false)).toBe('belowProbeYield')
+    expect(boardSearchQueryStateText(below, 'belowProbeYield')).toBe(TEXT.boardSearch.states.belowProbeYield)
   })
 
   it('marks a query whose last run failed, until it is walked again', () => {

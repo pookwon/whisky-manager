@@ -780,7 +780,8 @@ export const TEXT = {
     remaining: (count: number) => `아직 못 거둔 글 약 ${count.toLocaleString('ko-KR')}건`,
     window: (board: string, from: string, to: string) => `${board} · ${from} ~ ${to}`,
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
-    states: { done: '완료', walking: '진행', waiting: '대기', failed: '실패' },
+    /** `belowProbeYield`: its pages stopped bringing in a new post each; the id probe reads the rest for less. */
+    states: { done: '완료', belowProbeYield: '새 글이 줄어 중단 · 나머지는 글 번호로', walking: '진행', waiting: '대기', failed: '실패' },
     failedWith: (stopReason: string) => `실패 · ${stopReason}`,
     /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
     blockFailed: TURN_FAILED_LINE,
