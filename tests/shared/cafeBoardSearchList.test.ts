@@ -140,4 +140,29 @@ describe('parseCafeBoardSearchList', () => {
     expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('INVALID_ARTICLE')
   })
 
+  it('reads a headed item the search cannot name as a prefix it does not know', () => {
+    // Captured 2026-10-08: board 137 "면세" answers board-188 posts headed 364
+    // '국내공항면세' and 634 '면세퀵턴', prefixes board 137 does not define, and
+    // leaves their headName out. The named item beside it shows the field exists.
+    const value = parsed()
+    value.result.articleList[1]!.item.headId = 634
+    const page = parseCafeBoardSearchList(value)
+    expect(page.items[0]).toMatchObject({ postId: '667901', prefix: '정보' })
+    expect(page.items[0]!.prefixUnnamed).toBeUndefined()
+    expect(page.items[1]).toMatchObject({ postId: '667850', prefix: null, prefixUnnamed: true })
+  })
+
+  it('still refuses a page whose headed items all lack headName, as a renamed field', () => {
+    const value = parsed()
+    delete value.result.articleList[0]!.item.headName
+    expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('INVALID_ARTICLE')
+    value.result.articleList[1]!.item.headId = 634
+    expect(codeOf(() => parseCafeBoardSearchList(value))).toBe('INVALID_ARTICLE')
+  })
+
+  it('does not mark a post without a prefix as unnamed', () => {
+    const page = parseCafeBoardSearchListText(sample)
+    expect(page.items[1]!.prefixUnnamed).toBeUndefined()
+  })
+
 })

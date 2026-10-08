@@ -30,6 +30,16 @@ function boardRows(items: readonly CollectedPostMetadata[], observedAt: Date) {
 }
 
 /**
+ * A prefix the search saw but could not name says nothing about the post, so
+ * a stored prefix outlives it. Every other null is the feed's answer — the
+ * list walk clears a removed prefix this way — and is written as it came.
+ */
+function prefixToWrite(item: CollectedPostMetadata, storedPrefixes: ReadonlyMap<string, string | null>): string | null {
+  if (item.prefixUnnamed === true) return storedPrefixes.get(item.postId) ?? null
+  return item.prefix
+}
+
+/**
  * Writes one page's posts, whichever walk read them. A post is the cafe's, not
  * the feed's: the list walk and the search walk reading the same post both
  * land on its one row, and a re-read updates it in place.
@@ -41,11 +51,11 @@ export async function writePostRows(
   runId: string,
 ): Promise<WrittenPostRows> {
   const existingRows = await tx
-    .select({ postId: posts.postId })
+    .select({ postId: posts.postId, prefix: posts.prefix })
     .from(posts)
     .where(inArray(posts.postId, items.map((item) => item.postId)))
-  const existingPostIds = new Set(existingRows.map((row) => row.postId))
-  const insertedPostCount = items.filter((item) => !existingPostIds.has(item.postId)).length
+  const storedPrefixes = new Map(existingRows.map((row) => [row.postId, row.prefix]))
+  const insertedPostCount = items.filter((item) => !storedPrefixes.has(item.postId)).length
 
   const namedBoards = boardRows(items, observedAt)
   if (namedBoards.length > 0) {
@@ -67,7 +77,7 @@ export async function writePostRows(
         postId: item.postId,
         boardId: item.boardId,
         title: item.title,
-        prefix: item.prefix,
+        prefix: prefixToWrite(item, storedPrefixes),
         authorNickname: item.authorNickname,
         authorId: item.authorId,
         postedAt: new Date(item.postedAt),
