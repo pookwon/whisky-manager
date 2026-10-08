@@ -816,6 +816,57 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     await search.finishRun(runId, 'succeeded', null, at)
   })
 
+  it('on conflict, a prefix the search could not name does not wipe a stored prefix, while a cleared one does', async () => {
+    // The list walk stored prefix '정보'. A search page re-reads the post as a
+    // foreign prefix it cannot name (prefixUnnamed): the row keeps '정보'. A
+    // later list read with no prefix at all clears it, as before.
+    const collection = createCollectionRepository(connection.db)
+    const search = createBoardSearchRepository(connection.db, collection)
+    const at = new Date('2026-10-08T04:00:00.000Z')
+    await pool.query(`insert into boards (board_id, name, first_seen_at, last_seen_at) values ('137', '국내구입기 & 정보', $1, $1) on conflict do nothing`, [at])
+    await pool.query(
+      `insert into posts (post_id, board_id, posted_at, snapshot_at, first_seen_at, prefix)
+       values ('999101', '137', $1, $1, $1, '정보') on conflict do nothing`,
+      [new Date(Date.UTC(2025, 0, 10, 3, 0, 0))],
+    )
+
+    await search.replaceJob({ boardId: '137', fromDay: '20250101', toDay: '20250829', at, queries: [{ query: '면세', expectedGain: 1 }] })
+    const runId = randomUUID()
+    await search.startRun({ id: runId, boardId: '137', query: '면세', fromDay: '20250101', toDay: '20250829', startedAt: at })
+    const unnamedPost = {
+      cafeId: '14538121', postId: '999101', boardId: '137', boardName: null,
+      title: '면세점 구매', prefix: null, prefixUnnamed: true as const, authorId: null, authorNickname: null,
+      postedAt: Date.UTC(2025, 0, 10, 3, 0, 0), viewCount: 1, commentCount: 0,
+      replyCount: 0, isNotice: false as const,
+    }
+    const window = { runId, boardId: '137', query: '면세', fromDay: '20250101', toDay: '20250829', observedAt: at }
+    await search.persistPage({
+      ...window, page: 1,
+      result: { items: [unnamedPost], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 1 }, pageIdentity: 'p-unnamed-1' },
+    })
+    const kept = await pool.query<{ prefix: string | null }>('select prefix from posts where post_id = $1', ['999101'])
+    expect(kept.rows[0]).toEqual({ prefix: '정보' })
+
+    // A brand-new post the search cannot name stores null: there is nothing to keep.
+    await search.persistPage({
+      ...window, page: 2,
+      result: { items: [{ ...unnamedPost, postId: '999102' }], pageInfo: { lastNavigationPageNumber: 2, visibleNextButton: false, totalArticleCount: 2 }, pageIdentity: 'p-unnamed-2' },
+    })
+    const fresh = await pool.query<{ prefix: string | null }>('select prefix from posts where post_id = $1', ['999102'])
+    expect(fresh.rows[0]).toEqual({ prefix: null })
+
+    // A plain null, as the list walk writes for a removed prefix, still clears it.
+    const { prefixUnnamed: _unnamed, ...clearedPost } = unnamedPost
+    await search.persistPage({
+      ...window, page: 3,
+      result: { items: [clearedPost], pageInfo: { lastNavigationPageNumber: 3, visibleNextButton: false, totalArticleCount: 3 }, pageIdentity: 'p-unnamed-3' },
+    })
+    const cleared = await pool.query<{ prefix: string | null }>('select prefix from posts where post_id = $1', ['999101'])
+    expect(cleared.rows[0]).toEqual({ prefix: null })
+
+    await search.finishRun(runId, 'succeeded', null, at)
+  })
+
   it('ties a search run\'s page and completion to the window it was started on', async () => {
     const collection = createCollectionRepository(connection.db)
     const search = createBoardSearchRepository(connection.db, collection)

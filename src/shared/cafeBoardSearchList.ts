@@ -3,12 +3,12 @@ import {
   collectedArticlePage,
   fail,
   nullableString,
-  prefixOf,
   record,
   safeInteger,
   type CollectedArticlePage,
   type CollectedPostMetadata,
 } from './cafeArticleList.js'
+import { assertPrefixFieldPresent, searchPrefixOf } from './cafeBoardSearchPrefix.js'
 import { decodeHtmlEntities } from './htmlEntities.js'
 import { kstLocalDateTimeToEpochMs } from './kst.js'
 
@@ -48,14 +48,15 @@ function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadat
   const itemPath = `${path}.item`
   const item = record(rawEntry.item, itemPath, 'INVALID_ARTICLE')
   const writerInfo = record(item.writerInfo, `${itemPath}.writerInfo`, 'INVALID_ARTICLE')
-  return {
+  const prefix = searchPrefixOf(item, itemPath)
+  const post: CollectedPostMetadata = {
     cafeId: String(safeInteger(item, 'cafeId', itemPath, 1, 'INVALID_ARTICLE')),
     postId: String(safeInteger(item, 'articleId', itemPath, 1, 'INVALID_ARTICLE')),
     boardId: String(safeInteger(item, 'menuId', itemPath, 0, 'INVALID_ARTICLE')),
     // The search is scoped to one board and names none; the board is known.
     boardName: null,
     title: plainTitle(nullableString(item, 'subject', itemPath, 'INVALID_ARTICLE')),
-    prefix: prefixOf(item, itemPath),
+    prefix: prefix.prefix,
     authorId: nullableString(writerInfo, 'memberKey', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
     authorNickname: nullableString(writerInfo, 'nickname', `${itemPath}.writerInfo`, 'INVALID_ARTICLE'),
     postedAt: postedAtOf(item, itemPath),
@@ -64,6 +65,7 @@ function parseSearchArticle(entry: unknown, index: number): CollectedPostMetadat
     replyCount: cafeCount(item, 'refArticleCount', itemPath, 'INVALID_ARTICLE'),
     isNotice: false,
   }
+  return prefix.unnamed ? { ...post, prefixUnnamed: true } : post
 }
 
 export function parseCafeBoardSearchList(value: unknown): CollectedArticlePage {
@@ -71,6 +73,7 @@ export function parseCafeBoardSearchList(value: unknown): CollectedArticlePage {
   const result = record(response.result, 'response.result', 'INVALID_ENVELOPE')
   if (!Array.isArray(result.articleList)) fail('INVALID_ENVELOPE', 'result.articleList must be an array')
   const items = result.articleList.map((entry, index) => parseSearchArticle(entry, index))
+  assertPrefixFieldPresent(items)
   return collectedArticlePage(items, result.pageInfo)
 }
 

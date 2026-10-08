@@ -13,6 +13,13 @@ export interface CollectedPostMetadata {
   readonly boardName: string | null
   readonly title: string | null
   readonly prefix: string | null
+  /**
+   * Set when the feed saw a prefix it could not name, so `prefix` is null
+   * without meaning "no prefix". Only the board search does this: it names
+   * prefixes from the searched board's own set, and a post moved in from
+   * another board keeps that board's. Absent everywhere else.
+   */
+  readonly prefixUnnamed?: true
   readonly authorId: string | null
   readonly authorNickname: string | null
   /** Exact UTC epoch milliseconds from `writeDateTimestamp`. */
