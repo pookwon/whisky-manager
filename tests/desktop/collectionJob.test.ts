@@ -21,6 +21,7 @@ function fakeMemberRunner(): { runner: MemberCollectionRunner; starts: { mode: s
     start(req) { starts.push({ mode: req.mode }); return { kind: 'started' } },
     stop() {},
     isRunning() { return false },
+    isStopping() { return false },
   }
   return { runner, starts }
 }

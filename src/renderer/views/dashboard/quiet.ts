@@ -125,6 +125,9 @@ export function collectionJobState(input: CollectionJobInput): JobState {
       ),
     }
   }
+  if (input.collection.walking) {
+    return { tone: 'accent', status: TEXT.dashboard.job.running, why: TEXT.dashboard.quiet.collectionWalking }
+  }
   if (job === null) {
     return { tone: 'idle', status: TEXT.dashboard.job.waiting, why: TEXT.dashboard.quiet.collectionNoJob }
   }

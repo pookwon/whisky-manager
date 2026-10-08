@@ -9,6 +9,8 @@ import { listStartRefusal } from './startRefusals.js'
 interface NextStepPanelProps {
   readonly next: NextStep
   readonly busy: boolean
+  /** A stop was asked and the walk is finishing its page. */
+  readonly stopping: boolean
   readonly act: (run: () => Promise<unknown>) => Promise<boolean>
   readonly onPickPeriod: () => void
 }
@@ -18,7 +20,7 @@ interface NextStepPanelProps {
  * button that resumes the pipeline. Everything it says is read off the steps
  * below; it starts nothing they could not.
  */
-export function NextStepPanel({ next, busy, act, onPickPeriod }: NextStepPanelProps): React.JSX.Element {
+export function NextStepPanel({ next, busy, stopping, act, onPickPeriod }: NextStepPanelProps): React.JSX.Element {
   const scheduleLine = nextStepScheduleLine(next)
   /**
    * What the last press here answered, until the next press. The composer keys
@@ -34,8 +36,8 @@ export function NextStepPanel({ next, busy, act, onPickPeriod }: NextStepPanelPr
     })
   }
 
-  const button = (label: string, onClick: () => void, primary = true): React.JSX.Element => (
-    <button type="button" className={primary ? 'btn btn-primary' : 'btn'} disabled={busy} onClick={onClick}>
+  const button = (label: string, onClick: () => void, primary = true, disabled = busy): React.JSX.Element => (
+    <button type="button" className={primary ? 'btn btn-primary' : 'btn'} disabled={disabled} onClick={onClick}>
       {label}
     </button>
   )
@@ -43,7 +45,12 @@ export function NextStepPanel({ next, busy, act, onPickPeriod }: NextStepPanelPr
   const action = ((): React.JSX.Element | null => {
     switch (next.kind) {
       case 'running':
-        return button(TEXT.collection.stop, () => void act(() => api.stopCollection()), false)
+        return button(
+          stopping ? TEXT.collection.stopping : TEXT.collection.stop,
+          () => void act(() => api.stopCollection()),
+          false,
+          busy || stopping,
+        )
       case 'resume':
         return button(TEXT.collection.next.resumeList, () => start(() => api.startCollection(), listStartRefusal))
       case 'pickPeriod':

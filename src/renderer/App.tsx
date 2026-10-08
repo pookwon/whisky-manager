@@ -63,7 +63,7 @@ export function App(): React.JSX.Element {
   )
 
   /** Only a storage that answered can report a run; anything else is not "no". */
-  const collectionRunning = collection?.kind === 'ready' && collection.status.running !== null
+  const collectionRunning = collection?.kind === 'ready' && (collection.walking || collection.status.running !== null)
   const memberCollectionRunning = memberCollection?.kind === 'ready' && memberCollection.status.running
 
   /** Read from the dashboard, which every route polls, so the badge stays live. */

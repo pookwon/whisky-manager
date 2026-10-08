@@ -10,6 +10,7 @@ function pipeline(reading: CollectionPipelineReading | null, starts: unknown[] =
     start: async (request) => { starts.push(request); return { kind: 'started' } },
     stop: () => undefined,
     isRunning: () => false,
+    isStopping: () => false,
   }
 }
 

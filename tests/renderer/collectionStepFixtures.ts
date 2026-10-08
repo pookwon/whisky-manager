@@ -48,5 +48,5 @@ export const probe = (job: ArticleProbeJob | null, running = false): ArticleProb
 })
 
 export const inputs = (overrides: Partial<CollectionStepInputs> = {}): CollectionStepInputs => ({
-  status: status(), search: null, probe: null, pipeline: { kind: 'idle' } as CollectionPipelineStage, ...overrides,
+  status: status(), search: null, probe: null, pipeline: { kind: 'idle' } as CollectionPipelineStage, walking: false, ...overrides,
 })

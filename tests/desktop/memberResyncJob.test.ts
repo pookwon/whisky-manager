@@ -42,6 +42,7 @@ function harness(options: {
       },
       stop: () => undefined,
       isRunning: () => false,
+      isStopping: () => false,
     },
     intervalDays: () => options.intervalDays ?? 30,
     now: () => options.nowMs,
@@ -87,7 +88,7 @@ describe('member re-walk job', () => {
     const job = createMemberResyncJob({
       feed: () => null,
       resync: () => null,
-      runner: { start: () => ({ kind: 'started' }), stop: () => undefined, isRunning: () => false },
+      runner: { start: () => ({ kind: 'started' }), stop: () => undefined, isRunning: () => false, isStopping: () => false },
       intervalDays: () => 30,
       now: () => WALK_DONE,
     })

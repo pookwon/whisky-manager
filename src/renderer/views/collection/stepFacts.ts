@@ -18,13 +18,20 @@ export interface CollectionStepInputs {
   readonly probe: ArticleProbeView | null
   /** Where the pipeline stands; the walks run in its order, so the screen reads it rather than working the order out again. */
   readonly pipeline: CollectionPipelineStage
+  /** The pipeline's own word that a walk is under way; it is true before any run row exists. */
+  readonly walking: boolean
 }
 
-/** The walks share one lock, so at most one of these is ever true. */
-export function runningStep({ status, search, probe }: CollectionStepInputs): WalkStep | null {
+/**
+ * The walks share one lock, so at most one of these is ever true. A walk just
+ * started has no run row yet and the stage still to run is the one starting,
+ * so the pipeline's stage names it.
+ */
+export function runningStep({ status, search, probe, pipeline, walking }: CollectionStepInputs): WalkStep | null {
   if (status.running !== null) return 'list'
   if (search?.running === true) return 'search'
   if (probe?.running === true) return 'probe'
+  if (walking && (pipeline.kind === 'list' || pipeline.kind === 'search' || pipeline.kind === 'probe')) return pipeline.kind
   return null
 }
 

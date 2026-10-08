@@ -55,6 +55,8 @@ export interface CollectionPipeline {
   stop(): void
   /** From a start until its chain ends, including between two stages. */
   isRunning(): boolean
+  /** A stop was asked and the chain has not ended yet: the walk finishes its page first, which can take a while. */
+  isStopping(): boolean
 }
 
 type SearchStage = Extract<CollectionPipelineStage, { kind: 'search' }>
@@ -244,6 +246,9 @@ export function createCollectionPipeline(deps: CollectionPipelineDeps): Collecti
     },
     isRunning() {
       return chainRunning || anyRunnerRunning()
+    },
+    isStopping() {
+      return stopRequested && (chainRunning || anyRunnerRunning())
     },
   }
 }

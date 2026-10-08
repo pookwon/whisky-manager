@@ -30,6 +30,10 @@ interface ListWalkStepProps {
   readonly status: CollectionStatus
   readonly pipeline: CollectionPipelineStage
   readonly state: StepState
+  /** This walk is under way, which is known before its run row is: the row is what `status.running` carries. */
+  readonly listRunning: boolean
+  /** A stop was asked and the walk is finishing its page. */
+  readonly stopping: boolean
   /** Another walk holds the shared lock, so this one's start would only be refused. */
   readonly otherRunning: boolean
   readonly busy: boolean
@@ -58,9 +62,9 @@ export function ListWalkStep(props: ListWalkStepProps): React.JSX.Element {
   }
 
   const action =
-    running !== null ? (
-      <button type="button" className="btn" disabled={props.busy} onClick={() => void props.act(() => api.stopCollection())}>
-        {TEXT.collection.stop}
+    props.listRunning ? (
+      <button type="button" className="btn" disabled={props.busy || props.stopping} onClick={() => void props.act(() => api.stopCollection())}>
+        {props.stopping ? TEXT.collection.stopping : TEXT.collection.stop}
       </button>
     ) : unfinished ? (
       <button type="button" className="btn btn-primary" disabled={props.busy || props.otherRunning} onClick={resume}>
@@ -121,7 +125,7 @@ export function ListWalkStep(props: ListWalkStepProps): React.JSX.Element {
         pipeline={props.pipeline}
         busy={props.busy}
         blockedReason={
-          running !== null ? TEXT.collection.refused.STOP_RUNNING_FIRST : props.otherRunning ? TEXT.collection.otherRunning : null
+          props.listRunning ? TEXT.collection.refused.STOP_RUNNING_FIRST : props.otherRunning ? TEXT.collection.otherRunning : null
         }
         act={props.act}
         request={props.periodRequest}

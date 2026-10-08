@@ -189,3 +189,49 @@ describe('member collection pacing', () => {
     expect(reads).toBe(1)
   })
 })
+
+describe('member collection stopping', () => {
+  it('is stopping from the stop until the walk ends, and not before or after', async () => {
+    let release!: () => void
+    const hang = new Promise<void>((r) => { release = r })
+    const runner = createMemberCollectionRunner({
+      repository: () => fullFakeRepo({ startRun: async () => { await hang; return baseState } }),
+      transport: fakeTransport(),
+      clock: { now: () => Date.now() },
+      random: { intInclusive: () => 0 },
+      pacing: () => DEFAULT_COLLECTION_PACING,
+      sleep: async () => {},
+      isSessionBusy: () => false,
+      lock: createCollectionLock(),
+      newId: () => 'id-stopping',
+      onError: () => {},
+    })
+
+    runner.start({ mode: 'incremental', maxPages: 10, resumeFromCheckpoint: true })
+    expect(runner.isStopping()).toBe(false)
+
+    runner.stop()
+    expect(runner.isStopping()).toBe(true)
+
+    release()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(runner.isStopping()).toBe(false)
+  })
+
+  it('is not stopping when a stop is asked of a runner with nothing in flight', () => {
+    const runner = createMemberCollectionRunner({
+      repository: () => fullFakeRepo(),
+      transport: fakeTransport(),
+      clock: { now: () => Date.now() },
+      random: { intInclusive: () => 0 },
+      pacing: () => DEFAULT_COLLECTION_PACING,
+      sleep: async () => {},
+      isSessionBusy: () => false,
+      lock: createCollectionLock(),
+      newId: () => 'id-idle',
+    })
+
+    runner.stop()
+    expect(runner.isStopping()).toBe(false)
+  })
+})

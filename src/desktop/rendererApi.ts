@@ -336,7 +336,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
       const [status, reading] = await Promise.all([collection.status.read(), deps.collectionPipeline.read()])
-      return { kind: 'ready', status, pipeline: reading?.stage ?? { kind: 'idle' } }
+      return { kind: 'ready', status, pipeline: reading?.stage ?? { kind: 'idle' }, walking: deps.collectionPipeline.isRunning(), stopping: deps.collectionPipeline.isStopping() }
     },
 
     async getMemberCollectionStatus(): Promise<MemberCollectionStatusView> {
@@ -353,7 +353,10 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           scheduleEnabled: readCollectionSchedule(settings).enabled,
         }),
       ])
-      return { kind: 'ready', status, resync }
+      // The run row lands after a start returns; the runners know at once.
+      const running = status.running || deps.memberCollectionRunner.isRunning() || deps.memberResyncRunner.isRunning()
+      const stopping = deps.memberCollectionRunner.isStopping() || deps.memberResyncRunner.isStopping()
+      return { kind: 'ready', status: { ...status, running }, resync, stopping }
     },
 
     async startMemberCollection(): Promise<StartCollectionResult> {

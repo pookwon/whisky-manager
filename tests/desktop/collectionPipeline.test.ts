@@ -225,6 +225,22 @@ describe('collectionPipeline', () => {
     expect(h.pipeline.isRunning()).toBe(false)
   })
 
+  it('is stopping from a stop until the chain ends, and not before or after', async () => {
+    const h = harness({ feeds: [feed('137', 1)] })
+    await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })
+    expect(h.pipeline.isStopping()).toBe(false)
+    h.pipeline.stop()
+    expect(h.pipeline.isStopping()).toBe(true)
+    await h.end('list', { requests: 10, endedBy: 'drained' }, { feeds: [feed('137', 1, { horizonReached: true })] })
+    expect(h.pipeline.isStopping()).toBe(false)
+  })
+
+  it('is not stopping when a stop is asked with nothing running', () => {
+    const h = harness({ feeds: [feed('137', 1)] })
+    h.pipeline.stop()
+    expect(h.pipeline.isStopping()).toBe(false)
+  })
+
   it('does not go round again on a stage whose block read nothing', async () => {
     const h = harness({ feeds: [feed('137', 1)] })
     await h.pipeline.start({ maxPages: 100, runKind: 'incremental' })

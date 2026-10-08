@@ -24,7 +24,7 @@ export function MemberCollectionCard({
 
   if (memberCollection === null || memberCollection.kind !== 'ready') return null
 
-  const { status } = memberCollection
+  const { status, stopping } = memberCollection
   const { running, complete, forced, memberCount, completedAtMs, toppedUpAtMs, authorCount, matchedAuthorCount, lastRunStatus } = status
 
   const stopLine = stopReasonLine(status)
@@ -96,10 +96,10 @@ export function MemberCollectionCard({
             <button
               type="button"
               className="btn"
-              disabled={busy || !running}
+              disabled={busy || !running || stopping}
               onClick={() => void act(() => api.stopMemberCollection())}
             >
-              {TEXT.memberCollection.stop}
+              {stopping ? TEXT.memberCollection.stopping : TEXT.memberCollection.stop}
             </button>
             {!complete && (
               <button
