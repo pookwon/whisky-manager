@@ -200,6 +200,7 @@ function handle(message: AppMessage, reply: Reply): void {
 const client = createBridgeClient({
   url: BRIDGE_URL,
   extensionId: chrome.runtime.id,
+  extensionVersion: chrome.runtime.getManifest().version,
   open: (url) => new WebSocket(url),
   readToken: async () => {
     const stored = await chrome.storage.local.get('pairingToken')

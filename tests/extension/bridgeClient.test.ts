@@ -50,6 +50,7 @@ function harness(overrides: { token?: string | null } = {}) {
   const client = createBridgeClient({
     url: 'ws://127.0.0.1:39217',
     extensionId: 'abcdef',
+    extensionVersion: '1.9.15',
     open: () => {
       const socket = new FakeSocket()
       sockets.push(socket)
@@ -111,6 +112,7 @@ describe('createBridgeClient', () => {
       type: 'HELLO',
       token: 'tok',
       extensionId: 'abcdef',
+      extensionVersion: '1.9.15',
     })
   })
 

@@ -410,6 +410,16 @@ export const TEXT = {
     bridgeConnected: '연결됨',
     bridgeReconnecting: '연결 대기 중',
     bridgeOffline: '끊김',
+    /**
+     * The extension Chrome runs is not the one this build shipped. Pages are
+     * parsed inside the extension, so an old one keeps failing after the app is
+     * upgraded, and nothing else on the screen says so. An extension that
+     * reports no version predates the check.
+     */
+    extensionVersionMismatch: (extensionVersion: string, appVersion: string) =>
+      `확장 프로그램이 ${extensionVersion}입니다(앱 ${appVersion}). chrome://extensions에서 Whisky Manager를 다시 불러오세요.`,
+    extensionVersionUnknown: (appVersion: string) =>
+      `확장 프로그램이 앱(${appVersion})보다 이전 버전입니다. chrome://extensions에서 Whisky Manager를 다시 불러오세요.`,
     running: '동작 중',
     stopped: '정지',
     /**
@@ -782,7 +792,13 @@ export const TEXT = {
     columns: { order: '순서', query: '검색어', state: '상태', page: '쪽', inserted: '새 글', total: '결과 수' },
     /** `belowProbeYield`: its pages stopped bringing in a new post each; the id probe reads the rest for less. */
     states: { done: '완료', belowProbeYield: '새 글이 줄어 중단 · 나머지는 글 번호로', walking: '진행', waiting: '대기', failed: '실패' },
-    failedWith: (stopReason: string) => `실패 · ${stopReason}`,
+    /**
+     * A failed row carries when its run ended (`at` is `MM-DD HH:MM` KST): the
+     * operator reads it against the build they are running, and a failure with
+     * no time cannot be told from one the old build left.
+     */
+    failedAt: (at: string) => `실패 ${at}`,
+    failedWith: (at: string, stopReason: string) => `실패 ${at} · ${stopReason}`,
     /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
     blockFailed: TURN_FAILED_LINE,
     totalAtLeast: (count: number) => `${count.toLocaleString('ko-KR')}+`,
@@ -805,6 +821,36 @@ export const TEXT = {
     /** A block that ended before any run row could say why; `at` is `MM-DD HH:MM` KST. */
     blockFailed: TURN_FAILED_LINE,
   },
+  /**
+   * What a search or probe failure code means, for the rows that print one.
+   * The code and its detail stay beside the sentence, because the code is what
+   * the operator reports; a code not written here shows as itself.
+   */
+  collectionStopReason: {
+    BOARD_SEARCH_PARSE_ERROR: '검색 결과 응답을 해석하지 못했습니다',
+    BOARD_SEARCH_INVALID_JSON: '검색 결과 응답이 올바른 JSON이 아닙니다',
+    BOARD_SEARCH_HTTP_ERROR: '검색 요청이 HTTP 오류로 끝났습니다',
+    BOARD_SEARCH_NETWORK_ERROR: '검색 요청 중 네트워크 오류가 발생했습니다',
+    BOARD_SEARCH_BAD_REQUEST: '검색 요청이 거부되었습니다',
+    BOARD_SEARCH_UNEXPECTED_REPLY: '확장이 검색 요청에 예상치 않은 응답을 보냈습니다',
+    BOARD_SEARCH_WRONG_BOARD: '검색 결과에 다른 게시판의 글이 섞여 있습니다',
+    BOARD_SEARCH_OUT_OF_WINDOW: '검색 결과에 기간 밖의 글이 있습니다',
+    BOARD_SEARCH_OUT_OF_ORDER: '검색 결과의 글 순서가 예상과 다릅니다',
+    BOARD_SEARCH_SEGMENT_EMPTY: '좁힌 구간의 검색 결과가 비어 있습니다',
+    BOARD_SEARCH_CAP_UNCLEAR: '검색 결과 수의 상한을 판단하지 못했습니다',
+    ARTICLE_PARSE_ERROR: '글 응답을 해석하지 못했습니다',
+    ARTICLE_INVALID_JSON: '글 응답이 올바른 JSON이 아닙니다',
+    ARTICLE_HTTP_ERROR: '글 요청이 HTTP 오류로 끝났습니다',
+    ARTICLE_NETWORK_ERROR: '글 요청 중 네트워크 오류가 발생했습니다',
+    ARTICLE_BAD_REQUEST: '글 요청이 거부되었습니다',
+    ARTICLE_UNEXPECTED_REPLY: '확장이 글 요청에 예상치 않은 응답을 보냈습니다',
+    ARTICLE_PROBE_UNKNOWN_ANSWER: '글 번호 확인 응답을 판단하지 못했습니다',
+    NOT_LOGGED_IN: '네이버에 로그인되어 있지 않습니다',
+    EXTENSION_FAILURE: '확장에서 오류가 발생했습니다',
+    COLLECTION_FAILURE: '수집 중 오류가 발생했습니다',
+  } as Record<string, string>,
+  /** `${meaning} (${stopReason})`: the sentence, then the code and detail the operator reports. */
+  collectionStopReasonWith: (meaning: string, stopReason: string) => `${meaning} (${stopReason})`,
 } as const
 
 /**

@@ -138,6 +138,15 @@ export interface DashboardSnapshot {
    * browser must not put the first-run guide back in front of the operator.
    */
   readonly extensionEverPaired: boolean
+  /** This build's own version, which the extension's is read against. */
+  readonly appVersion: string
+  /**
+   * The connected extension's version; null while it is not connected, and
+   * null for an extension too old to report one. Chrome keeps running an
+   * unpacked extension until it is reloaded, so an upgraded app can sit on
+   * an old parser for days with nothing else to say so.
+   */
+  readonly extensionVersion: string | null
   /**
    * Whether the operating window is open right now. The app decides it so the
    * renderer never works out the hours a second time and disagrees.

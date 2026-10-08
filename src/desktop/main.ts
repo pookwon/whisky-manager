@@ -271,6 +271,8 @@ void app.whenReady().then(async () => {
       getStartupPreview: () => appContext.getStartupPreview(),
       getDayPreview: () => appContext.getDayPreview(),
       lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
+      appVersion: app.getVersion(),
+      extensionVersion: () => appContext.bridge.extensionVersion(),
       nextSessionAt: (automationId) => appContext.automation.nextRunAt(automationId),
       sessionProgress: (automationId) => appContext.sessionProgress(automationId),
       lastWarm: () => appContext.lastWarm(),

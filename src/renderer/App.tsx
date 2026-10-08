@@ -6,6 +6,7 @@ import {
   getBridgeStatusTone,
   shouldOfferExtensionRecovery,
 } from './format.js'
+import { extensionVersionNotice } from './extensionVersionNotice.js'
 import { startPolling } from './poll.js'
 import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
@@ -50,6 +51,7 @@ export function App(): React.JSX.Element {
    * honest reading: no extension has been seen yet.
    */
   const bridgeStatus = dashboard?.bridgeStatus ?? 'OFFLINE'
+  const versionNotice = dashboard === null ? null : extensionVersionNotice(dashboard)
 
   /**
    * No extension has ever paired on this machine. Read as `=== false` rather
@@ -97,6 +99,13 @@ export function App(): React.JSX.Element {
               </div>
             </div>
           </div>
+
+          {/* A connected extension that is not this build keeps the old parser
+              running after an upgrade, and every failure it leaves looks like
+              the new build's. */}
+          {versionNotice !== null && (
+            <p className="mt-3 text-[0.6875rem] leading-snug tone-warn">{versionNotice}</p>
+          )}
 
           {/* Only on an install that has never paired, and only once the first
               poll has answered — offered before then it would flash on every

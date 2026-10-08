@@ -26,6 +26,8 @@ export type Reply = (message: ExtensionMessage) => void
 export interface BridgeClientDeps {
   readonly url: string
   readonly extensionId: string
+  /** The manifest version, so the app can tell an extension Chrome never reloaded from its own build. */
+  readonly extensionVersion: string
   readonly open: (url: string) => Socket
   readonly readToken: () => Promise<string | null>
   readonly handle: (message: AppMessage, reply: Reply) => void
@@ -79,7 +81,7 @@ export function createBridgeClient(deps: BridgeClientDeps): BridgeClient {
     const reply = replyVia(ws)
 
     ws.addEventListener('open', () => {
-      reply({ type: 'HELLO', token, extensionId: deps.extensionId, protocolVersion: PROTOCOL_VERSION })
+      reply({ type: 'HELLO', token, extensionId: deps.extensionId, protocolVersion: PROTOCOL_VERSION, extensionVersion: deps.extensionVersion })
       // A socket replaced while it was still connecting owns nothing, and the
       // timer it started would have nobody left to stop it.
       if (socket !== ws) return

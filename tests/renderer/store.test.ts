@@ -68,6 +68,8 @@ const snapshot: DashboardSnapshot = {
   averageActionGapMs: 16_500,
   bridgeStatus: 'OFFLINE',
   extensionEverPaired: false,
+  appVersion: '1.9.15',
+  extensionVersion: null,
 }
 
 const commonSettings: CommonSettingsView = {

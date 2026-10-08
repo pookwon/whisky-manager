@@ -49,6 +49,8 @@ function snapshot(automations: AutomationStatus[]): DashboardSnapshot {
     averageActionGapMs: 16_500,
     bridgeStatus: 'CONNECTED',
     extensionEverPaired: true,
+    appVersion: '1.9.15',
+    extensionVersion: '1.9.15',
   }
 }
 

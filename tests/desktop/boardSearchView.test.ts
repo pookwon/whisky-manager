@@ -34,10 +34,10 @@ describe('readBoardSearchView', () => {
   })
 
   it('puts each query\'s last run of the job\'s window beside it', async () => {
-    const i = inputs([row('글렌', 1, false, 0), row('구매', 2, false, 0)], { 글렌: { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR' } })
+    const i = inputs([row('글렌', 1, false, 0), row('구매', 2, false, 0)], { 글렌: { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR', startedAtMs: 1, finishedAtMs: 2 } })
     const view = await readBoardSearchView(i)
     expect(view.job?.queries.map((query) => [query.query, query.lastRun])).toEqual([
-      ['글렌', { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR' }],
+      ['글렌', { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR', startedAtMs: 1, finishedAtMs: 2 }],
       ['구매', null],
     ])
     expect(i.windows).toEqual(['137 20250101-20250829'])

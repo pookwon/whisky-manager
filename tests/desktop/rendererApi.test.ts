@@ -62,6 +62,8 @@ interface BridgeOverrides {
   readonly connected?: boolean
   /** When the bridge was last seen up, or null if it never was. */
   readonly lastSeenConnectedAt?: number | null
+  /** What the connected extension said it is, or null for one that said nothing. */
+  readonly extensionVersion?: string | null
 }
 
 /**
@@ -349,6 +351,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     getStartupPreview: () => null,
     getDayPreview: () => null,
     lastBridgeConnectedAt: () => bridge.lastSeenConnectedAt ?? null,
+    appVersion: '1.9.15',
+    extensionVersion: () => bridge.extensionVersion ?? null,
     nextSessionAt: (_automationId: string) => null,
     lastWarm: () => lastWarm,
     sessionProgress: (_automationId: string) => progress,
@@ -480,6 +484,8 @@ describe('getDashboard', () => {
       lastWarm: null,
       bridgeStatus: 'CONNECTED',
       extensionEverPaired: false,
+      appVersion: '1.9.15',
+      extensionVersion: null,
       withinActiveHours: true,
       activeHourStart: 10,
       activeHourEnd: 24,
@@ -881,6 +887,18 @@ describe('bridge status', () => {
     const { api } = build(MON_10_00, { connected: false, lastSeenConnectedAt: null })
 
     expect((await api.getDashboard()).bridgeStatus).toBe('OFFLINE')
+  })
+
+  it('carries both versions so the screen can tell an extension Chrome never reloaded', async () => {
+    const { api } = build(MON_10_00, { connected: true, extensionVersion: '1.9.12' })
+
+    expect(await api.getDashboard()).toMatchObject({ appVersion: '1.9.15', extensionVersion: '1.9.12' })
+  })
+
+  it('reports no extension version for one too old to send it', async () => {
+    const { api } = build(MON_10_00, { connected: true, extensionVersion: null })
+
+    expect((await api.getDashboard()).extensionVersion).toBeNull()
   })
 
   it('measures the gap from when the bridge was last seen, not from the first time it paired', async () => {

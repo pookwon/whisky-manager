@@ -11,6 +11,7 @@ import {
   getBridgeStatusText,
   getBridgeStatusTone,
 } from '../format.js'
+import { extensionVersionNotice } from '../extensionVersionNotice.js'
 import { useApp } from '../store.js'
 import { CollectionJob } from './dashboard/CollectionJob.js'
 import { CommentJob } from './dashboard/CommentJob.js'
@@ -151,6 +152,7 @@ export function Dashboard(): React.JSX.Element {
    * pressed something and waited.
    */
   const disabledNames = disabledAutomationNames(dashboard.automations)
+  const versionNotice = extensionVersionNotice(dashboard)
 
   const collectNow = (): void => {
     setCollectionRefusal(null)
@@ -171,6 +173,15 @@ export function Dashboard(): React.JSX.Element {
           {getBridgeStatusText(dashboard.bridgeStatus)}
         </div>
       </div>
+
+      {versionNotice !== null && (
+        <section className="panel overflow-hidden">
+          <div className="flex">
+            <div className="w-1 shrink-0 bar-warn" />
+            <div className="flex-1 px-5 py-3.5 text-sm font-semibold tone-warn">{versionNotice}</div>
+          </div>
+        </section>
+      )}
 
       {disabledNames.length > 0 && (
         <section className="panel overflow-hidden">

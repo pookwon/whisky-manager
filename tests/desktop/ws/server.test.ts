@@ -15,7 +15,7 @@ afterEach(async () => {
   server = undefined
 })
 
-async function connect(token: string, origin = ORIGIN): Promise<WebSocket> {
+async function connect(token: string, origin = ORIGIN, extensionVersion?: string): Promise<WebSocket> {
   if (server === undefined) throw new Error('server not started')
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin })
   await new Promise<void>((resolve, reject) => {
@@ -28,7 +28,7 @@ async function connect(token: string, origin = ORIGIN): Promise<WebSocket> {
       ws.once('message', (data) => resolve(JSON.parse(String(data)) as Record<string, unknown>))
     }),
   )
-  ws.send(JSON.stringify({ type: 'HELLO', token, extensionId: 'ignored', protocolVersion: PROTOCOL_VERSION }))
+  ws.send(JSON.stringify({ type: 'HELLO', token, extensionId: 'ignored', protocolVersion: PROTOCOL_VERSION, extensionVersion }))
   return ws
 }
 
@@ -51,6 +51,25 @@ describe('createBridgeServer', () => {
     expect(await nextMessage(ws)).toEqual({ type: 'HELLO_ACK', accepted: true, reason: null })
     expect(server.isConnected()).toBe(true)
     ws.close()
+  })
+
+  it('keeps the connected extension\'s version, and none once it is gone or never said one', async () => {
+    server = await createBridgeServer({ token: TOKEN, boundExtensionId: null })
+    expect(server.extensionVersion()).toBeNull()
+
+    const old = await connect(TOKEN)
+    await nextMessage(old)
+    expect(server.extensionVersion()).toBeNull()
+    old.close()
+
+    const ws = await connect(TOKEN, ORIGIN, '1.9.12')
+    await nextMessage(ws)
+    expect(server.extensionVersion()).toBe('1.9.12')
+
+    ws.close()
+    await new Promise((resolve) => ws.once('close', resolve))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(server.extensionVersion()).toBeNull()
   })
 
   it('rejects a bad token and reports not connected', async () => {

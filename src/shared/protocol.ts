@@ -126,7 +126,12 @@ export type AppMessage =
   | { type: 'ABORT'; requestId: string }
 
 export type ExtensionMessage =
-  | { type: 'HELLO'; token: string; extensionId: string; protocolVersion: number }
+  /**
+   * `extensionVersion` is the manifest version of the extension speaking.
+   * Optional because an extension built before it was sent must still pair:
+   * the app reads its absence as "older than this check" and says so.
+   */
+  | { type: 'HELLO'; token: string; extensionId: string; protocolVersion: number; extensionVersion?: string }
   /**
    * Keeps the extension's service worker alive. Chrome ends an MV3 worker after
    * 30s without activity and the socket dies with it, and only sending or
@@ -229,8 +234,22 @@ export function isAppMessage(value: unknown): value is AppMessage {
   return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
+/** Runtime guard for the handshake; the version is optional but, when sent, a string. */
+export function isHelloMessage(value: unknown): value is Extract<ExtensionMessage, { type: 'HELLO' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<Extract<ExtensionMessage, { type: 'HELLO' }>>
+  return (
+    message.type === 'HELLO' &&
+    typeof message.token === 'string' &&
+    typeof message.extensionId === 'string' &&
+    typeof message.protocolVersion === 'number' &&
+    (message.extensionVersion === undefined || typeof message.extensionVersion === 'string')
+  )
+}
+
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   const type = messageType(value)
+  if (type === 'HELLO') return isHelloMessage(value)
   if (type === 'BOARD_PAGE_COLLECTED') return isBoardPageCollected(value)
   if (type === 'MEMBER_PAGE_COLLECTED') return isMemberPageCollected(value)
   if (type === 'ARTICLE_COLLECTED') return isArticleCollected(value)

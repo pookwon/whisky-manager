@@ -761,8 +761,8 @@ integration('collection PostgreSQL integration (opt-in)', () => {
 
     const lastRuns = await createBoardSearchLastRunQuery(connection.db).read(window)
     expect(Object.fromEntries(lastRuns)).toEqual({
-      발베니: { status: 'succeeded', stopReason: null },
-      라프로익: { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR' },
+      발베니: { status: 'succeeded', stopReason: null, startedAtMs: Date.parse('2026-09-27T01:00:00.000Z'), finishedAtMs: Date.parse('2026-09-27T01:00:00.000Z') },
+      라프로익: { status: 'failed', stopReason: 'BOARD_SEARCH_HTTP_ERROR', startedAtMs: Date.parse('2026-09-27T00:30:00.000Z'), finishedAtMs: Date.parse('2026-09-27T00:30:00.000Z') },
     })
   })
 
