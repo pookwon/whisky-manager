@@ -1,0 +1,6 @@
+# migration files are hashed byte for byte (drizzle sha256), so a CRLF checkout on the Windows build runner
+# yields a different checksum than the LF one already stored in collection databases
+drizzle/**/*.sql text eol=lf
+drizzle/meta/*.json text eol=lf
+drizzle-collection/**/*.sql text eol=lf
+drizzle-collection/meta/*.json text eol=lf
