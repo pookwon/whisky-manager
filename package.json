@@ -27,7 +27,8 @@
     "capture:cafe-articles": "pnpm build && node scripts/capture-cafe-articles.mjs",
     "capture:cafe-members": "pnpm build && node scripts/capture-cafe-members.mjs",
     "generate:cp949": "node scripts/generate-cp949.mjs",
-    "dry-run": "pnpm build && node scripts/dry-run.mjs"
+    "dry-run": "pnpm build && node scripts/dry-run.mjs",
+    "backup:live": "bash scripts/backup/backup-live.sh"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

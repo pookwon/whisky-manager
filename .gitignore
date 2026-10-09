@@ -27,3 +27,6 @@ tests/fixtures/cafe-member-list-page-*.json
 
 # python caches from scripts/member-demotion
 __pycache__/
+
+# live backups: hold the pairing token and a full app DB
+backups/
