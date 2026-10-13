@@ -124,6 +124,12 @@ export type AppMessage =
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
+  /**
+   * Asks the extension to re-read its own files from disk. Sent after an app
+   * update restaged them. An extension that predates it drops the message at
+   * `isAppMessage`, which is why adding it needs no protocol version bump.
+   */
+  | { type: 'RELOAD' }
 
 export type ExtensionMessage =
   /**
@@ -203,6 +209,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'COLLECT_ARTICLE',
   'PROBE',
   'ABORT',
+  'RELOAD',
 ])
 const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'HELLO',

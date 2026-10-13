@@ -22,6 +22,8 @@ export interface BridgeServer extends ExtensionTransport {
    * and null for an extension too old to send one.
    */
   extensionVersion(): string | null
+  /** Sends one message that expects no answer; false when no extension is connected. */
+  notify(message: AppMessage): boolean
   /** Rotates trust so only the new token can bind a replacement extension. */
   resetPairing(token: string): void
   close(): Promise<void>
@@ -31,6 +33,8 @@ export interface BridgeServerOptions extends PairingState {
   /** 0 lets the OS pick a free port, which keeps tests independent. */
   readonly port?: number
   readonly onBind?: (extensionId: string) => void
+  /** An extension passed the handshake and is now the one the app talks to. */
+  readonly onAuthorised?: () => void
 }
 
 interface Pending {
@@ -107,6 +111,7 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
           bound = verdict.boundExtensionId
           options.onBind?.(verdict.boundExtensionId)
         }
+        options.onAuthorised?.()
         return
       }
 
@@ -161,6 +166,12 @@ export async function createBridgeServer(options: BridgeServerOptions): Promise<
 
     extensionVersion() {
       return peer === null ? null : peerExtensionVersion
+    },
+
+    notify(message) {
+      if (peer === null) return false
+      peer.send(JSON.stringify(message))
+      return true
     },
 
     request(message, timeoutMs, onInterim) {

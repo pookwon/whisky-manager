@@ -83,6 +83,9 @@
       "target": ["msi"],
       "artifactName": "Whisky-Manager-${version}.${ext}"
     },
+    "msi": {
+      "perMachine": false
+    },
     "linux": {
       "category": "Office",
       "target": ["AppImage"]

@@ -99,6 +99,8 @@ export interface AppContextOptions {
   readonly onHalt?: (reason: 'NOT_LOGGED_IN' | 'LOGIN_CHECK_FAILED') => void
   /** Safe status code only; DATABASE_URL and driver errors never cross this callback. */
   readonly onCollectionUnavailable?: (code: CollectionUnavailableCode) => void
+  /** An extension finished its handshake; the shell may now have something to tell it. */
+  readonly onExtensionConnected?: () => void
   /**
    * A developer's own cafe, read from a file the repository does not carry.
    * Seeds an unset database and nothing else: values already entered are the
@@ -166,6 +168,11 @@ export interface AppContext {
   sessionProgress(automationId: string): SessionProgress | null
   /** True while any automation has a session in flight; the collection walks yield to it. */
   isAnySessionInFlight(): boolean
+  /**
+   * True while anything is running that the operator would not want cut off:
+   * a session asked for or in flight, or any collection walk or probe.
+   */
+  isBusy(): boolean
   /**
    * Count of greeting targets available at startup, once the bridge connects.
    * Null while not yet counted; a READY or UNAVAILABLE result once obtained.
@@ -244,6 +251,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     boundExtensionId: settings.get('boundExtensionId') ?? null,
     port: options.bridgePort,
     onBind: (extensionId) => settings.set('boundExtensionId', extensionId),
+    onAuthorised: () => options.onExtensionConnected?.(),
   })
 
   /**
@@ -393,8 +401,23 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
    * session queued behind another is not yet touching naver.
    */
   let naverSession: Promise<unknown> = Promise.resolve()
+  /**
+   * Sessions that have been asked for and have not finished, queued ones
+   * included. `sessionProgress` cannot say this: it stays null until a session
+   * touches naver, so an update installed in that gap would cut one off.
+   */
+  let pendingSessions = 0
   const oneAtATime = <T>(run: () => Promise<T>): Promise<T> => {
+    pendingSessions += 1
     const next = naverSession.then(run, run)
+    void next.then(
+      () => {
+        pendingSessions -= 1
+      },
+      () => {
+        pendingSessions -= 1
+      },
+    )
     // The chain carries on past a session that threw; the caller still gets the
     // rejection, but the sessions queued behind it must not be wedged by it.
     naverSession = next.catch(() => undefined)
@@ -800,6 +823,14 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     lastOutcomeAt: (automationId) => runtimes.get(automationId)?.lastOutcomeAt() ?? null,
     sessionProgress: (automationId) => runtimes.get(automationId)?.sessionProgress() ?? null,
     isAnySessionInFlight,
+    isBusy: () =>
+      pendingSessions > 0 ||
+      collectionRunner.isRunning() ||
+      collectionPipeline.isRunning() ||
+      memberCollectionRunner.isRunning() ||
+      memberResyncRunner.isRunning() ||
+      boardSearchRunner.isRunning() ||
+      articleProbeRunner.isRunning(),
     getStartupPreview: () => startupPreview,
     previewDay: (dayStartMs?) => {
       const source = configuredSource()

@@ -309,6 +309,18 @@ describe('createAppContext', () => {
     expect(ctx.sessionProgress(WELCOME_AUTOMATION_ID)).toBeNull()
   })
 
+  it('counts a session as work from the moment it is asked for until it ends', async () => {
+    // `sessionProgress` stays null until a session touches naver, so an update
+    // that trusted it alone would install over a session still queued.
+    expect(ctx.isBusy()).toBe(false)
+
+    const running = ctx.automation.runOnce(WELCOME_AUTOMATION_ID)
+    expect(ctx.isBusy()).toBe(true)
+
+    await running
+    expect(ctx.isBusy()).toBe(false)
+  })
+
   it('listens on a bridge port', () => {
     expect(ctx.bridge.port).toBeGreaterThan(0)
   })

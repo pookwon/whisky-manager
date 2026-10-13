@@ -185,6 +185,7 @@ const dispatch = createDispatcher({
   setCollectionProgress: (listener) => {
     onCollectionProgress = listener
   },
+  reload: () => chrome.runtime.reload(),
 })
 
 function handle(message: AppMessage, reply: Reply): void {

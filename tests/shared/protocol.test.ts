@@ -297,4 +297,9 @@ describe('isInterimMessage', () => {
       isInterimMessage({ type: 'ERROR', requestId: 'r1', code: 'X', message: 'boom' }),
     ).toBe(false)
   })
+
+  it('knows the reload request, which carries nothing and so needs no protocol bump', () => {
+    expect(isAppMessage({ type: 'RELOAD' })).toBe(true)
+    expect(isAppMessage({ type: 'RELOAD_EVERYTHING' })).toBe(false)
+  })
 })

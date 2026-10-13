@@ -51,6 +51,7 @@ function snapshot(automations: AutomationStatus[]): DashboardSnapshot {
     extensionEverPaired: true,
     appVersion: '1.9.15',
     extensionVersion: '1.9.15',
+    update: { kind: 'idle' },
   }
 }
 

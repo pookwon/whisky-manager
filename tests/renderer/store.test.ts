@@ -40,6 +40,8 @@ const wm = {
   startAutomation: vi.fn(),
   stopAutomation: vi.fn(),
   killSwitch: vi.fn(),
+  applyUpdate: vi.fn(),
+  cancelUpdate: vi.fn(),
   runOnce: vi.fn(),
 }
 
@@ -70,6 +72,7 @@ const snapshot: DashboardSnapshot = {
   extensionEverPaired: false,
   appVersion: '1.9.15',
   extensionVersion: null,
+  update: { kind: 'idle' },
 }
 
 const commonSettings: CommonSettingsView = {

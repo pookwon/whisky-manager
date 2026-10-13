@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +8,13 @@ import { TEXT } from '../shared/text.js'
 import { createAppContext, type AppContext } from './bootstrap.js'
 import { openChrome, systemChromeHost } from './chromeLauncher.js'
 import { stageExtension } from './extensionBundle.js'
+import {
+  createStagedVersionFile,
+  restageExtensionIfOutdated,
+  shouldReloadExtension,
+} from './extensionRestage.js'
+import { fetchLatestRelease, githubHttp } from './githubHttp.js'
+import { createUpdateRuntime, type UpdateRuntime } from './updateRuntime.js'
 import {
   runExtensionRecovery,
   runExtensionSetup,
@@ -30,6 +38,12 @@ const BRIDGE_PORT = 39_217
  * the same real directory on every run.
  */
 const STAGED_EXTENSION_DIRNAME = 'chrome-extension'
+
+/** Which app version last wrote the staged extension; survives the app being replaced. */
+const STAGED_VERSION_FILENAME = 'staged-app-version'
+
+/** How long an update waits for work to stop and storage to close before it goes ahead. */
+const SHUTDOWN_BEFORE_UPDATE_MS = 15_000
 
 /**
  * The installed build's only way to be told where the collection database is.
@@ -57,6 +71,17 @@ app.setPath('userData', join(app.getPath('appData'), 'whisky-manager'))
 let context: AppContext | null = null
 let tray: Tray | null = null
 let window: BrowserWindow | null = null
+let updates: UpdateRuntime | null = null
+
+/** Set when this launch rewrote the staged extension; spent on the first reload it asks for. */
+let extensionReloadArmed = false
+
+/**
+ * A second copy would fight the first for the bridge port, and the loser's
+ * fatal-error dialog is the last thing an operator mid-update should see.
+ */
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) app.quit()
 
 function showWindow(): void {
   if (window === null) {
@@ -78,6 +103,23 @@ function showWindow(): void {
   }
   window.show()
   window.focus()
+}
+
+/** The tray's one line about an update, or none while there is nothing to say. */
+function updateTrayItems(): Electron.MenuItemConstructorOptions[] {
+  const coordinator = updates?.coordinator
+  if (coordinator === undefined) return []
+  const state = coordinator.state()
+  if (state.kind === 'ready') {
+    return [
+      { type: 'separator' },
+      { label: TEXT.tray.updateReady(state.version), click: () => void coordinator.apply() },
+    ]
+  }
+  if (state.kind === 'waitingIdle') {
+    return [{ type: 'separator' }, { label: TEXT.tray.updateWaiting, enabled: false }]
+  }
+  return []
 }
 
 function refreshTray(ctx: AppContext): void {
@@ -111,6 +153,7 @@ function refreshTray(ctx: AppContext): void {
           void shell.openPath(path)
         },
       },
+      ...updateTrayItems(),
       { type: 'separator' },
       { label: TEXT.tray.quit, role: 'quit' },
     ]),
@@ -225,10 +268,28 @@ function reportCollectionUnavailable(code: CollectionUnavailableCode): void {
 }
 
 void app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return
+
   // Only the installed build registers itself to start with the machine. A dev
   // run must not leave a login item pointing at a temporary electron binary.
   if (app.isPackaged) {
     app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
+  }
+
+  // Only an installed build owns the staged folder. A development run shares
+  // this userData directory and must not overwrite it with its own files.
+  if (app.isPackaged) {
+    try {
+      const stagedDirectory = join(app.getPath('userData'), STAGED_EXTENSION_DIRNAME)
+      extensionReloadArmed = restageExtensionIfOutdated({
+        appVersion: app.getVersion(),
+        stagedDirectory,
+        ...createStagedVersionFile(join(app.getPath('userData'), STAGED_VERSION_FILENAME)),
+        stage: () => stageExtension(join(app.getAppPath(), 'dist/extension'), stagedDirectory),
+      })
+    } catch (error) {
+      console.error('[update] extension restage failed:', error)
+    }
   }
 
   const profile = app.isPackaged ? 'production' : 'debug'
@@ -250,9 +311,49 @@ void app.whenReady().then(async () => {
       if (context !== null) refreshTray(context)
     },
     onCollectionUnavailable: reportCollectionUnavailable,
+    // A restaged extension keeps running its old files until it re-reads them.
+    // It is asked once, and only while it still reports an older build.
+    onExtensionConnected: () => {
+      if (!extensionReloadArmed || context === null) return
+      extensionReloadArmed = false
+      const extensionVersion = context.bridge.extensionVersion()
+      if (shouldReloadExtension({ armed: true, appVersion: app.getVersion(), extensionVersion })) {
+        context.bridge.notify({ type: 'RELOAD' })
+      }
+    },
   })
 
   const appContext = context
+  const updateRuntime = createUpdateRuntime({
+    platform: process.platform,
+    arch: process.arch,
+    currentVersion: app.getVersion(),
+    enabled: app.isPackaged,
+    userDataDirectory: app.getPath('userData'),
+    executablePath: process.execPath,
+    processId: process.pid,
+    fetchLatestRelease,
+    http: githubHttp,
+    openPath: (path) => shell.openPath(path),
+    spawnDetached: (command, args) =>
+      new Promise((resolve) => {
+        const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: true })
+        child.once('error', () => resolve(false))
+        child.once('spawn', () => {
+          child.unref()
+          resolve(true)
+        })
+      }),
+    isBusy: () => appContext.isBusy(),
+    shutdown: () =>
+      Promise.race([
+        appContext.shutdown(),
+        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_BEFORE_UPDATE_MS)),
+      ]),
+    exit: () => app.exit(0),
+  })
+  updates = updateRuntime
+  updateRuntime.coordinator.subscribe(() => refreshTray(appContext))
   registerIpc(
     createRendererApi({
       repos: appContext.repos,
@@ -273,6 +374,7 @@ void app.whenReady().then(async () => {
       lastBridgeConnectedAt: () => appContext.lastBridgeConnectedAt(),
       appVersion: app.getVersion(),
       extensionVersion: () => appContext.bridge.extensionVersion(),
+      update: updateRuntime.coordinator,
       nextSessionAt: (automationId) => appContext.automation.nextRunAt(automationId),
       sessionProgress: (automationId) => appContext.sessionProgress(automationId),
       lastWarm: () => appContext.lastWarm(),
@@ -305,10 +407,14 @@ void app.whenReady().then(async () => {
   tray.setToolTip(TEXT.app.title)
   refreshTray(context)
   showWindow()
+  updateRuntime.start()
 }).catch(reportFatalStartupError)
 
 // Tray-resident: closing the window must not quit the app.
 app.on('window-all-closed', () => {})
+
+// A second launch means the operator wants the window of the app already running.
+app.on('second-instance', showWindow)
 
 app.on('before-quit', () => {
   void context?.shutdown()

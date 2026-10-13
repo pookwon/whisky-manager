@@ -6,7 +6,9 @@ import {
   getBridgeStatusTone,
   shouldOfferExtensionRecovery,
 } from './format.js'
+import { api } from './api.js'
 import { extensionVersionNotice } from './extensionVersionNotice.js'
+import { updateNotice } from './updateNotice.js'
 import { startPolling } from './poll.js'
 import { routeKey, type Route } from './routes.js'
 import { useApp } from './store.js'
@@ -18,6 +20,7 @@ import { CommonSettings } from './views/CommonSettings.js'
 import { MemberCollection } from './views/members/MemberCollection.js'
 import { RecentLog } from './views/RecentLog.js'
 import { Dashboard } from './views/Dashboard.js'
+import { UpdateNotice } from './views/UpdateNotice.js'
 import { ExtensionSetupDialog } from './views/ExtensionSetupDialog.js'
 import { Templates } from './views/Templates.js'
 
@@ -52,6 +55,7 @@ export function App(): React.JSX.Element {
    */
   const bridgeStatus = dashboard?.bridgeStatus ?? 'OFFLINE'
   const versionNotice = dashboard === null ? null : extensionVersionNotice(dashboard)
+  const appUpdateNotice = dashboard === null ? null : updateNotice(dashboard.update, dashboard.nextSessionAt)
 
   /**
    * No extension has ever paired on this machine. Read as `=== false` rather
@@ -105,6 +109,14 @@ export function App(): React.JSX.Element {
               the new build's. */}
           {versionNotice !== null && (
             <p className="mt-3 text-[0.6875rem] leading-snug tone-warn">{versionNotice}</p>
+          )}
+
+          {appUpdateNotice !== null && (
+            <UpdateNotice
+              notice={appUpdateNotice}
+              onApply={() => void api.applyUpdate()}
+              onCancel={() => void api.cancelUpdate()}
+            />
           )}
 
           {/* Only on an install that has never paired, and only once the first

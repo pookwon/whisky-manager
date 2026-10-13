@@ -48,6 +48,7 @@ function setup(overrides: Partial<DispatcherDeps> = {}) {
     },
     onHandshakeRejected: (reason) => trace.push(`rejected:${reason ?? ''}`),
     setCollectionProgress: (listener) => progress.push(listener),
+    reload: () => trace.push('reload'),
     ...overrides,
   }
   const dispatch = createDispatcher(deps)
@@ -256,6 +257,15 @@ describe('the rest of the instructions', () => {
     await run({ type: 'HELLO_ACK', accepted: true, reason: null })
 
     expect(trace).toEqual(['rejected:version'])
+    expect(replies).toHaveLength(0)
+  })
+
+  it('re-reads its own files when the app asks, and answers nothing', async () => {
+    const { run, trace, replies } = setup()
+
+    await run({ type: 'RELOAD' })
+
+    expect(trace).toEqual(['reload'])
     expect(replies).toHaveLength(0)
   })
 })

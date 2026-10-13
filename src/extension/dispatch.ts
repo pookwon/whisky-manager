@@ -36,6 +36,8 @@ export interface DispatcherDeps {
   readonly onHandshakeRejected: (reason: string | null) => void
   /** Installs the listener the cafe client reports collection progress to. */
   readonly setCollectionProgress: (listener: CollectionProgress | null) => void
+  /** Re-reads the extension's own files; the app asks for it after restaging them. */
+  readonly reload: () => void
 }
 
 /**
@@ -184,6 +186,10 @@ export function createDispatcher(deps: DispatcherDeps) {
         return
 
       case 'ABORT':
+        return
+
+      case 'RELOAD':
+        deps.reload()
         return
     }
   }

@@ -22,6 +22,7 @@ import type { ApprovalPolicy, RiskFlag, Template } from '../shared/types.js'
 import type { ExtensionRecoveryResult, ExtensionSetupResult } from './extensionSetup.js'
 import type { StartupPreview } from './preview.js'
 import type { WarmCheck } from './sessionWarmer.js'
+import type { UpdateState } from '../shared/updateStatus.js'
 
 // Re-exported so the renderer reads every answer this surface gives from the
 // one module, as it does for the collection results below.
@@ -74,6 +75,8 @@ export const IPC_CHANNELS = {
   startAutomation: 'wm:startAutomation',
   stopAutomation: 'wm:stopAutomation',
   killSwitch: 'wm:killSwitch',
+  applyUpdate: 'wm:applyUpdate',
+  cancelUpdate: 'wm:cancelUpdate',
   runOnce: 'wm:runOnce',
   previewDay: 'wm:previewDay',
   exportConfig: 'wm:exportConfig',
@@ -147,6 +150,8 @@ export interface DashboardSnapshot {
    * an old parser for days with nothing else to say so.
    */
   readonly extensionVersion: string | null
+  /** Where the app's own update stands; the banner and the tray read the same thing. */
+  readonly update: UpdateState
   /**
    * Whether the operating window is open right now. The app decides it so the
    * renderer never works out the hours a second time and disagrees.
@@ -433,6 +438,10 @@ export interface RendererApi {
   startAutomation(): Promise<void>
   stopAutomation(): Promise<void>
   killSwitch(): Promise<void>
+  /** The operator's press on a ready update: installs now, or as soon as nothing is running. */
+  applyUpdate(): Promise<void>
+  /** Withdraws a press that is still waiting for running work to end. */
+  cancelUpdate(): Promise<void>
   /**
    * Starts a session now. Resolves once it has started, not once it has
    * finished — a day's greetings take the better part of an hour, and a

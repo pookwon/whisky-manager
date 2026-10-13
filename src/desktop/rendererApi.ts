@@ -119,6 +119,8 @@ export interface RendererApiDeps {
   readonly appVersion: string
   /** The connected extension's version, or null when none is connected or it sent none. */
   readonly extensionVersion: () => string | null
+  /** The app's own updater; the renderer reads its state and presses apply. */
+  readonly update: Pick<import('./updateCoordinator.js').UpdateCoordinator, 'state' | 'apply' | 'cancelWaiting'>
   /** When that automation's next session is scheduled to run, or null if it is not running. */
   readonly nextSessionAt: (automationId: string) => number | null
   /** What that automation's session in flight is doing, or null when none is running. */
@@ -506,6 +508,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         extensionEverPaired: settings.get(BOUND_EXTENSION_ID_KEY) !== undefined,
         appVersion: deps.appVersion,
         extensionVersion: deps.extensionVersion(),
+        update: deps.update.state(),
         withinActiveHours: isWithinActiveHours(now, deps.limits, deps.clock),
         activeHourStart: deps.limits.activeHourStart,
         activeHourEnd: deps.limits.activeHourEnd,
@@ -654,6 +657,15 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
 
     killSwitch() {
       deps.automation.kill()
+      return Promise.resolve()
+    },
+
+    applyUpdate() {
+      return deps.update.apply()
+    },
+
+    cancelUpdate() {
+      deps.update.cancelWaiting()
       return Promise.resolve()
     },
 
