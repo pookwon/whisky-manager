@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { createWriteStream, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { createWriteStream, mkdirSync, readdirSync, renameSync, rmSync, type WriteStream } from 'node:fs'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { UpdateCandidate } from '../shared/releaseSelection.js'
@@ -58,6 +58,16 @@ function clearOthers(directory: string, keep: string): void {
 }
 
 /**
+ * A destroyed write stream may still be opening its file. Removing the part
+ * file before the stream has closed lets that open recreate it afterwards, so
+ * a failed download would leave a partial file behind.
+ */
+function closed(stream: WriteStream): Promise<void> {
+  if (stream.closed) return Promise.resolve()
+  return new Promise((resolve) => stream.once('close', () => resolve()))
+}
+
+/**
  * Fetches the candidate into `directory` and keeps it only if it is exactly
  * the file the release described. The file appears under its final name only
  * after both its length and its digest match, so anything found there is
@@ -70,10 +80,12 @@ export async function downloadUpdate(candidate: UpdateCandidate, directory: stri
   const partPath = join(directory, partName)
   rmSync(partPath, { force: true })
 
+  let sink: WriteStream | null = null
   try {
     const body = await openBody(http, candidate.url)
     if (body === null) return { kind: 'failed', reason: 'DOWNLOAD_FAILED' }
 
+    sink = createWriteStream(partPath)
     const hash = createHash('sha256')
     let size = 0
     // A pipeline carries a failure from either end — the network or the disk —
@@ -88,7 +100,7 @@ export async function downloadUpdate(candidate: UpdateCandidate, directory: stri
           yield chunk
         }
       },
-      createWriteStream(partPath),
+      sink,
     )
 
     if (size !== candidate.size) {
@@ -106,6 +118,7 @@ export async function downloadUpdate(candidate: UpdateCandidate, directory: stri
     renameSync(partPath, finalPath)
     return { kind: 'downloaded', path: finalPath }
   } catch {
+    if (sink !== null) await closed(sink)
     rmSync(partPath, { force: true })
     return { kind: 'failed', reason: 'DOWNLOAD_FAILED' }
   }
