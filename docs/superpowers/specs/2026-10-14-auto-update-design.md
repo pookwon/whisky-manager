@@ -71,7 +71,8 @@ any  → failed(reason) → idle        (다음 주기에 재시도)
 - `package.json`의 `build.win.msi.perMachine`을 `false`로 명시한다(기본값과 같지만 사일런트 설치가 이 가정에 달려 있다). 생성된 MSI는 per-user(`ALLUSERS=2`, `MSIINSTALLPERUSER=1`)이므로 UAC 없이 `msiexec /qn`이 동작한다. `UpgradeCode`는 `appId`에서 고정 생성되고 `MajorUpgrade`가 있어 덮어 설치된다.
 - 앱은 분리된 헬퍼를 띄우고 스스로 종료한다. 헬퍼(PowerShell 한 줄 스크립트, 인자는 모두 경로·pid):
   1. 앱 pid가 사라질 때까지 최대 60초 기다린다. 그때까지 남아 있으면 설치하지 않고 마법사를 열어 둔 채 `update-error.log`에 `APP_STILL_RUNNING`을 남긴다(살아 있는 앱 위에 설치하지 않는다).
-  2. `msiexec /i "<msi>" /qn /norestart /l*v "<userData>\update-install.log"` 실행, 종료 코드를 저장한다.
+  1-1. 앱 pid뿐 아니라 설치 폴더에서 실행 중인 프로세스(Electron 보조 프로세스)가 모두 사라질 때까지 같은 한도 안에서 기다린다. 헬퍼는 작업 폴더를 임시 폴더로 옮긴다(설치 폴더를 붙들지 않는다).
+  2. `msiexec /i "<msi>" /qn /norestart /l*v "<userData>\update-install.log"` 실행, 종료 코드를 저장한다. 0·3010이 아니면 5초 뒤 최대 3회까지 다시 시도하고, 재시도 로그는 `update-install.log.<n>`에 남긴다. 파일 쓰기 실패(`Error writing to file`)는 대개 잠시 뒤 풀린다.
   3. 종료 코드와 상관없이 설치된 `Whisky Manager.exe`를 실행한다(성공이면 새 버전, 실패면 MSI 트랜잭션 롤백으로 남은 구버전). 실행 파일이 없거나 10초 안에 같은 이름의 프로세스가 보이지 않으면 설치 파일을 연다.
   4. 종료 코드가 0이 아니면 `update-error.log`에 `<KST 시각> <코드>`를 쓴다.
 - 헬퍼를 띄우지 못하면(`spawn` 오류) `shell.openPath(msi)`로 마법사를 열고 상태를 `failed('HELPER_UNAVAILABLE')`로 둔다. 앱은 종료하지 않는다.

@@ -68,6 +68,22 @@ describe('the helper script', () => {
     expect(WINDOWS_UPDATE_SCRIPT).toContain('Start-Process -FilePath $Executable')
   })
 
+  it('waits for every process running from the install folder, not only the app pid', () => {
+    expect(WINDOWS_UPDATE_SCRIPT).toContain('InstallFolderProcesses')
+    expect(WINDOWS_UPDATE_SCRIPT).toContain('Split-Path -Parent $Executable')
+  })
+
+  it('moves its working folder out of the install folder before installing', () => {
+    const moved = WINDOWS_UPDATE_SCRIPT.indexOf('Set-Location')
+    expect(moved).toBeGreaterThan(-1)
+    expect(moved).toBeLessThan(WINDOWS_UPDATE_SCRIPT.indexOf("'msiexec.exe'"))
+  })
+
+  it('tries the installer again after a failed write, each attempt with its own log', () => {
+    expect(WINDOWS_UPDATE_SCRIPT).toContain('$installAttempts = 3')
+    expect(WINDOWS_UPDATE_SCRIPT).toContain("'{0}.{1}' -f $InstallLog, $attempt")
+  })
+
   it('stamps its notes in KST', () => {
     expect(WINDOWS_UPDATE_SCRIPT).toContain('AddHours($kstOffsetHours)')
     expect(WINDOWS_UPDATE_SCRIPT).toContain('$kstOffsetHours = 9')

@@ -22,28 +22,61 @@ $kstOffsetHours = 9
 $waitForExitSeconds = 60
 $installTimeoutMs = 600000
 $relaunchWaitSeconds = 10
+$installAttempts = 3
+$retryPauseSeconds = 5
 
 function Note([string]$text) {
   $stamp = (Get-Date).ToUniversalTime().AddHours($kstOffsetHours).ToString('yyyy-MM-dd HH:mm:ss')
   Add-Content -LiteralPath $ErrorLog -Value ('{0} KST {1}' -f $stamp, $text)
 }
 
+function IsAppRunning {
+  return [bool](Get-Process -Id $AppPid -ErrorAction SilentlyContinue)
+}
+
+# Electron's helper processes can outlive the main one for a moment, and an
+# installer cannot replace files they still hold. Everything running from the
+# install folder has to be gone, not only the process the app handed over.
+function InstallFolderProcesses {
+  $prefix = (Split-Path -Parent $Executable) + [System.IO.Path]::DirectorySeparatorChar
+  Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    ($_.Id -ne $PID) -and $_.Path -and $_.Path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+  }
+}
+
 $deadline = (Get-Date).AddSeconds($waitForExitSeconds)
-while ((Get-Process -Id $AppPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {
+while ((IsAppRunning -or (InstallFolderProcesses)) -and ((Get-Date) -lt $deadline)) {
   Start-Sleep -Milliseconds 500
 }
-if (Get-Process -Id $AppPid -ErrorAction SilentlyContinue) {
+if (IsAppRunning -or (InstallFolderProcesses)) {
   Note 'APP_STILL_RUNNING'
   Start-Process -FilePath $Installer
   exit 1
 }
 
-$arguments = @('/i', ('"{0}"' -f $Installer), '/qn', '/norestart', '/l*v', ('"{0}"' -f $InstallLog))
-$install = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -PassThru
-if (-not $install.WaitForExit($installTimeoutMs)) {
-  Note 'MSIEXEC_TIMEOUT'
-} elseif (($install.ExitCode -ne 0) -and ($install.ExitCode -ne 3010)) {
-  Note ('MSIEXEC_EXIT {0}' -f $install.ExitCode)
+# Set the working folder away from the install folder: this helper and the
+# installer it starts must not hold the folder they are about to replace.
+Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
+
+# A write the installer could not finish (a scanner holding a fresh file, a
+# handle still closing) is usually gone seconds later, and the installer rolls
+# back cleanly, so trying again is safe. Each attempt keeps its own log.
+$installSucceeded = $false
+for ($attempt = 1; ($attempt -le $installAttempts) -and (-not $installSucceeded); $attempt++) {
+  $attemptLog = $InstallLog
+  if ($attempt -gt 1) { $attemptLog = '{0}.{1}' -f $InstallLog, $attempt }
+  $arguments = @('/i', ('"{0}"' -f $Installer), '/qn', '/norestart', '/l*v', ('"{0}"' -f $attemptLog))
+  $install = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -PassThru
+  if (-not $install.WaitForExit($installTimeoutMs)) {
+    Note 'MSIEXEC_TIMEOUT'
+    break
+  }
+  if (($install.ExitCode -eq 0) -or ($install.ExitCode -eq 3010)) {
+    $installSucceeded = $true
+  } else {
+    Note ('MSIEXEC_EXIT {0} ATTEMPT {1}' -f $install.ExitCode, $attempt)
+    if ($attempt -lt $installAttempts) { Start-Sleep -Seconds $retryPauseSeconds }
+  }
 }
 
 if (-not (Test-Path -LiteralPath $Executable)) {

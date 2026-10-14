@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, Menu, Tray, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
@@ -337,7 +338,7 @@ void app.whenReady().then(async () => {
     openPath: (path) => shell.openPath(path),
     spawnDetached: (command, args) =>
       new Promise((resolve) => {
-        const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: true })
+        const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: true, cwd: tmpdir() })
         child.once('error', () => resolve(false))
         child.once('spawn', () => {
           child.unref()
