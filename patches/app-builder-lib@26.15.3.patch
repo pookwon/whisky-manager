@@ -11,7 +11,7 @@ index 2d5cd3c..a728a2c 100644
 +    running app holds. Every Electron process of the app shares this image name; the action ends them before
 +    files are validated. Return="ignore" because no running app is the usual case.
 +    -->
-+    <CustomAction Id="StopRunningApp" Directory="SystemFolder" ExeCommand='"[SystemFolder]taskkill.exe" /F /IM "${productName}.exe"' Execute="immediate" Return="ignore"/>
++    <CustomAction Id="StopRunningApp" Directory="TARGETDIR" ExeCommand='"[SystemFolder]taskkill.exe" /F /IM "${productName}.exe"' Execute="immediate" Return="ignore"/>
 +    <InstallExecuteSequence>
 +      <Custom Action="StopRunningApp" Before="InstallValidate"/>
 +    </InstallExecuteSequence>
