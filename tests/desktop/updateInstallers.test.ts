@@ -68,9 +68,13 @@ describe('the helper script', () => {
     expect(WINDOWS_UPDATE_SCRIPT).toContain('Start-Process -FilePath $Executable')
   })
 
-  it('waits for every process running from the install folder, not only the app pid', () => {
+  it('stops what the app left running in the install folder once the app itself is gone', () => {
     expect(WINDOWS_UPDATE_SCRIPT).toContain('InstallFolderProcesses')
     expect(WINDOWS_UPDATE_SCRIPT).toContain('Split-Path -Parent $Executable')
+    expect(WINDOWS_UPDATE_SCRIPT).toContain('Stop-Process -Force')
+    expect(WINDOWS_UPDATE_SCRIPT).toContain("Note ('LEFTOVER_PROCESSES")
+    const gone = WINDOWS_UPDATE_SCRIPT.indexOf("Note 'APP_STILL_RUNNING'")
+    expect(WINDOWS_UPDATE_SCRIPT.indexOf('Stop-Process -Force')).toBeGreaterThan(gone)
   })
 
   it('moves its working folder out of the install folder before installing', () => {

@@ -71,7 +71,7 @@ any  → failed(reason) → idle        (다음 주기에 재시도)
 - `package.json`의 `build.win.msi.perMachine`을 `false`로 명시한다(기본값과 같지만 사일런트 설치가 이 가정에 달려 있다). 생성된 MSI는 per-user(`ALLUSERS=2`, `MSIINSTALLPERUSER=1`)이므로 UAC 없이 `msiexec /qn`이 동작한다. `UpgradeCode`는 `appId`에서 고정 생성되고 `MajorUpgrade`가 있어 덮어 설치된다.
 - 앱은 분리된 헬퍼를 띄우고 스스로 종료한다. 헬퍼(PowerShell 한 줄 스크립트, 인자는 모두 경로·pid):
   1. 앱 pid가 사라질 때까지 최대 60초 기다린다. 그때까지 남아 있으면 설치하지 않고 마법사를 열어 둔 채 `update-error.log`에 `APP_STILL_RUNNING`을 남긴다(살아 있는 앱 위에 설치하지 않는다).
-  1-1. 앱 pid뿐 아니라 설치 폴더에서 실행 중인 프로세스(Electron 보조 프로세스)가 모두 사라질 때까지 같은 한도 안에서 기다린다. 헬퍼는 작업 폴더를 임시 폴더로 옮긴다(설치 폴더를 붙들지 않는다).
+  1-1. 앱 pid가 사라진 뒤에도 설치 폴더에서 실행 중인 프로세스(Electron 보조 프로세스 등)가 10초 안에 끝나지 않으면 `update-error.log`에 `LEFTOVER_PROCESSES <pid:이름>`을 남기고 `Stop-Process -Force`로 정리한다. 앱 자신은 강제로 끄지 않는다(DB를 쓰는 중일 수 있다). 헬퍼는 작업 폴더를 임시 폴더로 옮긴다(설치 폴더를 붙들지 않는다).
   2. `msiexec /i "<msi>" /qn /norestart /l*v "<userData>\update-install.log"` 실행, 종료 코드를 저장한다. 0·3010이 아니면 5초 뒤 최대 3회까지 다시 시도하고, 재시도 로그는 `update-install.log.<n>`에 남긴다. 파일 쓰기 실패(`Error writing to file`)는 대개 잠시 뒤 풀린다.
   3. 종료 코드와 상관없이 설치된 `Whisky Manager.exe`를 실행한다(성공이면 새 버전, 실패면 MSI 트랜잭션 롤백으로 남은 구버전). 실행 파일이 없거나 10초 안에 같은 이름의 프로세스가 보이지 않으면 설치 파일을 연다.
   4. 종료 코드가 0이 아니면 `update-error.log`에 `<KST 시각> <코드>`를 쓴다.
@@ -121,3 +121,7 @@ any  → failed(reason) → idle        (다음 주기에 재시도)
 - 무결성의 근거는 GitHub API의 자산 `digest`뿐이다. 이는 전송 손상과 네트워크 공격자를 막지만, 릴리스 저장소나 `pookwon` 계정이 탈취된 경우에는 서명이 없는 MSI가 그대로 설치된다. 서명 없는 배포에서 받아들이는 위험이며, 계정 2FA를 전제로 한다. 오프라인 키 서명은 코드 서명과 함께 범위 밖이다.
 - 서명이 없어 SmartScreen이 `msiexec` 설치를 막을 가능성이 있다. 앱이 직접 실행하면 Mark-of-the-Web이 없어 대체로 통과하지만, 실제 Windows 기계에서 확인해야 한다.
 - 자산 `digest`는 v1.9.17 릴리스의 모든 자산에서 채워져 있음을 `gh api`로 확인했다(2026-10-14). 비어 있는 릴리스는 설치하지 않는다.
+
+## 11. 직접 실행한 MSI도 앱을 닫는다
+
+트레이 상주 앱은 창을 닫아도 살아 있어 직접 실행한 MSI가 설치 폴더의 파일을 쓰지 못한다(`Error writing to file`). `patches/app-builder-lib@26.15.3.patch`가 electron-builder의 MSI 템플릿에 `StopRunningApp` 사용자 지정 동작을 더한다. `InstallValidate` 직전에 `taskkill /F /IM "<productName>.exe"`를 실행하며, 앱의 Electron 프로세스는 모두 같은 이미지 이름이다. `/T`는 쓰지 않는다: 앱이 띄운 Chrome이 자손으로 걸려 함께 종료된다. 실행 중인 앱이 없어도 설치는 계속된다(`Return="ignore"`). 템플릿을 바꾸므로 electron-builder 버전을 올리면 패치를 다시 만들어야 한다.

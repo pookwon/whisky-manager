@@ -20,6 +20,7 @@ export const WINDOWS_UPDATE_SCRIPT = `param(
 $ErrorActionPreference = 'Continue'
 $kstOffsetHours = 9
 $waitForExitSeconds = 60
+$leftoverGraceSeconds = 10
 $installTimeoutMs = 600000
 $relaunchWaitSeconds = 10
 $installAttempts = 3
@@ -30,13 +31,9 @@ function Note([string]$text) {
   Add-Content -LiteralPath $ErrorLog -Value ('{0} KST {1}' -f $stamp, $text)
 }
 
-function IsAppRunning {
-  return [bool](Get-Process -Id $AppPid -ErrorAction SilentlyContinue)
-}
-
-# Electron's helper processes can outlive the main one for a moment, and an
-# installer cannot replace files they still hold. Everything running from the
-# install folder has to be gone, not only the process the app handed over.
+# What else the app left running. Electron's helper processes can outlive the
+# main one, and so can anything the app started; an installer cannot replace
+# files they still hold, and a failed write is what the operator then sees.
 function InstallFolderProcesses {
   $prefix = (Split-Path -Parent $Executable) + [System.IO.Path]::DirectorySeparatorChar
   Get-Process -ErrorAction SilentlyContinue | Where-Object {
@@ -44,14 +41,27 @@ function InstallFolderProcesses {
   }
 }
 
+# The app itself is never overridden: it may still be writing its database. Once
+# it is gone, what remains in its folder has nothing left to protect.
 $deadline = (Get-Date).AddSeconds($waitForExitSeconds)
-while ((IsAppRunning -or (InstallFolderProcesses)) -and ((Get-Date) -lt $deadline)) {
+while ((Get-Process -Id $AppPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {
   Start-Sleep -Milliseconds 500
 }
-if (IsAppRunning -or (InstallFolderProcesses)) {
+if (Get-Process -Id $AppPid -ErrorAction SilentlyContinue) {
   Note 'APP_STILL_RUNNING'
   Start-Process -FilePath $Installer
   exit 1
+}
+
+$graceDeadline = (Get-Date).AddSeconds($leftoverGraceSeconds)
+while ((InstallFolderProcesses) -and ((Get-Date) -lt $graceDeadline)) {
+  Start-Sleep -Milliseconds 500
+}
+$leftovers = @(InstallFolderProcesses)
+if ($leftovers.Count -gt 0) {
+  Note ('LEFTOVER_PROCESSES {0}' -f (($leftovers | ForEach-Object { '{0}:{1}' -f $_.Id, $_.Name }) -join ','))
+  $leftovers | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
 }
 
 # Set the working folder away from the install folder: this helper and the

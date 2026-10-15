@@ -1,0 +1,21 @@
+diff --git a/templates/msi/template.xml b/templates/msi/template.xml
+index 2d5cd3c..a728a2c 100644
+--- a/templates/msi/template.xml
++++ b/templates/msi/template.xml
+@@ -16,6 +16,16 @@
+     <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage='A newer version of "[ProductName]" is already installed.'/>
+     <MediaTemplate CompressionLevel="${compressionLevel}" EmbedCab="yes"/>
+ 
++    <!--
++    The app is tray-resident, so closing its window leaves it running, and an installer cannot replace files a
++    running app holds. Every Electron process of the app shares this image name; the action ends them before
++    files are validated. Return="ignore" because no running app is the usual case.
++    -->
++    <CustomAction Id="StopRunningApp" Directory="SystemFolder" ExeCommand='"[SystemFolder]taskkill.exe" /F /IM "${productName}.exe"' Execute="immediate" Return="ignore"/>
++    <InstallExecuteSequence>
++      <Custom Action="StopRunningApp" Before="InstallValidate"/>
++    </InstallExecuteSequence>
++
+     <Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER"/>
+     <Property Id="ApplicationFolderName" Value="${installationDirectoryWixName}"/>
+     <Property Id="WixAppFolder" Value="WixPerUserFolder"/>

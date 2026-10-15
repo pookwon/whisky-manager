@@ -53,6 +53,11 @@
     "vitest": "^4.1.11"
   },
   "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "patchedDependencies": {
+      "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch"
+    }
+  },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
