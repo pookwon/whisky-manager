@@ -36,10 +36,10 @@ export const PROFILES: Record<Profile, Limits> = {
     // Four hours, give or take an hour.
     sessionIntervalMinMs: 3 * HOUR,
     sessionIntervalMaxMs: 5 * HOUR,
-    // Roughly forty seconds apart, so a full session spreads over about an
-    // hour instead of arriving as one burst.
-    actionIntervalMinMs: 20 * SECOND,
-    actionIntervalMaxMs: 60 * SECOND,
+    // Five to seven seconds apart. A band, not a fixed number: a tool that
+    // posts on the exact same beat reads as one.
+    actionIntervalMinMs: 5 * SECOND,
+    actionIntervalMaxMs: 7 * SECOND,
     // Around 150 greetings a day over four sessions is under forty each; the
     // headroom is for a day the tool was off.
     perSessionCap: 75,

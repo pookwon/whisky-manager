@@ -495,7 +495,7 @@ describe('getDashboard', () => {
       withinActiveHours: true,
       activeHourStart: 10,
       activeHourEnd: 24,
-      averageActionGapMs: 40_000,
+      averageActionGapMs: (PROFILES.production.actionIntervalMinMs + PROFILES.production.actionIntervalMaxMs) / 2,
     })
   })
 
