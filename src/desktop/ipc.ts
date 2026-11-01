@@ -79,6 +79,9 @@ export const IPC_CHANNELS = {
   cancelUpdate: 'wm:cancelUpdate',
   runOnce: 'wm:runOnce',
   previewDay: 'wm:previewDay',
+  searchJoinPattern: 'wm:searchJoinPattern',
+  openStudioIdentity: 'wm:openStudioIdentity',
+  exportJoinPattern: 'wm:exportJoinPattern',
   exportConfig: 'wm:exportConfig',
   importConfig: 'wm:importConfig',
 } as const
@@ -335,6 +338,10 @@ export interface AutomationStatus {
  * which is an ordinary answer rather than a failure — the screen must not
  * report an error for it.
  */
+export type { JoinPatternSearchResult } from './joinPatternSearch.js'
+
+export type ExportJoinPatternResult = { readonly kind: 'SAVED'; readonly path: string } | { readonly kind: 'CANCELLED' }
+
 export type ExportConfigResult =
   | { readonly kind: 'SAVED'; readonly path: string }
   | { readonly kind: 'CANCELLED' }
@@ -464,6 +471,12 @@ export interface RendererApi {
    * template — and none of the pairing token, the bound extension, the run
    * history or the pacing limits.
    */
+  /** Asks about the identity check, then reads the last month's joins. Changes nothing. */
+  searchJoinPattern(): Promise<import('./joinPatternSearch.js').JoinPatternSearchResult>
+  /** Opens the studio in the browser; false when no extension is connected. */
+  openStudioIdentity(): Promise<boolean>
+  /** Saves the last search's candidates to a CSV the operator picks. */
+  exportJoinPattern(): Promise<ExportJoinPatternResult>
   exportConfig(): Promise<ExportConfigResult>
   /**
    * Replaces the current configuration with a file's. Destructive by design:

@@ -274,7 +274,7 @@ describe('COLLECT_ARTICLE', () => {
   })
 
   it('bumps the protocol, since an older extension cannot answer it', () => {
-    expect(PROTOCOL_VERSION).toBe(13)
+    expect(PROTOCOL_VERSION).toBe(14)
   })
 })
 

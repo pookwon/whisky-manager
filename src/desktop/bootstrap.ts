@@ -52,6 +52,7 @@ import { createNaverReadGate } from './naverReadGate.js'
 import { createCollectionLoop, type CollectionLoop } from './collectionLoop.js'
 import { createCollectionRunner, type CollectionRunner } from './collectionRunner.js'
 import { createMemberCollectionRunner, type MemberCollectionRunner } from './memberCollectionRunner.js'
+import { createJoinPatternSearch, type JoinPatternSearch } from './joinPatternSearch.js'
 import { createCollectionLock } from './collectionLock.js'
 import { createBoardSearchRunner, type BoardSearchRunner } from './boardSearchRunner.js'
 import { createBoardSearchPageFetcher } from './boardSearchPageFetcher.js'
@@ -149,6 +150,7 @@ export interface AppContext {
   readonly collectionRunner: CollectionRunner
   /** Starts and stops one member collection walk; the loop decides when scheduled ones happen. */
   readonly memberCollectionRunner: MemberCollectionRunner
+  readonly joinPatternSearch: JoinPatternSearch
   /** The periodic member re-walk, on its own cursor. */
   readonly memberResyncRunner: MemberCollectionRunner
   /** The search backfill past each board's list horizon, one block at a time. */
@@ -608,6 +610,12 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         else diagnostics.error('member-collection', 'non-Error thrown')
       },
     })
+  const joinPatternSearch = createJoinPatternSearch({
+    transport,
+    newId: () => randomUUID(),
+    now: () => Date.now(),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  })
   const memberCollectionRunner = createMemberRunner(() => (collection.kind === 'ready' ? collection.memberRepository : null))
   const memberResyncRunner = createMemberRunner(() => (collection.kind === 'ready' ? collection.memberResyncRepository : null))
 
@@ -818,6 +826,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     collection,
     collectionRunner,
     memberCollectionRunner,
+    joinPatternSearch,
     memberResyncRunner,
     boardSearchRunner,
     articleProbeRunner,

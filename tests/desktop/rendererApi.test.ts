@@ -380,6 +380,17 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     copyToClipboard: (text) => {
       shell.copied.push(text)
     },
+    joinPatternSearch: {
+      search: () => Promise.resolve({ kind: 'EXTENSION_OFFLINE' as const }),
+      openIdentityCheck: () => Promise.resolve(false),
+      latestCandidates: () => [],
+    },
+    candidateFile: {
+      chooseSavePath: () => Promise.resolve(files.savePath),
+      writeText: (path: string, text: string) => {
+        files.written.push({ path, text })
+      },
+    },
     configFile: {
       chooseSavePath: () => Promise.resolve(files.savePath),
       chooseOpenPath: () => Promise.resolve(files.openPath),
@@ -948,6 +959,14 @@ describe('exportConfig', () => {
     await api.exportConfig()
 
     expect(files.written[0]?.text).not.toContain('this-machines-secret')
+  })
+})
+
+describe('exportJoinPattern', () => {
+  it('writes the file only once a path was chosen', async () => {
+    const { api } = build()
+    expect(await api.exportJoinPattern()).toEqual({ kind: 'SAVED', path: '/picked/settings.json' })
+    expect(files.written).toHaveLength(1)
   })
 })
 

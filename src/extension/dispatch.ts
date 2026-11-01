@@ -5,6 +5,7 @@ import type {
   CollectBoardPageRequest,
   CollectBoardSearchPageRequest,
   CollectMemberPageRequest,
+  CollectStudioJoinPageRequest,
   ExtensionMessage,
   SourceRef,
 } from '../shared/protocol.js'
@@ -15,6 +16,8 @@ import type { ArticleReadResult } from './articleReader.js'
 import type { Reply } from './bridgeClient.js'
 import type { CafeClient, ExecuteResult } from './cafeClient.js'
 import type { MemberPageReadResult } from './memberPageReader.js'
+import type { StudioRead } from './studioReader.js'
+import type { StudioJoinPage } from '../shared/studioJoinList.js'
 
 /** What an automation needs to be able to do to comment on a post. */
 export interface CommentClient {
@@ -31,6 +34,12 @@ export interface DispatcherDeps {
   readonly boardSearchPageReader: { read(request: CollectBoardSearchPageRequest): Promise<BoardSearchPageReadResult> }
   readonly articleReader: { read(request: CollectArticleRequest): Promise<ArticleReadResult> }
   readonly memberPageReader: { read(request: CollectMemberPageRequest): Promise<MemberPageReadResult> }
+  readonly studioReader: {
+    checkIdentity(): Promise<StudioRead<boolean>>
+    readJoinPage(request: CollectStudioJoinPageRequest): Promise<StudioRead<StudioJoinPage>>
+  }
+  /** Tabs belong to the assembly: this module never touches `chrome`. */
+  readonly openStudioPage: () => Promise<void>
   readonly probe: (requestId: string, url: string, reply: Reply) => Promise<void>
   /** The socket belongs to the assembly, so closing it does too. */
   readonly onHandshakeRejected: (reason: string | null) => void
@@ -144,6 +153,33 @@ export function createDispatcher(deps: DispatcherDeps) {
           return
         }
         reply({ type: 'MEMBER_PAGE_COLLECTED', requestId: message.requestId, page: result.page, result: result.result })
+        return
+      }
+
+      case 'CHECK_STUDIO_IDENTITY': {
+        const result = await deps.studioReader.checkIdentity()
+        if (!result.ok) {
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          return
+        }
+        reply({ type: 'STUDIO_IDENTITY', requestId: message.requestId, verified: result.value })
+        return
+      }
+
+      case 'COLLECT_STUDIO_JOIN_PAGE': {
+        const result = await deps.studioReader.readJoinPage(message)
+        if (!result.ok) {
+          // Body-free for the reason the member list is: the answer names members.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.code })
+          return
+        }
+        reply({ type: 'STUDIO_JOIN_PAGE_COLLECTED', requestId: message.requestId, page: message.page, result: result.value })
+        return
+      }
+
+      case 'OPEN_STUDIO_IDENTITY': {
+        await deps.openStudioPage()
+        reply({ type: 'STUDIO_IDENTITY_OPENED', requestId: message.requestId })
         return
       }
 

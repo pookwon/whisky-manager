@@ -42,6 +42,11 @@ function setup(overrides: Partial<DispatcherDeps> = {}) {
     boardSearchPageReader: { read: async () => ({ ok: false as const, code: 'BOARD_SEARCH_BAD_REQUEST' as const }) },
     articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_BAD_REQUEST' as const }) },
     memberPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'MEMBER_PAGE_FORBIDDEN' as const }) },
+    studioReader: {
+      checkIdentity: () => Promise.resolve({ ok: true as const, value: true }),
+      readJoinPage: () => Promise.resolve({ ok: false as const, code: 'STUDIO_HTTP_ERROR' as const }),
+    },
+    openStudioPage: () => Promise.resolve(),
     probe: (requestId, url, reply) => {
       reply({ type: 'PROBE_RESULT', requestId, status: 200, contentType: null, text: url, error: null })
       return Promise.resolve()

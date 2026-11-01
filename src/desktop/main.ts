@@ -224,6 +224,21 @@ const configFile = {
   readText: (path: string): string => readFileSync(path, 'utf8'),
 }
 
+const candidateFile = {
+  async chooseSavePath(defaultName: string): Promise<string | null> {
+    const options = {
+      title: TEXT.joinPattern.saveTitle,
+      defaultPath: defaultName,
+      filters: [{ name: TEXT.joinPattern.fileKind, extensions: ['csv'] }],
+    }
+    const result = await (window === null
+      ? dialog.showSaveDialog(options)
+      : dialog.showSaveDialog(window, options))
+    return result.canceled || result.filePath === '' ? null : result.filePath
+  },
+  writeText: configFile.writeText,
+}
+
 /**
  * The renderer talks to one plain object; this only forwards channels. Keeping
  * the logic out of here is what makes the whole surface unit-testable.
@@ -389,6 +404,8 @@ void app.whenReady().then(async () => {
           resetPairing: () => appContext.resetExtensionPairing(),
         }),
       copyToClipboard: (text) => clipboard.writeText(text),
+      joinPatternSearch: appContext.joinPatternSearch,
+      candidateFile,
       configFile,
       transaction: (run) => {
         appContext.db.transaction(() => {

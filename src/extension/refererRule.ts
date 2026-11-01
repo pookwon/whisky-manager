@@ -77,6 +77,12 @@ const ENDPOINTS: readonly RefererEndpoint[] = [
     urlFilter: '||apis.cafe.naver.com/search/v2/cafes/14538121/search/articles',
     requestDomain: 'apis.cafe.naver.com',
   },
+  // The cafe studio's reads, sent from its own pages.
+  {
+    ruleId: 6,
+    urlFilter: '||apis.cafe.naver.com/cafe-manage/cafe-manage/v1/',
+    requestDomain: 'apis.cafe.naver.com',
+  },
 ]
 
 export const REFERER_RULE_IDS: readonly number[] = ENDPOINTS.map((endpoint) => endpoint.ruleId)

@@ -1,6 +1,7 @@
 import { TEXT } from '../../../shared/text.js'
 import { useApp } from '../../store.js'
 import { CollectionUnavailable } from '../collection/CollectionUnavailable.js'
+import { JoinPatternCard } from './JoinPatternCard.js'
 import { MemberCollectionCard } from './MemberCollectionCard.js'
 import { MemberResyncCard } from './MemberResyncCard.js'
 
@@ -28,6 +29,7 @@ export function MemberCollection(): React.JSX.Element {
       ) : (
         <CollectionUnavailable view={memberCollection} />
       )}
+      <JoinPatternCard />
     </div>
   )
 }

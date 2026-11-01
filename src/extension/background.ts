@@ -9,6 +9,8 @@ import { createBoardSearchPageReader } from './boardSearchPageReader.js'
 import { createArticleReader } from './articleReader.js'
 import { createDispatcher, type CollectionProgress } from './dispatch.js'
 import { createMemberPageReader } from './memberPageReader.js'
+import { createStudioReader } from './studioReader.js'
+import { STUDIO_MEMBER_PAGE_URL } from '../shared/studioJoinList.js'
 import { refererRuleFor } from './refererRule.js'
 
 const BRIDGE_URL = 'ws://127.0.0.1:39217'
@@ -144,6 +146,7 @@ const boardPageReader = createBoardPageReader({ http: request })
 const boardSearchPageReader = createBoardSearchPageReader({ http: request })
 const articleReader = createArticleReader({ http: request })
 const memberPageReader = createMemberPageReader({ http: request })
+const studioReader = createStudioReader({ http: request })
 
 /** Diagnostic only; see `isProbeTarget` for the hosts it may reach. */
 async function probe(requestId: string, url: string, reply: Reply): Promise<void> {
@@ -177,6 +180,10 @@ const dispatch = createDispatcher({
   boardSearchPageReader,
   articleReader,
   memberPageReader,
+  studioReader,
+  openStudioPage: async () => {
+    await chrome.tabs.create({ url: STUDIO_MEMBER_PAGE_URL })
+  },
   probe,
   onHandshakeRejected: (reason) => {
     console.warn('[bridge] handshake rejected:', reason)

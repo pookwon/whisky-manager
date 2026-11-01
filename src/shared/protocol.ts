@@ -6,8 +6,9 @@ import type { CollectedMemberPage } from './cafeMemberList.js'
 import { CAFE_BOARD_SEARCH, isBoardSearchPage } from './cafeBoardSearchEndpoint.js'
 import { isArticleId } from './cafeArticleEndpoint.js'
 import type { CafeArticleRead } from './cafeArticleRead.js'
+import { isJoinDay, type StudioJoinPage } from './studioJoinList.js'
 
-export const PROTOCOL_VERSION = 13
+export const PROTOCOL_VERSION = 14
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -33,6 +34,15 @@ export interface CollectMemberPageRequest {
   readonly cafeId: typeof CAFE_MEMBER_LIST.cafeId
   readonly page: number
   readonly perPage: typeof CAFE_MEMBER_LIST.perPage
+}
+
+export interface CollectStudioJoinPageRequest {
+  readonly type: 'COLLECT_STUDIO_JOIN_PAGE'
+  readonly requestId: string
+  /** KST days, `YYYY-MM-DD`, both included. */
+  readonly joinedFrom: string
+  readonly joinedTo: string
+  readonly page: number
 }
 
 export interface CollectBoardPageRequest {
@@ -117,6 +127,12 @@ export type AppMessage =
   | CollectBoardPageRequest
   /** One exact member-list page; the extension must not follow pagination itself. */
   | CollectMemberPageRequest
+  /** Whether this browser passed the studio's identity check. */
+  | { type: 'CHECK_STUDIO_IDENTITY'; requestId: string }
+  /** One page of a join-date range; the extension must not follow pagination itself. */
+  | CollectStudioJoinPageRequest
+  /** Opens the studio in a tab, which is where the operator passes the check. */
+  | { type: 'OPEN_STUDIO_IDENTITY'; requestId: string }
   /** One board's title search page; answered with BOARD_PAGE_COLLECTED. */
   | CollectBoardSearchPageRequest
   /** One article by id; the extension reads it and judges nothing. */
@@ -154,6 +170,9 @@ export type ExtensionMessage =
   | { type: 'BOARD_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedArticlePage }
   | { type: 'MEMBER_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedMemberPage }
   | { type: 'ARTICLE_COLLECTED'; requestId: string; result: CafeArticleRead }
+  | { type: 'STUDIO_IDENTITY'; requestId: string; verified: boolean }
+  | { type: 'STUDIO_JOIN_PAGE_COLLECTED'; requestId: string; page: number; result: StudioJoinPage }
+  | { type: 'STUDIO_IDENTITY_OPENED'; requestId: string }
   | {
       type: 'EXECUTED'
       requestId: string
@@ -205,6 +224,9 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'EXECUTE',
   'COLLECT_BOARD_PAGE',
   'COLLECT_MEMBER_PAGE',
+  'CHECK_STUDIO_IDENTITY',
+  'COLLECT_STUDIO_JOIN_PAGE',
+  'OPEN_STUDIO_IDENTITY',
   'COLLECT_BOARD_SEARCH_PAGE',
   'COLLECT_ARTICLE',
   'PROBE',
@@ -220,6 +242,9 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'COLLECT_PROGRESS',
   'BOARD_PAGE_COLLECTED',
   'MEMBER_PAGE_COLLECTED',
+  'STUDIO_IDENTITY',
+  'STUDIO_JOIN_PAGE_COLLECTED',
+  'STUDIO_IDENTITY_OPENED',
   'ARTICLE_COLLECTED',
   'EXECUTED',
   'PROBE_RESULT',
@@ -236,6 +261,7 @@ export function isAppMessage(value: unknown): value is AppMessage {
   const type = messageType(value)
   if (type === 'COLLECT_BOARD_PAGE') return isCollectBoardPageRequest(value)
   if (type === 'COLLECT_MEMBER_PAGE') return isCollectMemberPageRequest(value)
+  if (type === 'COLLECT_STUDIO_JOIN_PAGE') return isCollectStudioJoinPageRequest(value)
   if (type === 'COLLECT_BOARD_SEARCH_PAGE') return isCollectBoardSearchPageRequest(value)
   if (type === 'COLLECT_ARTICLE') return isCollectArticleRequest(value)
   return type !== null && APP_MESSAGE_TYPES.has(type)
@@ -259,6 +285,7 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   if (type === 'HELLO') return isHelloMessage(value)
   if (type === 'BOARD_PAGE_COLLECTED') return isBoardPageCollected(value)
   if (type === 'MEMBER_PAGE_COLLECTED') return isMemberPageCollected(value)
+  if (type === 'STUDIO_JOIN_PAGE_COLLECTED') return isStudioJoinPageCollected(value)
   if (type === 'ARTICLE_COLLECTED') return isArticleCollected(value)
   return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
 }
@@ -356,6 +383,29 @@ function isMemberPageCollected(value: unknown): value is Extract<ExtensionMessag
   }
   const result = message.result as { items?: unknown; pageIdentity?: unknown }
   return Array.isArray(result.items) && typeof result.pageIdentity === 'string'
+}
+
+/** Runtime guard for one page of one join-date range. */
+export function isCollectStudioJoinPageRequest(value: unknown): value is CollectStudioJoinPageRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<CollectStudioJoinPageRequest>
+  return (
+    message.type === 'COLLECT_STUDIO_JOIN_PAGE' &&
+    typeof message.requestId === 'string' &&
+    isJoinDay(message.joinedFrom) &&
+    isJoinDay(message.joinedTo) &&
+    typeof message.page === 'number' &&
+    Number.isSafeInteger(message.page) &&
+    message.page >= 1
+  )
+}
+
+function isStudioJoinPageCollected(value: unknown): value is Extract<ExtensionMessage, { type: 'STUDIO_JOIN_PAGE_COLLECTED' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as { type?: unknown; requestId?: unknown; result?: unknown }
+  if (message.type !== 'STUDIO_JOIN_PAGE_COLLECTED' || typeof message.requestId !== 'string') return false
+  if (typeof message.result !== 'object' || message.result === null) return false
+  return Array.isArray((message.result as { members?: unknown }).members)
 }
 
 /** Runtime guard for one article of this cafe, by an id the endpoint accepts. */

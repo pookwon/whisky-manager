@@ -35,12 +35,15 @@ import {
 } from './session.js'
 import type { ExtensionTransport } from './ws/server.js'
 import type { MemberCollectionRunner } from './memberCollectionRunner.js'
+import { joinPatternCsv } from '../shared/joinPatternCsv.js'
+import { TEXT } from '../shared/text.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
   ArticleProbeStatusView,
   BoardSearchStatusView,
   MemberCollectionStatusView,
+  ExportJoinPatternResult,
   SetCollectionForcedResult,
   BridgeStatus,
   CollectionRunRequest,
@@ -139,6 +142,10 @@ export interface RendererApiDeps {
   readonly recoverExtensionSetup: () => import('./extensionSetup.js').ExtensionRecoveryResult
   /** Writes to the system clipboard, which is the shell's to own. */
   readonly copyToClipboard: (text: string) => void
+  /** Finds the join-answer candidates; holds what it found for the export. */
+  readonly joinPatternSearch: import('./joinPatternSearch.js').JoinPatternSearch
+  /** Choosing and writing the candidate file, which is the shell's too. */
+  readonly candidateFile: Pick<ConfigFilePorts, 'chooseSavePath' | 'writeText'>
   /** Choosing and touching settings files, which is also the shell's. */
   readonly configFile: ConfigFilePorts
   /** Runs a set of writes as one unit, so an import cannot half-apply. */
@@ -686,6 +693,17 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           console.error('[session] run-once failed to start:', error)
         })
       return Promise.resolve()
+    },
+
+    searchJoinPattern: () => deps.joinPatternSearch.search(),
+
+    openStudioIdentity: () => deps.joinPatternSearch.openIdentityCheck(),
+
+    async exportJoinPattern(): Promise<ExportJoinPatternResult> {
+      const path = await deps.candidateFile.chooseSavePath(TEXT.joinPattern.fileName)
+      if (path === null) return { kind: 'CANCELLED' }
+      deps.candidateFile.writeText(path, joinPatternCsv(deps.joinPatternSearch.latestCandidates()))
+      return { kind: 'SAVED', path }
     },
 
     async exportConfig(): Promise<ExportConfigResult> {
