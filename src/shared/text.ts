@@ -69,6 +69,7 @@ export const TEXT = {
     collectionSettings: '수집 설정',
     members: '회원 수집',
     memberStatus: '회원 현황',
+    aiJoinCheck: 'AI 가입체크',
     commonSettings: '카페 · 계정 설정',
     common: '공통',
   },
@@ -780,6 +781,7 @@ export const TEXT = {
     stopReasonFallback: (code: string) => `수집이 중단되었습니다 (${code}).`,
   },
   joinPattern: {
+    pageHeading: 'AI 가입체크',
     heading: '가입 문구 후보',
     why: '최근 30일 가입자의 가입 답변을 읽어 AI 가입 패턴과 일치하는 회원을 찾습니다. 찾아서 목록으로 만들 뿐, 회원에게 어떤 조치도 하지 않습니다.',
     search: '후보 찾기',

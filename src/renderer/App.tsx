@@ -17,6 +17,7 @@ import { AutomationSettings } from './views/AutomationSettings.js'
 import { CollectionSettings } from './views/CollectionSettings.js'
 import { CollectionStatus } from './views/CollectionStatus.js'
 import { CommonSettings } from './views/CommonSettings.js'
+import { AiJoinCheck } from './views/members/AiJoinCheck.js'
 import { MemberCollection } from './views/members/MemberCollection.js'
 import { RecentLog } from './views/RecentLog.js'
 import { Dashboard } from './views/Dashboard.js'
@@ -230,6 +231,14 @@ export function App(): React.JSX.Element {
               <span>{TEXT.nav.memberStatus}</span>
               {memberCollectionRunning && <span className="chip tone-accent">{TEXT.memberCollection.running}</span>}
             </button>
+            <button
+              type="button"
+              className="nav-item nav-item-sub"
+              aria-current={route.kind === 'aiJoinCheck' ? 'page' : undefined}
+              onClick={() => setRoute({ kind: 'aiJoinCheck' })}
+            >
+              <span>{TEXT.nav.aiJoinCheck}</span>
+            </button>
           </div>
         </section>
 
@@ -264,6 +273,7 @@ export function App(): React.JSX.Element {
         {route.kind === 'collection' && route.panel === 'status' && <CollectionStatus />}
         {route.kind === 'collection' && route.panel === 'settings' && <CollectionSettings />}
         {route.kind === 'members' && <MemberCollection />}
+        {route.kind === 'aiJoinCheck' && <AiJoinCheck />}
         {route.kind === 'commonSettings' && <CommonSettings />}
         {route.kind === 'log' && <RecentLog />}
         {route.kind === 'automation' && route.panel === 'approvals' && (

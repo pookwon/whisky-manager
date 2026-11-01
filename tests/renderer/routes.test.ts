@@ -12,6 +12,7 @@ describe('routes', () => {
     expect(routeKey({ kind: 'dashboard' })).toBe('dashboard')
     expect(routeKey({ kind: 'commonSettings' })).toBe('commonSettings')
     expect(routeKey({ kind: 'members' })).toBe('members')
+    expect(routeKey({ kind: 'aiJoinCheck' })).toBe('aiJoinCheck')
   })
 
   it('distinguishes panels of the same automation', () => {
