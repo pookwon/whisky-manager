@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MEMBER_RESYNC_INTERVAL_KEY, readMemberResyncInterval, writeMemberResyncInterval } from '../../src/desktop/memberResyncSettings.js'
-import { DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS } from '../../src/shared/memberResync.js'
+import { MEMBER_RESYNC_AUTO_KEY, readMemberResyncAuto, writeMemberResyncAuto } from '../../src/desktop/memberResyncSettings.js'
 import type { SettingsRepo } from '../../src/desktop/db/settingsRepo.js'
 
 function memorySettings(initial: Record<string, string> = {}): SettingsRepo {
@@ -12,17 +11,22 @@ function memorySettings(initial: Record<string, string> = {}): SettingsRepo {
   }
 }
 
-describe('member re-walk interval setting', () => {
-  it('answers the default when nothing, or nothing readable, was saved', () => {
-    expect(readMemberResyncInterval(memorySettings())).toBe(DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS)
-    expect(readMemberResyncInterval(memorySettings({ [MEMBER_RESYNC_INTERVAL_KEY]: '{' }))).toBe(DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS)
+describe('member re-walk automatic switch', () => {
+  it('is on when nothing, or nothing readable, was saved', () => {
+    expect(readMemberResyncAuto(memorySettings())).toBe(true)
+    expect(readMemberResyncAuto(memorySettings({ [MEMBER_RESYNC_AUTO_KEY]: '{' }))).toBe(true)
   })
 
-  it('keeps "off" as off, and a choice it does not offer as the default', () => {
+  it('keeps what was written', () => {
     const settings = memorySettings()
-    expect(writeMemberResyncInterval(settings, 0)).toBe(0)
-    expect(readMemberResyncInterval(settings)).toBe(0)
-    expect(writeMemberResyncInterval(settings, 9)).toBe(DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS)
-    expect(readMemberResyncInterval(settings)).toBe(DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS)
+    expect(writeMemberResyncAuto(settings, false)).toBe(false)
+    expect(readMemberResyncAuto(settings)).toBe(false)
+    expect(writeMemberResyncAuto(settings, true)).toBe(true)
+    expect(readMemberResyncAuto(settings)).toBe(true)
+  })
+
+  it('reads the interval an earlier build stored: 0 was off, any number on', () => {
+    expect(readMemberResyncAuto(memorySettings({ [MEMBER_RESYNC_AUTO_KEY]: '0' }))).toBe(false)
+    expect(readMemberResyncAuto(memorySettings({ [MEMBER_RESYNC_AUTO_KEY]: '30' }))).toBe(true)
   })
 })

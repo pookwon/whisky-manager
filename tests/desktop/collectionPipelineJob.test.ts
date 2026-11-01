@@ -28,4 +28,14 @@ describe('createCollectionPipelineJob', () => {
     expect(await createCollectionPipelineJob({ pipeline: pipeline(null, starts) }).start(120)).toEqual({ kind: 'started' })
     expect(starts).toEqual([{ maxPages: 120, runKind: 'incremental' }])
   })
+
+  it('lets the month start make its job before the job is read', async () => {
+    const order: string[] = []
+    const job = createCollectionPipelineJob({
+      pipeline: { ...pipeline(null), read: async () => { order.push('read'); return null } },
+      beforeRead: async () => { order.push('before') },
+    })
+    await job.readProgress()
+    expect(order).toEqual(['before', 'read'])
+  })
 })

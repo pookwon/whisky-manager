@@ -24,7 +24,7 @@ export function resyncStateLine(resync: MemberResyncView, totalMemberCount: numb
 /** When the next automatic cycle comes, or null while one is under way or none can start. */
 export function resyncScheduleLine(resync: MemberResyncView, nowMs: number): string | null {
   if (!resync.available || resync.inProgress) return null
-  if (resync.intervalDays === 0) return TEXT.memberResync.off
+  if (!resync.autoEnabled) return TEXT.memberResync.off
   if (!resync.scheduleEnabled) return TEXT.memberResync.scheduleOff
   if (resync.nextDueAtMs === null) return null
   return resync.nextDueAtMs <= nowMs

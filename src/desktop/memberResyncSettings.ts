@@ -1,25 +1,21 @@
-import {
-  DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS,
-  normalizeMemberResyncInterval,
-  type MemberResyncIntervalDays,
-} from '../shared/memberResync.js'
 import type { SettingsRepo } from './db/settingsRepo.js'
 
-export const MEMBER_RESYNC_INTERVAL_KEY = 'memberResyncIntervalDays'
+/** The key the interval in days was once stored under; a stored 0 meant off and is still read so. */
+export const MEMBER_RESYNC_AUTO_KEY = 'memberResyncIntervalDays'
 
-/** A stored value that cannot be read falls back to the default rather than turning the re-walk off. */
-export function readMemberResyncInterval(settings: SettingsRepo): MemberResyncIntervalDays {
-  const raw = settings.get(MEMBER_RESYNC_INTERVAL_KEY)
-  if (raw === undefined) return DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS
+/** Anything unreadable, or a number other than the old 0, leaves the automatic re-walk on rather than turning it off. */
+export function readMemberResyncAuto(settings: SettingsRepo): boolean {
+  const raw = settings.get(MEMBER_RESYNC_AUTO_KEY)
+  if (raw === undefined) return true
   try {
-    return normalizeMemberResyncInterval(JSON.parse(raw))
+    const value: unknown = JSON.parse(raw)
+    return value !== false && value !== 0
   } catch {
-    return DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS
+    return true
   }
 }
 
-export function writeMemberResyncInterval(settings: SettingsRepo, days: number): MemberResyncIntervalDays {
-  const normalized = normalizeMemberResyncInterval(days)
-  settings.set(MEMBER_RESYNC_INTERVAL_KEY, JSON.stringify(normalized))
-  return normalized
+export function writeMemberResyncAuto(settings: SettingsRepo, enabled: boolean): boolean {
+  settings.set(MEMBER_RESYNC_AUTO_KEY, JSON.stringify(enabled))
+  return enabled
 }

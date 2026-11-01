@@ -6,10 +6,15 @@ import type { CollectionPipeline } from './collectionPipeline.js'
  * loop takes turns with: which of the three a block walks is the pipeline's
  * to say, and a block that finishes one goes on to the next.
  */
-export function createCollectionPipelineJob(deps: { readonly pipeline: CollectionPipeline }): CollectionJob {
+export function createCollectionPipelineJob(deps: {
+  readonly pipeline: CollectionPipeline
+  /** Run before every reading, so a job it makes is seen by the same beat. */
+  readonly beforeRead?: () => Promise<void>
+}): CollectionJob {
   return {
     name: 'pipeline',
     async readProgress() {
+      await deps.beforeRead?.()
       const reading = await deps.pipeline.read()
       if (reading === null || reading.stage.kind === 'idle') return { exists: false, complete: false, forced: false }
       return { exists: true, complete: reading.stage.kind === 'done', forced: reading.forced }

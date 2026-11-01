@@ -61,9 +61,10 @@ import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createMemberCollectionJob } from './collectionJob.js'
 import { createCollectionPipeline, type CollectionPipeline } from './collectionPipeline.js'
 import { createCollectionPipelineJob } from './collectionPipelineJob.js'
+import { createMonthStartCollection } from './monthStartCollection.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { readCollectionPacing } from './collectionPacingSettings.js'
-import { readMemberResyncInterval } from './memberResyncSettings.js'
+import { readMemberResyncAuto } from './memberResyncSettings.js'
 import type { MemberWalkRepository } from './collection-db/memberRepository.js'
 import { createMemberResyncJob } from './memberResyncJob.js'
 import { resolveCollectionDatabaseUrl } from './collectionDatabaseConfig.js'
@@ -660,11 +661,20 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onSkipped: (message) => diagnostics.warn('collection-pipeline', message),
   })
 
+  const seedMonthStartCollection = createMonthStartCollection({
+    repository: () => (collection.kind === 'ready' ? collection.repository : null),
+    isPipelineRunning: () => collectionPipeline.isRunning(),
+    scheduleEnabled: () => readCollectionSchedule(settings).enabled,
+    clock: systemClock,
+    onError: (error) => diagnostics.error('month-start-collection', error),
+    onSeeded: (range) => diagnostics.warn('collection', `month start: previous month job made ${stamp(range.startMs)} ~ ${stamp(range.endMs)}`),
+  })
+
   const collectionLoop = createCollectionLoop({
     schedule: () => readCollectionSchedule(settings),
     pacing: () => readCollectionPacing(settings),
     jobs: () => [
-      createCollectionPipelineJob({ pipeline: collectionPipeline }),
+      createCollectionPipelineJob({ pipeline: collectionPipeline, beforeRead: seedMonthStartCollection }),
       createMemberCollectionJob({
         repository: () => (collection.kind === 'ready' ? collection.memberRepository : null),
         runner: memberCollectionRunner,
@@ -673,7 +683,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
         feed: () => (collection.kind === 'ready' ? collection.memberRepository : null),
         resync: () => (collection.kind === 'ready' ? collection.memberResyncRepository : null),
         runner: memberResyncRunner,
-        intervalDays: () => readMemberResyncInterval(settings),
+        enabled: () => readMemberResyncAuto(settings),
         now: () => systemClock.now(),
       }),
     ],

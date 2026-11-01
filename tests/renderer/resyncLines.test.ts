@@ -7,7 +7,7 @@ import { TEXT } from '../../src/shared/text.js'
 const NOW = Date.UTC(2026, 8, 24, 1)
 
 const idle: MemberResyncView = {
-  intervalDays: 30,
+  autoEnabled: true,
   available: true,
   inProgress: false,
   running: false,
@@ -43,7 +43,7 @@ describe('member re-walk card lines', () => {
   it('says a due pass starts with the next block, and says so when the automatic pass is off', () => {
     expect(resyncStateLine(idle, null)).toBe(TEXT.memberResync.never)
     expect(resyncScheduleLine({ ...idle, nextDueAtMs: NOW - 1 }, NOW)).toBe(TEXT.memberResync.nextDueNow)
-    expect(resyncScheduleLine({ ...idle, intervalDays: 0, nextDueAtMs: null }, NOW)).toBe(TEXT.memberResync.off)
+    expect(resyncScheduleLine({ ...idle, autoEnabled: false, nextDueAtMs: null }, NOW)).toBe(TEXT.memberResync.off)
   })
 
   it('does not promise an automatic pass while the collection schedule is off', () => {

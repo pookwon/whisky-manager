@@ -1,10 +1,11 @@
-import { nextMemberResyncDueMs, type MemberResyncIntervalDays } from '../shared/memberResync.js'
+import { nextMemberResyncDueMs } from '../shared/memberResync.js'
 import type { MemberRepository } from './collection-db/memberRepository.js'
 import type { MemberResyncLastRun, MemberResyncRepository } from './collection-db/memberResyncRepository.js'
 
 /** What the member screen shows about the periodic re-walk. */
 export interface MemberResyncView {
-  readonly intervalDays: MemberResyncIntervalDays
+  /** Whether the automatic re-walk at the start of a month is on. */
+  readonly autoEnabled: boolean
   /** False until the first full walk has finished: there is nothing to walk again yet. */
   readonly available: boolean
   readonly inProgress: boolean
@@ -24,17 +25,18 @@ export interface MemberResyncView {
 export interface MemberResyncViewInputs {
   readonly feed: MemberRepository
   readonly resync: MemberResyncRepository
-  readonly intervalDays: MemberResyncIntervalDays
+  readonly autoEnabled: boolean
+  readonly nowMs: number
   readonly running: boolean
   readonly scheduleEnabled: boolean
 }
 
 export async function readMemberResyncView(inputs: MemberResyncViewInputs): Promise<MemberResyncView> {
-  const { feed, resync, intervalDays } = inputs
+  const { feed, resync, autoEnabled } = inputs
   const [feedState, resyncState, lastRun] = await Promise.all([feed.readMemberFeedState(), resync.readResyncState(), resync.readLastRun()])
   const inProgress = resyncState?.inProgress === true
   return {
-    intervalDays,
+    autoEnabled,
     available: feedState?.complete === true,
     inProgress,
     running: inputs.running,
@@ -43,10 +45,13 @@ export async function readMemberResyncView(inputs: MemberResyncViewInputs): Prom
     pagesStored: inProgress ? (resyncState?.referencePage ?? 0) : 0,
     cycleStartedAtMs: resyncState?.cycleStartedAtMs ?? null,
     completedAtMs: resyncState?.completedAtMs ?? null,
-    nextDueAtMs: nextMemberResyncDueMs({
-      intervalDays,
-      walkCompletedAtMs: feedState?.completedAtMs ?? null,
-      resyncCompletedAtMs: resyncState?.completedAtMs ?? null,
-    }),
+    nextDueAtMs: nextMemberResyncDueMs(
+      {
+        enabled: autoEnabled,
+        walkCompletedAtMs: feedState?.completedAtMs ?? null,
+        resyncCompletedAtMs: resyncState?.completedAtMs ?? null,
+      },
+      inputs.nowMs,
+    ),
   }
 }

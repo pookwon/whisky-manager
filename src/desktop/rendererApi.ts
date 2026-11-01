@@ -13,14 +13,13 @@ import type { OptionalCollectionContext } from './collectionContext.js'
 import type { CollectionLoop } from './collectionLoop.js'
 import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
 import { readCollectionPacing, writeCollectionPacing } from './collectionPacingSettings.js'
-import { readMemberResyncInterval, writeMemberResyncInterval } from './memberResyncSettings.js'
+import { readMemberResyncAuto, writeMemberResyncAuto } from './memberResyncSettings.js'
 import { readMemberResyncView } from './memberResyncView.js'
 import { readBoardSearchView } from './boardSearchView.js'
 import type { BoardSearchRunner } from './boardSearchRunner.js'
 import { readArticleProbeView } from './articleProbeView.js'
 import type { ArticleProbeRunner } from './articleProbeRunner.js'
 import type { CollectionPipeline } from './collectionPipeline.js'
-import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import { pagesPerWorkBlock } from '../shared/collectionPacing.js'
 import {
   checkCollectionRange,
@@ -354,7 +353,8 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
         readMemberResyncView({
           feed: collection.memberRepository,
           resync: collection.memberResyncRepository,
-          intervalDays: readMemberResyncInterval(settings),
+          autoEnabled: readMemberResyncAuto(settings),
+          nowMs: deps.clock.now(),
           running: deps.memberResyncRunner.isRunning(),
           scheduleEnabled: readCollectionSchedule(settings).enabled,
         }),
@@ -404,9 +404,9 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       return started.kind === 'started' ? { kind: 'started' } : { kind: 'refused', reason: started.reason }
     },
 
-    setMemberResyncInterval(days): Promise<MemberResyncIntervalDays> {
+    setMemberResyncAuto(enabled): Promise<boolean> {
       // The loop asks the job whether it is due on every beat; nothing to re-lay.
-      return Promise.resolve(writeMemberResyncInterval(settings, days))
+      return Promise.resolve(writeMemberResyncAuto(settings, enabled))
     },
 
     async getBoardSearchStatus(): Promise<BoardSearchStatusView> {

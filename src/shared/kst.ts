@@ -23,6 +23,12 @@ export function kstDayStartMs(epochMs: number): number {
   return kstDayOf(epochMs) * MS_PER_DAY - KST_OFFSET_MS
 }
 
+/** The calendar date an instant falls on in KST; `month` is 1–12. */
+export function kstCalendarOf(epochMs: number): { readonly year: number; readonly month: number; readonly day: number } {
+  const shifted = new Date(epochMs + KST_OFFSET_MS)
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() }
+}
+
 const HOURS_PER_DAY = 24
 
 /** The hour of the KST clock an instant fell in, 0–23. */

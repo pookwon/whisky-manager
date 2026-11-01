@@ -4,7 +4,6 @@ import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.j
 import type { MemberResyncView } from './memberResyncView.js'
 import type { BoardSearchView } from './boardSearchView.js'
 import type { ArticleProbeView } from './articleProbeView.js'
-import type { MemberResyncIntervalDays } from '../shared/memberResync.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
 import type { CollectionPipelineStage } from './collectionPipelineStage.js'
 import type { CollectionStartRefusal } from './collectionRunner.js'
@@ -50,7 +49,7 @@ export const IPC_CHANNELS = {
   stopMemberCollection: 'wm:stopMemberCollection',
   setMemberCollectionForced: 'wm:setMemberCollectionForced',
   startMemberResync: 'wm:startMemberResync',
-  setMemberResyncInterval: 'wm:setMemberResyncInterval',
+  setMemberResyncAuto: 'wm:setMemberResyncAuto',
   getBoardSearchStatus: 'wm:getBoardSearchStatus',
   getArticleProbeStatus: 'wm:getArticleProbeStatus',
   listAwaiting: 'wm:listAwaiting',
@@ -366,8 +365,8 @@ export interface RendererApi {
    * last one finished, otherwise the cycle under way from where it stopped.
    */
   startMemberResync(): Promise<StartCollectionResult>
-  /** Sets how many days after a complete pass the next re-walk is due; 0 turns it off. */
-  setMemberResyncInterval(days: number): Promise<MemberResyncIntervalDays>
+  /** Turns the re-walk at the start of each month on or off; the answer is what was stored. */
+  setMemberResyncAuto(enabled: boolean): Promise<boolean>
   /** Where the search backfill stands; `disabled` without a collection database. */
   getBoardSearchStatus(): Promise<BoardSearchStatusView>
   /** Where reading the gap's ids stands; `disabled` without a collection database. */

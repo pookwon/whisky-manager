@@ -1,45 +1,47 @@
 import { MS_PER_DAY, kstDayStartMs } from './kst.js'
+import { isMonthStartWindow, monthStartWindowDays } from './monthStart.js'
 
 /**
- * How often the whole member list is walked again, in days. Zero turns the
- * automatic re-walk off; the operator can still start one by hand. The choices
- * are few on purpose: a walk takes about ten days of blocks shared with the
- * boards, so anything shorter than two weeks would never rest.
+ * A pass that finished within this many days counts as this month's: the
+ * re-walk is owed only when nothing complete is that recent.
  */
-export const MEMBER_RESYNC_INTERVAL_CHOICES = [0, 14, 30, 60] as const
-export const DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS = 30
+export const MEMBER_RESYNC_RECENT_DAYS = 7
 
-export type MemberResyncIntervalDays = (typeof MEMBER_RESYNC_INTERVAL_CHOICES)[number]
-
-/** Anything that is not one of the choices reads as the default. */
-export function normalizeMemberResyncInterval(value: unknown): MemberResyncIntervalDays {
-  const match = MEMBER_RESYNC_INTERVAL_CHOICES.find((choice) => choice === value)
-  return match ?? DEFAULT_MEMBER_RESYNC_INTERVAL_DAYS
-}
+/** The windows looked ahead for the next due day; a pass finished just before one can skip it, never two. */
+const LOOKAHEAD_MONTHS = 3
 
 export interface MemberResyncTiming {
-  readonly intervalDays: MemberResyncIntervalDays
+  /** Whether the automatic re-walk is on; the operator can still start one by hand. */
+  readonly enabled: boolean
   /** When the first full walk completed; null while it has not. */
   readonly walkCompletedAtMs: number | null
   /** When the last re-walk completed; null if none ever has. */
   readonly resyncCompletedAtMs: number | null
 }
 
-/**
- * When the next automatic re-walk is due, or null when none will come: the
- * first walk has not finished, or the automatic re-walk is off.
- *
- * Counted in KST days from the day the last complete pass finished — the
- * re-walk's, or the first walk's before there has been one — so a pass that
- * ends late in the evening does not push the next one to an afternoon.
- */
-export function nextMemberResyncDueMs(timing: MemberResyncTiming): number | null {
-  if (timing.walkCompletedAtMs === null || timing.intervalDays === 0) return null
-  const since = timing.resyncCompletedAtMs ?? timing.walkCompletedAtMs
-  return kstDayStartMs(since) + timing.intervalDays * MS_PER_DAY
+function lastCompleteMs(timing: MemberResyncTiming): number | null {
+  if (timing.walkCompletedAtMs === null) return null
+  return Math.max(timing.walkCompletedAtMs, timing.resyncCompletedAtMs ?? timing.walkCompletedAtMs)
 }
 
+/** Whether a complete pass would still be owed on the KST day starting at `dayStartMs`. */
+function owedOn(timing: MemberResyncTiming, dayStartMs: number): boolean {
+  const last = lastCompleteMs(timing)
+  return last !== null && last < dayStartMs - MEMBER_RESYNC_RECENT_DAYS * MS_PER_DAY
+}
+
+/**
+ * Due on the first days of a month when no complete pass is from the last
+ * week. Months whose first days were missed need no remembering: the next
+ * month's window finds the same absence.
+ */
 export function isMemberResyncDue(timing: MemberResyncTiming, nowMs: number): boolean {
-  const due = nextMemberResyncDueMs(timing)
-  return due !== null && nowMs >= due
+  if (!timing.enabled || !isMonthStartWindow(nowMs)) return false
+  return owedOn(timing, kstDayStartMs(nowMs))
+}
+
+/** The KST midnight of the first window day the re-walk is owed on, or null when none will come: the first walk has not finished, or it is off. */
+export function nextMemberResyncDueMs(timing: MemberResyncTiming, nowMs: number): number | null {
+  if (!timing.enabled || timing.walkCompletedAtMs === null) return null
+  return monthStartWindowDays(nowMs, LOOKAHEAD_MONTHS).find((day) => owedOn(timing, day)) ?? null
 }

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { TEXT } from '../../../shared/text.js'
-import { MEMBER_RESYNC_INTERVAL_CHOICES } from '../../../shared/memberResync.js'
 import type { MemberCollectionStatusView, StartCollectionResult } from '../../../desktop/ipc.js'
 import { api } from '../../api.js'
 import { resyncScheduleLine, resyncStateLine, resyncStopLine } from './resyncLines.js'
@@ -74,24 +73,15 @@ export function MemberResyncCard({ view, busy, act }: MemberResyncCardProps): Re
             </button>
           </div>
 
-          <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <legend className="mb-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              {TEXT.memberResync.interval}
-            </legend>
-            {MEMBER_RESYNC_INTERVAL_CHOICES.map((days) => (
-              <label key={days} className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="member-resync-interval"
-                  value={days}
-                  checked={resync.intervalDays === days}
-                  disabled={busy}
-                  onChange={() => void act(() => api.setMemberResyncInterval(days))}
-                />
-                <span>{TEXT.memberResync.intervalChoice(days)}</span>
-              </label>
-            ))}
-          </fieldset>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={resync.autoEnabled}
+              disabled={busy}
+              onChange={(event) => void act(() => api.setMemberResyncAuto(event.target.checked))}
+            />
+            <span>{TEXT.memberResync.auto}</span>
+          </label>
 
           <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
             {TEXT.memberResync.why}

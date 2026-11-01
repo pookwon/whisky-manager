@@ -778,7 +778,7 @@ export const TEXT = {
   },
   memberResync: {
     heading: '전체 재확인',
-    why: '스태프가 바꾼 등급·닉네임을 반영하려고 회원 목록 전체를 주기적으로 다시 읽습니다. 신규 보태기는 이와 따로 매일 돕니다.',
+    why: '스태프가 바꾼 등급·닉네임을 반영하려고 회원 목록 전체를 다시 읽습니다. 매월 1~3일에 최근 일주일 안에 끝낸 재확인이 없으면 자동으로 시작합니다. 신규 보태기는 이와 따로 매일 돕니다.',
     notYet: '첫 전체 수집이 끝나야 다시 확인할 수 있습니다.',
     inProgress: '재확인 중',
     idle: '대기',
@@ -789,8 +789,7 @@ export const TEXT = {
     nextDueNow: '다음 작업 블록에서 자동으로 시작합니다',
     off: '자동 재확인 꺼짐',
     scheduleOff: '예약 수집이 꺼져 있어 자동으로 시작하지 않습니다',
-    interval: '자동 재확인 주기',
-    intervalChoice: (days: number) => (days === 0 ? '끄기' : `${days}일마다`),
+    auto: '매월 초(1~3일) 자동 재확인',
     start: '지금 전체 다시 확인',
     resume: '이어서 확인',
     /** The member walk's words, except where "the job" means something else here. */

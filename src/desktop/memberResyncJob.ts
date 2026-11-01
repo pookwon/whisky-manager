@@ -1,4 +1,4 @@
-import { isMemberResyncDue, type MemberResyncIntervalDays } from '../shared/memberResync.js'
+import { isMemberResyncDue } from '../shared/memberResync.js'
 import type { MemberRepository } from './collection-db/memberRepository.js'
 import type { MemberResyncRepository, MemberResyncState } from './collection-db/memberResyncRepository.js'
 import type { CollectionJob } from './collectionJob.js'
@@ -9,14 +9,14 @@ export interface MemberResyncJobDeps {
   readonly resync: () => MemberResyncRepository | null
   /** The runner bound to the re-walk's own cursor. */
   readonly runner: MemberCollectionRunner
-  readonly intervalDays: () => MemberResyncIntervalDays
+  readonly enabled: () => boolean
   readonly now: () => number
 }
 
 /**
  * The periodic re-walk, as one more job the loop takes turns with. It has work
- * while a cycle is under way, and once the interval since the last complete
- * pass has run out; otherwise it stays out of the rotation. It never runs
+ * while a cycle is under way, and on the first days of a month when no complete
+ * pass is from the last week; otherwise it stays out of the rotation. It never runs
  * around the clock — levels drifting for a day longer costs nothing.
  */
 export function createMemberResyncJob(deps: MemberResyncJobDeps): CollectionJob {
@@ -31,7 +31,7 @@ export function createMemberResyncJob(deps: MemberResyncJobDeps): CollectionJob 
       state = resyncState
       const due = isMemberResyncDue(
         {
-          intervalDays: deps.intervalDays(),
+          enabled: deps.enabled(),
           walkCompletedAtMs: feedState?.completedAtMs ?? null,
           resyncCompletedAtMs: resyncState?.completedAtMs ?? null,
         },

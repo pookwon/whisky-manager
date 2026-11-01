@@ -1344,13 +1344,13 @@ describe('startMemberResync', () => {
     expect(memberResyncStarted[0]).toMatchObject({ mode: 'resync', resumeFromCheckpoint: true })
   })
 
-  it('shows the re-walk beside the member status, due the interval after the walk finished', async () => {
+  it('shows the re-walk beside the member status, due at the next month start', async () => {
     const { api } = build(MON_10_00, {}, { job: null, memberFeedState: walkDone() })
-    await api.setMemberResyncInterval(60)
+    await api.setMemberResyncAuto(true)
     const view = await api.getMemberCollectionStatus()
     expect(view.kind).toBe('ready')
     if (view.kind === 'ready') {
-      expect(view.resync).toMatchObject({ intervalDays: 60, available: true, inProgress: false, pagesStored: 0, completedAtMs: null })
+      expect(view.resync).toMatchObject({ autoEnabled: true, available: true, inProgress: false, pagesStored: 0, completedAtMs: null })
       expect(view.resync.nextDueAtMs).toBeGreaterThan(MON_10_00)
     }
   })
@@ -1373,11 +1373,10 @@ describe('startMemberResync', () => {
     })
   })
 
-  it('stores only an offered interval', async () => {
+  it('stores the switch for the automatic re-walk', async () => {
     const { api } = build()
-    expect(await api.setMemberResyncInterval(14)).toBe(14)
-    expect(await api.setMemberResyncInterval(0)).toBe(0)
-    expect(await api.setMemberResyncInterval(3)).toBe(30)
+    expect(await api.setMemberResyncAuto(false)).toBe(false)
+    expect(await api.setMemberResyncAuto(true)).toBe(true)
   })
 })
 
