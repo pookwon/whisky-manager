@@ -1,3 +1,4 @@
+import type { MonthStartSeed } from '../shared/monthStartSeed.js'
 import { isMonthStartWindow, previousKstMonthRange } from '../shared/monthStart.js'
 import type { CollectionRepository } from './collection-db/repository.js'
 import { collectionPipelineStage } from './collectionPipelineStage.js'
@@ -11,7 +12,7 @@ export interface MonthStartCollectionDeps {
   /** Whether the collection schedule is on; with it off nothing walks the job, so none is made. */
   readonly scheduleEnabled: () => boolean
   readonly clock: CollectionClock
-  readonly onSeeded?: (range: { readonly startMs: number; readonly endMs: number }) => void
+  readonly onSeeded?: (seed: MonthStartSeed) => void
   readonly onError?: (error: unknown) => void
 }
 
@@ -49,7 +50,11 @@ export function createMonthStartCollection(deps: MonthStartCollectionDeps): () =
     const latest = describeJob(await repository.listFeedStates())
     if (deps.isPipelineRunning() || latest?.targetStartMs !== job?.targetStartMs || latest?.targetEndMs !== job?.targetEndMs) return
     await repository.replaceJob({ scope: 'board', targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(nowMs) })
-    deps.onSeeded?.(range)
+    deps.onSeeded?.({
+      period: range,
+      replaced: job === null ? null : { startMs: job.targetStartMs, endMs: job.targetEndMs },
+      madeAtMs: nowMs,
+    })
   }
 
   return () => {

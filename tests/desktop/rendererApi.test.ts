@@ -1,3 +1,4 @@
+import { writeMonthStartSeed } from '../../src/desktop/monthStartSeedSettings.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1470,6 +1471,14 @@ describe('getCollectionStatus', () => {
   it('says a stop is pending while the pipeline winds down after one was asked', async () => {
     const { api } = build(MON_10_00, {}, { job: null, pipelineBusy: true, pipelineStopping: true })
     expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', walking: true, stopping: true })
+  })
+
+  it('carries the job the month start made, for the dashboard to explain', async () => {
+    const { api, settings } = build(MON_10_00, {}, { job: null })
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', monthStartSeed: null })
+    const seed = { period: { startMs: 1, endMs: 2 }, replaced: null, madeAtMs: 3 }
+    writeMonthStartSeed(settings, seed)
+    expect(await api.getCollectionStatus()).toMatchObject({ kind: 'ready', monthStartSeed: seed })
   })
 
   it('says no stop is pending when none was asked', async () => {

@@ -138,6 +138,7 @@ function view(
     pipeline: { kind: 'idle' },
     walking: false,
     stopping: false,
+    monthStartSeed: null,
   }
 }
 

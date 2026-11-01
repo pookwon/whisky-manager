@@ -9,6 +9,7 @@ import {
 } from '../../format.js'
 import { CollectIcon } from './DayRhythm.js'
 import { Details } from './Details.js'
+import { monthStartNote } from './monthStartNote.js'
 import { periodDays, remainingFromMs, remainingToMs, type PeriodDay } from './periodDays.js'
 import type { JobState } from './quiet.js'
 
@@ -170,6 +171,9 @@ export function CollectionJob(props: CollectionJobProps): React.JSX.Element {
           {props.refusal !== null && (
             <div className="text-[0.8125rem] leading-5 tone-warn">{props.refusal}</div>
           )}
+          {monthStartNote(props.collection.kind === 'ready' ? props.collection.monthStartSeed : null, job).map((line) => (
+            <div key={line} className="text-xs leading-[1.125rem]" style={{ color: 'var(--ink-muted)' }}>{line}</div>
+          ))}
           {job !== null && coverage !== null && (
             // The end is the midnight after the last day, so naming it
             // directly would announce a day outside the period.

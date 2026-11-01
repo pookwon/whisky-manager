@@ -14,6 +14,7 @@ import type { CollectionLoop } from './collectionLoop.js'
 import { readCollectionSchedule, writeCollectionSchedule } from './collectionSettings.js'
 import { readCollectionPacing, writeCollectionPacing } from './collectionPacingSettings.js'
 import { readMemberResyncAuto, writeMemberResyncAuto } from './memberResyncSettings.js'
+import { readMonthStartSeed } from './monthStartSeedSettings.js'
 import { readMemberResyncView } from './memberResyncView.js'
 import { readBoardSearchView } from './boardSearchView.js'
 import type { BoardSearchRunner } from './boardSearchRunner.js'
@@ -341,7 +342,7 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
       if (collection.kind === 'disabled') return { kind: 'disabled' }
       if (collection.kind === 'unavailable') return { kind: 'unavailable', code: collection.code }
       const [status, reading] = await Promise.all([collection.status.read(), deps.collectionPipeline.read()])
-      return { kind: 'ready', status, pipeline: reading?.stage ?? { kind: 'idle' }, walking: deps.collectionPipeline.isRunning(), stopping: deps.collectionPipeline.isStopping() }
+      return { kind: 'ready', status, pipeline: reading?.stage ?? { kind: 'idle' }, walking: deps.collectionPipeline.isRunning(), stopping: deps.collectionPipeline.isStopping(), monthStartSeed: readMonthStartSeed(settings) }
     },
 
     async getMemberCollectionStatus(): Promise<MemberCollectionStatusView> {

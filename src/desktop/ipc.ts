@@ -2,6 +2,7 @@ import type { CollectionJob, CollectionStatus } from './collection-db/statusQuer
 import type { LogEntry } from './recentLog.js'
 import type { MemberCollectionStatus } from './collection-db/memberStatusQuery.js'
 import type { MemberResyncView } from './memberResyncView.js'
+import type { MonthStartSeed } from '../shared/monthStartSeed.js'
 import type { BoardSearchView } from './boardSearchView.js'
 import type { ArticleProbeView } from './articleProbeView.js'
 import type { CollectionUnavailableCode } from './collectionContext.js'
@@ -223,6 +224,8 @@ export type CollectionStatusView =
       readonly walking: boolean
       /** A stop was asked and the walk is finishing its page; the stop button reads that instead of looking unpressed. */
       readonly stopping: boolean
+      /** The job the month start made on its own last, if any; the screen says so while that job is the one shown. */
+      readonly monthStartSeed: MonthStartSeed | null
     }
 
 /**

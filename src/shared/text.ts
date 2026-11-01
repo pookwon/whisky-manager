@@ -308,6 +308,9 @@ export const TEXT = {
     /** What a run put away, said the same whether it has finished or not. */
     collectionStored: (pages: number, posts: number) => `${pages}쪽 저장 · 신규 ${posts}건`,
     collectionNever: '수집 기록 없음',
+    /** The note on a job the month start made by itself; periods are `YYYY-MM-DD`. */
+    monthStartMade: (from: string, to: string) => `월초 자동 생성 · 지난달(${from} — ${to}) 수집을 자동으로 만들었습니다.`,
+    monthStartReplaced: (from: string, to: string) => `완료된 이전 작업(${from} — ${to})은 이 작업으로 교체되었습니다.`,
     /**
      * The day drawn as a band, which is the one place the screen can say
      * "nothing is running right now, and that is the schedule working" without

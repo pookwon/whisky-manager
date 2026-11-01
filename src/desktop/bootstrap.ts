@@ -62,6 +62,7 @@ import { createMemberCollectionJob } from './collectionJob.js'
 import { createCollectionPipeline, type CollectionPipeline } from './collectionPipeline.js'
 import { createCollectionPipelineJob } from './collectionPipelineJob.js'
 import { createMonthStartCollection } from './monthStartCollection.js'
+import { writeMonthStartSeed } from './monthStartSeedSettings.js'
 import { readCollectionSchedule } from './collectionSettings.js'
 import { readCollectionPacing } from './collectionPacingSettings.js'
 import { readMemberResyncAuto } from './memberResyncSettings.js'
@@ -667,7 +668,10 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     scheduleEnabled: () => readCollectionSchedule(settings).enabled,
     clock: systemClock,
     onError: (error) => diagnostics.error('month-start-collection', error),
-    onSeeded: (range) => diagnostics.warn('collection', `month start: previous month job made ${stamp(range.startMs)} ~ ${stamp(range.endMs)}`),
+    onSeeded: (seed) => {
+      writeMonthStartSeed(settings, seed)
+      diagnostics.warn('collection', `month start: previous month job made ${stamp(seed.period.startMs)} ~ ${stamp(seed.period.endMs)}`)
+    },
   })
 
   const collectionLoop = createCollectionLoop({

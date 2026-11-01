@@ -29,6 +29,7 @@ function boardRow(overrides: Partial<{ targetStartMs: number; targetEndMs: numbe
 function harness(options: { nowMs?: number; rows?: readonly StoredFeedState[]; running?: boolean; storage?: boolean; scheduleOn?: boolean; failReplace?: boolean; rowsAfterFirstRead?: readonly StoredFeedState[] } = {}) {
   const replaced: ReplaceJobInput[] = []
   const errors: unknown[] = []
+  const seeded: unknown[] = []
   let reads = 0
   const repository = {
     listFeedStates: async () => {
@@ -46,9 +47,10 @@ function harness(options: { nowMs?: number; rows?: readonly StoredFeedState[]; r
     isPipelineRunning: () => options.running ?? false,
     scheduleEnabled: () => options.scheduleOn ?? true,
     clock: { now: () => options.nowMs ?? NOV_1 },
+    onSeeded: (made) => seeded.push(made),
     onError: (error) => errors.push(error),
   })
-  return { seed, replaced, errors }
+  return { seed, replaced, errors, seeded }
 }
 
 describe('month start collection', () => {
@@ -63,9 +65,10 @@ describe('month start collection', () => {
 
   it('replaces a finished job of an older period', async () => {
     const older = boardRow({ targetStartMs: OCT_START - 30 * DAY, targetEndMs: OCT_START, complete: true, probeFinished: true })
-    const { seed, replaced } = harness({ rows: [older] })
+    const { seed, replaced, seeded } = harness({ rows: [older] })
     await seed()
     expect(replaced).toHaveLength(1)
+    expect(seeded).toEqual([{ period: replaced[0] && { startMs: replaced[0].targetStartMs, endMs: replaced[0].targetEndMs }, replaced: { startMs: OCT_START - 30 * DAY, endMs: OCT_START }, madeAtMs: NOV_1 }])
   })
 
   it('leaves a job that already reaches the end of last month, finished or not', async () => {
