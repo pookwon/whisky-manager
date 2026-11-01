@@ -1,7 +1,7 @@
-import { inArray, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import type { CollectedPostMetadata } from '../../shared/cafeArticleList.js'
 import type { CollectionTransaction } from './memberPageWrite.js'
-import { boards, posts } from './schema.js'
+import { boards, collectionRuns, posts } from './schema.js'
 
 export type { CollectionTransaction } from './memberPageWrite.js'
 
@@ -40,16 +40,37 @@ function prefixToWrite(item: CollectedPostMetadata, storedPrefixes: ReadonlyMap<
 }
 
 /**
+ * The whole-cafe list also serves the boards the operator leaves out, such as
+ * greetings and attendance. Those posts are not activity, and a board row made
+ * from them would join the board jobs, so only the boards table's own boards are
+ * kept. The table holds no such choice until a first walk has finished filling
+ * it, page after page, so that walk keeps everything.
+ */
+async function postsOfCollectedBoards(
+  tx: CollectionTransaction,
+  items: readonly CollectedPostMetadata[],
+): Promise<readonly CollectedPostMetadata[]> {
+  const finished = await tx.select({ id: collectionRuns.id }).from(collectionRuns).where(eq(collectionRuns.status, 'succeeded')).limit(1)
+  if (finished.length === 0) return items
+  const collected = await tx.select({ boardId: boards.boardId }).from(boards).where(eq(boards.collectEnabled, true))
+  const boardIds = new Set(collected.map((board) => board.boardId))
+  return items.filter((item) => boardIds.has(item.boardId))
+}
+
+/**
  * Writes one page's posts, whichever walk read them. A post is the cafe's, not
  * the feed's: the list walk and the search walk reading the same post both
  * land on its one row, and a re-read updates it in place.
  */
 export async function writePostRows(
   tx: CollectionTransaction,
-  items: readonly CollectedPostMetadata[],
+  pageItems: readonly CollectedPostMetadata[],
   observedAt: Date,
   runId: string,
 ): Promise<WrittenPostRows> {
+  const items = await postsOfCollectedBoards(tx, pageItems)
+  if (items.length === 0) return { insertedPostCount: 0, updatedPostCount: 0 }
+
   const existingRows = await tx
     .select({ postId: posts.postId, prefix: posts.prefix })
     .from(posts)

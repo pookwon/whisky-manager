@@ -54,11 +54,11 @@ function harness(options: { nowMs?: number; rows?: readonly StoredFeedState[]; r
 }
 
 describe('month start collection', () => {
-  it('makes last month\'s board job when there is none', async () => {
+  it('makes last month\'s whole-cafe job when there is none', async () => {
     const { seed, replaced } = harness()
     await seed()
     expect(replaced).toHaveLength(1)
-    expect(replaced[0]).toMatchObject({ scope: 'board' })
+    expect(replaced[0]).toMatchObject({ scope: 'all_articles' })
     expect(kst(replaced[0]!.targetStartMs)).toBe('2026-10-01')
     expect(kst(replaced[0]!.targetEndMs)).toBe('2026-11-01')
   })
