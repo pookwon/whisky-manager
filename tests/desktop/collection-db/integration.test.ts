@@ -21,7 +21,7 @@ import { createMemberCollectionStatusQuery } from '../../../src/desktop/collecti
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 import { members } from '../../../src/desktop/collection-db/memberSchema.js'
-import { collectionRuns } from '../../../src/desktop/collection-db/schema.js'
+import { boards, collectionRuns } from '../../../src/desktop/collection-db/schema.js'
 import { eq } from 'drizzle-orm'
 
 const testDatabaseUrl = process.env.COLLECTION_TEST_DATABASE_URL?.trim()
@@ -1104,5 +1104,55 @@ integration('collection PostgreSQL integration (opt-in)', () => {
     expect(Object.fromEntries(rows.rows.map((row) => [row.id, row.status]))).toEqual({ [orphan]: 'interrupted', [listRun]: 'running' })
     expect(await probe.readLastRun()).toEqual({ status: 'interrupted', stopReason: 'ORPHANED_RUNNING_RUN', startedAtMs: Date.parse('2026-09-27T00:00:00.000Z') })
     await pool.query("update runs set status = 'interrupted', finished_at = $2 where id = $1", [listRun, new Date('2026-09-27T00:10:00.000Z')])
+  })
+
+  describe('boards the whole-cafe list keeps', () => {
+    const now = new Date('2026-08-30T00:00:00.000Z')
+    const feed = { feedKind: 'all_articles' as const, menuId: '0' }
+    const pageOf = (boardIds: readonly string[]) => ({
+      ...page,
+      items: boardIds.map((boardId, index) => ({ ...page.items[index]!, boardId, boardName: boardId })),
+    })
+
+    async function startWalk(repository: ReturnType<typeof createCollectionRepository>): Promise<string> {
+      const runId = randomUUID()
+      await repository.startRun({
+        ...feed, id: runId, runKind: 'development', resumeFromCheckpoint: false,
+        targetStartMs: Date.UTC(2026, 7, 27, 15), targetEndMs: Date.UTC(2026, 7, 30, 15), startedAt: now,
+      })
+      return runId
+    }
+
+    it('fills the table across every page of a first walk', async () => {
+      await connection.db.execute(sql`truncate table posts, boards, feed_state, runs cascade`)
+      const repository = createCollectionRepository(connection.db)
+      const runId = await startWalk(repository)
+      const first = await repository.persistPage({ feed, runId, observedAt: now, referencePage: 1, expectedState: { stateVersion: 0, anchorPostId: null }, page: pageOf(['137']) })
+      if (first.kind !== 'stored') throw new Error('first page conflicted')
+      await repository.persistPage({ feed, runId, observedAt: now, referencePage: 2, expectedState: { stateVersion: 1, anchorPostId: page.items[0]!.postId }, page: { ...pageOf(['200']), pageIdentity: 'second', items: [{ ...page.items[1]!, boardId: '200', boardName: '200' }] } })
+
+      expect(await countRows('boards')).toBe(2)
+      await repository.finishRun(runId, 'succeeded', null, now)
+    })
+
+    it('keeps only collected boards once a walk has finished', async () => {
+      const repository = createCollectionRepository(connection.db)
+      await connection.db.update(boards).set({ collectEnabled: false }).where(eq(boards.boardId, '200'))
+      await connection.db.execute(sql`truncate table posts, feed_state`)
+      const runId = await startWalk(repository)
+
+      const stored = await repository.persistPage({ feed, runId, observedAt: now, referencePage: 1, expectedState: { stateVersion: 0, anchorPostId: null }, page: pageOf(['137', '200', '5']) })
+
+      expect(stored).toMatchObject({ kind: 'stored', insertedPostCount: 1 })
+      expect(await countRows('posts')).toBe(1)
+      expect(await countRows('boards')).toBe(2)
+    })
+
+    it("keeps a running walk's place when its anchor post was not stored", async () => {
+      const running = await createCollectionStatusQuery(connection.db).read()
+      const walk = running.recentRuns.find((run) => run.status === 'running')
+      expect(walk?.cursorPostedAtMs).not.toBeNull()
+      expect(walk?.cursorPostedAtMs).toBeDefined()
+    })
   })
 })

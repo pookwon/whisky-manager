@@ -186,6 +186,10 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
 
       const job = describeJob(storedFeedStates)
 
+      // A filtered post has no row to join, so a running walk reads its place off the feed.
+      const anchorOf = (run: (typeof runs)[number]): number | null =>
+        storedFeedStates.find((state) => state.feed.feedKind === run.feedKind && state.feed.menuId === run.menuId)?.anchorPostedAtMs ?? null
+
       const recentRuns: CollectionRunSummary[] = runs.map((run) => ({
         id: run.id,
         runKind: run.runKind,
@@ -199,7 +203,7 @@ export function createCollectionStatusQuery(db: CollectionDatabase): CollectionS
         requestPages: run.requestPages,
         insertedPostCount: run.insertedPostCount,
         observedPostCount: run.observedPostCount,
-        cursorPostedAtMs: epochMs(run.cursorPostedAt),
+        cursorPostedAtMs: epochMs(run.cursorPostedAt) ?? (run.status === 'running' ? anchorOf(run) : null),
         boardName: run.boardName ?? null,
       }))
 

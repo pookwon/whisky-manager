@@ -26,8 +26,10 @@ const isSettled = (job: JobDescription | null): boolean => {
 }
 
 /**
- * Makes last month's board job when the month's first days find it missing, so
- * the loop's next block walks it like one the operator had asked for.
+ * Makes last month's whole-cafe job when the month's first days find it missing,
+ * so the loop's next block walks it like one the operator had asked for. A month
+ * lies well inside the whole list's reach; walking board by board and searching
+ * titles exist for the old posts past it.
  *
  * A job that already covers last month is left as it is, and so is one still
  * under way: replacing it would throw away the walk in flight, and the month's
@@ -49,7 +51,7 @@ export function createMonthStartCollection(deps: MonthStartCollectionDeps): () =
     if (coversMonth(job, range) || !isSettled(job)) return
     const latest = describeJob(await repository.listFeedStates())
     if (deps.isPipelineRunning() || latest?.targetStartMs !== job?.targetStartMs || latest?.targetEndMs !== job?.targetEndMs) return
-    await repository.replaceJob({ scope: 'board', targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(nowMs) })
+    await repository.replaceJob({ scope: 'all_articles', targetStartMs: range.startMs, targetEndMs: range.endMs, at: new Date(nowMs) })
     deps.onSeeded?.({
       period: range,
       replaced: job === null ? null : { startMs: job.targetStartMs, endMs: job.targetEndMs },
