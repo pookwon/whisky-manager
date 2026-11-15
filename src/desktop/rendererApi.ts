@@ -35,12 +35,14 @@ import {
 } from './session.js'
 import type { ExtensionTransport } from './ws/server.js'
 import type { MemberCollectionRunner } from './memberCollectionRunner.js'
+import type { AttendanceCollection, AttendanceStartResult } from './attendanceCollection.js'
 import { joinPatternCsv } from '../shared/joinPatternCsv.js'
 import { TEXT } from '../shared/text.js'
 import type {
   AutomationSettingsView,
   AutomationStatus,
   ArticleProbeStatusView,
+  AttendanceView,
   BoardSearchStatusView,
   MemberCollectionStatusView,
   ExportJoinPatternResult,
@@ -106,6 +108,8 @@ export interface RendererApiDeps {
   readonly boardSearchRunner: BoardSearchRunner
   /** Starts and stops a block of id reads for the probe. */
   readonly articleProbeRunner: ArticleProbeRunner
+  /** Starts and stops the attendance walk over the member board. */
+  readonly attendanceCollection: AttendanceCollection
   /** Re-laid whenever the schedule is saved. */
   readonly collectionLoop: CollectionLoop
   /** The most recent session result for one automation, or null if it never ran. */
@@ -451,6 +455,26 @@ export function createRendererApi(deps: RendererApiDeps): RendererApi {
           blockFailure: deps.articleProbeRunner.blockFailure(),
         }),
       }
+    },
+
+    startAttendanceCollection(): Promise<AttendanceStartResult> {
+      // The collection decides whether it can begin — database, connection and
+      // the shared lock — and names the reason it cannot, so the api only relays.
+      return Promise.resolve(deps.attendanceCollection.start())
+    },
+
+    stopAttendanceCollection(): Promise<void> {
+      deps.attendanceCollection.stop()
+      return Promise.resolve()
+    },
+
+    async getAttendanceView(): Promise<AttendanceView> {
+      // The walk's progress stands on its own; the recorded status needs a
+      // database, and is null for the install that runs without one.
+      const progress = deps.attendanceCollection.progress()
+      const collection = deps.collection()
+      const status = collection.kind === 'ready' ? await collection.attendanceStatus.read() : null
+      return { progress, status }
     },
 
     async setMemberCollectionForced(forced: boolean): Promise<SetCollectionForcedResult> {

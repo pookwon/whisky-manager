@@ -22,7 +22,8 @@ import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/b
 import type { BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 import type { ArticleProbeJob, ArticleProbeRepository, ArticleProbeWindowDays } from '../../src/desktop/collection-db/articleProbeRepository.js'
 import type { AttendanceRepository } from '../../src/desktop/collection-db/attendanceRepository.js'
-import type { AttendanceStatusQuery } from '../../src/desktop/collection-db/attendanceStatusQuery.js'
+import type { AttendanceStatus } from '../../src/desktop/collection-db/attendanceStatusQuery.js'
+import type { AttendanceCollection, AttendanceProgress, AttendanceStartResult } from '../../src/desktop/attendanceCollection.js'
 import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
@@ -102,6 +103,32 @@ interface CollectionOverrides {
   readonly pipelineStage?: CollectionPipelineStage
   /** Whether the pipeline has a chain in flight. */
   readonly pipelineBusy?: boolean
+  /** The progress the attendance collection reports; defaults to an idle walk. */
+  readonly attendanceProgress?: AttendanceProgress
+  /** What the attendance collection's start() answers; defaults to STARTED. */
+  readonly attendanceStartResult?: AttendanceStartResult
+  /** What the attendance status query reads; defaults to an empty status. */
+  readonly attendanceStatus?: AttendanceStatus
+}
+
+const IDLE_ATTENDANCE_PROGRESS: AttendanceProgress = {
+  state: 'idle',
+  listPage: 0,
+  postsTotal: 0,
+  postsRead: 0,
+  failureCode: null,
+}
+
+const EMPTY_ATTENDANCE_STATUS: AttendanceStatus = {
+  kinds: (['comment', 'post', 'visit'] as const).map((kind) => ({
+    kind,
+    roundCount: 0,
+    awardCount: 0,
+    earliest: null,
+    latest: null,
+  })),
+  refused: [],
+  lastReadAtMs: null,
 }
 
 function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: CollectionOverrides = {}) {
@@ -129,6 +156,20 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
   const articleProbeCreateJob = vi.fn(async (_window: ArticleProbeWindowDays) => 9660)
   /** The windows readJob() was asked about, oldest first. */
   const articleProbeReadJob = vi.fn(async (_window: ArticleProbeWindowDays) => collection.articleProbeJob ?? null)
+  /** Counts the attendance walk's starts and stops, and answers what the overrides ask. */
+  const attendanceStarts = { count: 0 }
+  const attendanceStops = { count: 0 }
+  const attendanceCollection: AttendanceCollection = {
+    start: () => {
+      attendanceStarts.count += 1
+      return collection.attendanceStartResult ?? 'STARTED'
+    },
+    stop: () => {
+      attendanceStops.count += 1
+    },
+    progress: () => collection.attendanceProgress ?? IDLE_ATTENDANCE_PROGRESS,
+    settled: () => Promise.resolve(),
+  }
   const pipelineStage = (): CollectionPipelineStage => {
     if (collection.pipelineStage !== undefined) return collection.pipelineStage
     const job = collection.job ?? null
@@ -298,7 +339,9 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
               createJob: articleProbeCreateJob,
             } as unknown as ArticleProbeRepository,
             attendanceRepository: {} as unknown as AttendanceRepository,
-            attendanceStatus: {} as unknown as AttendanceStatusQuery,
+            attendanceStatus: {
+              read: () => Promise.resolve(collection.attendanceStatus ?? EMPTY_ATTENDANCE_STATUS),
+            },
             memberStatus: {
               read: () =>
                 Promise.resolve({
@@ -343,6 +386,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     },
     boardSearchRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.boardSearchBusy ?? false, progress: () => null, blockFailure: () => null },
     articleProbeRunner: { start: vi.fn(), stop: vi.fn(), isRunning: () => collection.articleProbeBusy ?? false, progress: () => null, blockFailure: () => null },
+    attendanceCollection,
     collectionLoop: {
       refresh: () => {
         refreshes.count += 1
@@ -420,7 +464,7 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
     limits: PROFILES.production,
     newId: () => `new-${++counter}`,
   })
-  return { api, repos, settings, clock, pipelineStarts, pipelineStops, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeReadJob }
+  return { api, repos, settings, clock, pipelineStarts, pipelineStops, forcedCalls, refreshes, memberStarted, memberStopped, memberResyncStarted, memberResyncStopped, memberForcedCalls, replaced, boardSearchReplaceJob, articleProbeCreateJob, articleProbeReadJob, attendanceStarts, attendanceStops }
 }
 
 async function seedAwaiting(
@@ -1548,6 +1592,46 @@ describe('getArticleProbeStatus', () => {
     const result = await api.getArticleProbeStatus()
     expect(result).toMatchObject({ kind: 'ready', view: { job: null } })
     expect(articleProbeReadJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('attendance collection', () => {
+  it('starts the walk and hands back what start() answered', async () => {
+    const { api, attendanceStarts } = build(MON_10_00, {}, { job: null, attendanceStartResult: 'STARTED' })
+    expect(await api.startAttendanceCollection()).toBe('STARTED')
+    expect(attendanceStarts.count).toBe(1)
+  })
+
+  it('passes a start refusal straight back to the renderer', async () => {
+    const { api } = build(MON_10_00, {}, { job: null, attendanceStartResult: 'EXTENSION_OFFLINE' })
+    expect(await api.startAttendanceCollection()).toBe('EXTENSION_OFFLINE')
+  })
+
+  it('stops the walk', async () => {
+    const { api, attendanceStops } = build(MON_10_00, {}, { job: null })
+    await api.stopAttendanceCollection()
+    expect(attendanceStops.count).toBe(1)
+  })
+
+  it('reads the walk\'s progress and the query\'s status together', async () => {
+    const progress: AttendanceProgress = { state: 'reading', listPage: 4, postsTotal: 10, postsRead: 3, failureCode: null }
+    const status: AttendanceStatus = {
+      kinds: [
+        { kind: 'comment', roundCount: 2, awardCount: 5, earliest: { startDay: '2026-01-01', endDay: '2026-01-31' }, latest: { startDay: '2026-02-01', endDay: '2026-02-28' } },
+        { kind: 'post', roundCount: 0, awardCount: 0, earliest: null, latest: null },
+        { kind: 'visit', roundCount: 0, awardCount: 0, earliest: null, latest: null },
+      ],
+      refused: [{ postId: '900', title: '개근왕', rule: 'PERIOD_UNREADABLE' }],
+      lastReadAtMs: MON_10_00,
+    }
+    const { api } = build(MON_10_00, {}, { job: null, attendanceProgress: progress, attendanceStatus: status })
+    expect(await api.getAttendanceView()).toEqual({ progress, status })
+  })
+
+  it('reports the progress with a null status when there is no collection database', async () => {
+    const progress: AttendanceProgress = { state: 'failed', listPage: 2, postsTotal: 0, postsRead: 0, failureCode: 'ATTENDANCE_UNEXPECTED_ERROR' }
+    const { api } = build(MON_10_00, {}, { attendanceProgress: progress })
+    expect(await api.getAttendanceView()).toEqual({ progress, status: null })
   })
 })
 
