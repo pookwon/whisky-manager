@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { TEXT } from '../../src/shared/text.js'
-import type { AttendanceProgress, AttendanceStatus } from '../../src/desktop/ipc.js'
+import type { AttendanceProgress, AttendanceStatus, AttendanceView } from '../../src/desktop/ipc.js'
 import {
   databaseNotice,
   kindRows,
@@ -89,9 +89,13 @@ describe('attendance records — progressSentence and buttons', () => {
 })
 
 describe('attendance records — database and start notices', () => {
-  it('says the database is not configured when there is no status', () => {
-    expect(databaseNotice(null)).toBe('수집 DB가 설정되어 있지 않습니다.')
-    expect(databaseNotice(status)).toBeNull()
+  it('shows the database notice only once a loaded view has no status', () => {
+    // Before the first load there is no view, so no notice and no claim about the database.
+    expect(databaseNotice(null)).toBeNull()
+    const loadedNoStatus: AttendanceView = { progress: idle, status: null }
+    expect(databaseNotice(loadedNoStatus)).toBe('수집 DB가 설정되어 있지 않습니다.')
+    const loadedWithStatus: AttendanceView = { progress: idle, status }
+    expect(databaseNotice(loadedWithStatus)).toBeNull()
   })
 
   it('translates a start that was refused, and says nothing when it started', () => {

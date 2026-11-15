@@ -48,7 +48,7 @@ function isRealDate(year: number, month: number, day: number): boolean {
   return probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day
 }
 
-/** Negative when the first date is earlier; the count of calendar days between them. */
+/** Positive when the first date is earlier; the count of calendar days between them. */
 function daysBetween(from: CalendarDate, to: CalendarDate): number {
   const fromMs = Date.UTC(from.year, from.month - 1, from.day)
   const toMs = Date.UTC(to.year, to.month - 1, to.day)

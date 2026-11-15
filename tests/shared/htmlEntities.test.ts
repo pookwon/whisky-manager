@@ -5,6 +5,9 @@ describe('decodeHtmlEntities', () => {
   it('decodes the five named entities', () => {
     expect(decodeHtmlEntities('a&amp;b&lt;c&gt;d&quot;e&#39;f')).toBe('a&b<c>d"e\'f')
   })
+  it('decodes a non-breaking space to U+00A0', () => {
+    expect(decodeHtmlEntities('a&nbsp;b')).toBe('a b')
+  })
   it('decodes decimal and hex numeric references', () => {
     expect(decodeHtmlEntities('&#51221;&#47932;')).toBe('정물')
     expect(decodeHtmlEntities('&#xC2A4;&#x53F1;')).toBe('스叱')

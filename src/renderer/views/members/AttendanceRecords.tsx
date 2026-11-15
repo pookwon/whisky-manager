@@ -63,7 +63,7 @@ export function AttendanceRecords(): React.JSX.Element {
   }
 
   const status = view?.status ?? null
-  const dbNotice = databaseNotice(status)
+  const dbNotice = databaseNotice(view)
   const progressLine = view === null ? null : progressSentence(view.progress)
   const rows = status === null ? [] : kindRows(status.kinds)
   const refused = status === null ? [] : refusedLines(status.refused)

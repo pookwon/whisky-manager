@@ -665,6 +665,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     bodyFetcher: createArticleBodyFetcher(transport, () => randomUUID()),
     isConnected: () => transport.isConnected(),
     lock: collectionLock,
+    isSessionBusy: isAnySessionInFlight,
     pacing: () => readCollectionPacing(settings),
     random: systemRandom,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

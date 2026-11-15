@@ -3,7 +3,7 @@
  * Extracted so tests can import and verify them without mounting the component.
  */
 import { TEXT } from '../../shared/text.js'
-import type { AttendanceProgress, AttendanceStartResult, AttendanceStatus } from '../../desktop/ipc.js'
+import type { AttendanceProgress, AttendanceStartResult, AttendanceView } from '../../desktop/ipc.js'
 import type { AttendanceKindStatus, AttendanceRefusedPost } from '../../desktop/collection-db/attendanceStatusQuery.js'
 
 const COPY = TEXT.attendance
@@ -78,9 +78,14 @@ export function progressSentence(progress: AttendanceProgress): string | null {
   }
 }
 
-/** The line that replaces the numbers when there is no collection database to read. */
-export function databaseNotice(status: AttendanceStatus | null): string | null {
-  return status === null ? COPY.notStarted.DATABASE_DISABLED : null
+/**
+ * The line that replaces the numbers when there is no collection database to read.
+ * Null until the first view has loaded: a pending first load has no status to
+ * read yet, and must not be mistaken for a database that is not configured.
+ */
+export function databaseNotice(view: AttendanceView | null): string | null {
+  if (view === null) return null
+  return view.status === null ? COPY.notStarted.DATABASE_DISABLED : null
 }
 
 /** Why a start press did nothing, or null when the walk started. */

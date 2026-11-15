@@ -14,6 +14,9 @@ export const ATTENDANCE_BOARD_MENU_ID = '207'
 /** The code a failure keeps when the error is not one a page read already named. */
 const UNEXPECTED_ERROR = 'ATTENDANCE_UNEXPECTED_ERROR'
 
+/** How often the walk looks back while it is yielding Naver to an in-flight session. */
+const SESSION_BUSY_POLL_MS = 1_000
+
 export type AttendanceRunState = 'idle' | 'listing' | 'reading' | 'done' | 'stopped' | 'failed'
 
 export interface AttendanceProgress {
@@ -32,6 +35,8 @@ export interface AttendanceCollectionDeps {
   readonly bodyFetcher: ArticleBodyFetcher
   readonly isConnected: () => boolean
   readonly lock: CollectionLock
+  /** True while a greeting session holds Naver; the walk yields to it before each read. */
+  readonly isSessionBusy: () => boolean
   readonly pacing: () => CollectionPacing
   readonly random: Random
   readonly sleep: (ms: number) => Promise<void>
@@ -73,6 +78,20 @@ export function createAttendanceCollection(deps: AttendanceCollectionDeps): Atte
     error instanceof CollectionPageError ? error.code : UNEXPECTED_ERROR
 
   /**
+   * Hand Naver to an in-flight greeting session before a read: a session has a
+   * person waiting on it, where this walk has hours to spare. Returns false when
+   * a stop lands while waiting, so the caller makes no request and ends the run
+   * `stopped`; true to go ahead with the read.
+   */
+  async function yieldToSession(): Promise<boolean> {
+    while (deps.isSessionBusy()) {
+      if (abortRequested) return false
+      await deps.sleep(SESSION_BUSY_POLL_MS)
+    }
+    return !abortRequested
+  }
+
+  /**
    * One run: list the board, then read the bodies it has to. Pacing counts list
    * and body reads on one ordinal, so the traffic keeps its rhythm across the
    * switch from listing to reading. The run ends `stopped` the moment a stop is
@@ -99,7 +118,7 @@ export function createAttendanceCollection(deps: AttendanceCollectionDeps): Atte
     state = 'reading'
     for (const post of pending) {
       if (abortRequested) { state = 'stopped'; return }
-      await readOne(repository, post, pace)
+      if (!(await readOne(repository, post, pace))) { state = 'stopped'; return }
       postsRead += 1
     }
     if (abortRequested) { state = 'stopped'; return }
@@ -113,6 +132,7 @@ export function createAttendanceCollection(deps: AttendanceCollectionDeps): Atte
     for (let pageNumber = 1; pageNumber <= FEED_HORIZON_PAGE; pageNumber += 1) {
       if (abortRequested) break
       await pace()
+      if (!(await yieldToSession())) break
       const list = await deps.listFetcher.read(pageNumber)
       listPage = pageNumber
       if (list.items.length === 0) break
@@ -139,25 +159,31 @@ export function createAttendanceCollection(deps: AttendanceCollectionDeps): Atte
     return [...attendance.values()]
   }
 
-  /** Read and store one attendance post, or refuse it with the rule that caught it. */
-  async function readOne(repository: AttendanceRepository, post: AttendancePostRecord, pace: () => Promise<void>): Promise<void> {
+  /**
+   * Read and store one attendance post, or refuse it with the rule that caught it.
+   * Returns false when a stop lands while yielding to a session before the body
+   * read, so the run ends `stopped` with nothing stored for this post.
+   */
+  async function readOne(repository: AttendanceRepository, post: AttendancePostRecord, pace: () => Promise<void>): Promise<boolean> {
     if (post.period === null) {
       await repository.saveRefused(post, 'PERIOD_UNREADABLE', new Date(deps.now()))
-      return
+      return true
     }
     await pace()
+    if (!(await yieldToSession())) return false
     const body = await deps.bodyFetcher.read(post.postId)
     const readAt = new Date(deps.now())
     if (body.kind === 'absent') {
       await repository.saveRefused(post, 'ARTICLE_ABSENT', readAt)
-      return
+      return true
     }
     const winners = parseAttendanceWinners(body.contentHtml)
     if (!winners.ok) {
       await repository.saveRefused(post, winners.rule, readAt)
-      return
+      return true
     }
     await repository.saveRecorded({ ...post, period: post.period }, winners.nicknames, readAt)
+    return true
   }
 
   return {

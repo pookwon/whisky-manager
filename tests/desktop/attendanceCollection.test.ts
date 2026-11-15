@@ -61,8 +61,10 @@ interface Config {
   readonly connected?: boolean
   readonly noRepository?: boolean
   readonly lock?: CollectionLock
+  readonly isSessionBusy?: () => boolean
   readonly onListRead?: (p: number) => void
   readonly onBodyRead?: (postId: string) => void
+  readonly onSleep?: (ms: number) => void
 }
 
 type Saved =
@@ -108,8 +110,9 @@ function harness(config: Config) {
     isConnected: () => config.connected !== false,
     lock,
     pacing: () => config.pacing ?? NO_WAIT,
+    isSessionBusy: config.isSessionBusy ?? (() => false),
     random: { intInclusive: (min) => min },
-    sleep: async (ms) => { sleeps.push(ms) },
+    sleep: async (ms) => { sleeps.push(ms); config.onSleep?.(ms) },
     now: () => NOW,
     onError: (error) => { errors.push(error instanceof Error ? error.message : String(error)) },
   }
@@ -228,6 +231,46 @@ describe('attendanceCollection', () => {
     await h.collection.settled()
     expect(h.collection.progress()).toMatchObject({ state: 'stopped', postsRead: 1 })
     expect(h.saves).toEqual(['recorded 963461 [가가]'])
+    expect(h.lock.isHeld()).toBe(false)
+  })
+
+  it('yields Naver to an in-flight session, reading only once it ends', async () => {
+    let busy = true
+    let requests = 0
+    const whenPolled: number[] = []
+    const h = harness({
+      pages: [page([COMMENT]), EMPTY],
+      bodies: { 963461: winnersBody('963461', ['가가']) },
+      isSessionBusy: () => busy,
+      onListRead: () => { requests += 1 },
+      onBodyRead: () => { requests += 1 },
+      // The only sleep while busy is the yield poll; nothing has been fetched yet.
+      onSleep: () => { if (busy) { whenPolled.push(requests); busy = false } },
+    })
+    h.collection.start()
+    await h.collection.settled()
+    expect(whenPolled).toEqual([0])
+    expect(h.listReads).toEqual([1, 2])
+    expect(h.bodyReads).toEqual(['963461'])
+    expect(h.saves).toEqual(['recorded 963461 [가가]'])
+    expect(h.collection.progress()).toMatchObject({ state: 'done' })
+  })
+
+  it('ends stopped when a stop lands while it is yielding, making no request', async () => {
+    let stop = (): void => undefined
+    const h = harness({
+      pages: [page([COMMENT]), EMPTY],
+      bodies: { 963461: winnersBody('963461', ['가가']) },
+      isSessionBusy: () => true,
+      onSleep: () => stop(),
+    })
+    stop = () => h.collection.stop()
+    h.collection.start()
+    await h.collection.settled()
+    expect(h.listReads).toEqual([])
+    expect(h.bodyReads).toEqual([])
+    expect(h.saves).toEqual([])
+    expect(h.collection.progress()).toMatchObject({ state: 'stopped' })
     expect(h.lock.isHeld()).toBe(false)
   })
 

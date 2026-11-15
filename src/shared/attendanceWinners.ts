@@ -27,12 +27,15 @@ export function parseAttendanceWinners(contentHtml: string): AttendanceWinners {
     return { ok: false, rule: 'NO_WINNERS' }
   }
 
-  const trimmed = beforePhrase.split(NICKNAME_SEPARATOR).map((piece) => piece.trim())
-  if (trimmed.some((piece) => piece.length === 0)) {
+  // Decode before measuring: a nickname written as an entity alone — `&nbsp;`
+  // decodes to U+00A0, which `trim` removes — is empty once decoded, and checking
+  // the raw text would let it through as a blank winner.
+  const nicknames = beforePhrase.split(NICKNAME_SEPARATOR).map((piece) => decodeHtmlEntities(piece).trim())
+  if (nicknames.some((nickname) => nickname.length === 0)) {
     return { ok: false, rule: 'EMPTY_NICKNAME' }
   }
 
-  return { ok: true, nicknames: trimmed.map(decodeHtmlEntities) }
+  return { ok: true, nicknames }
 }
 
 function lastTextRunWithClosingPhrase(contentHtml: string): string | null {

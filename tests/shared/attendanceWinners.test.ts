@@ -25,6 +25,7 @@ describe('parseAttendanceWinners', () => {
     expect(parseAttendanceWinners('<p> 이번 회차는 당첨자가 없습니다. </p>')).toEqual({ ok: false, rule: 'NO_CLOSING_PHRASE' })
     expect(parseAttendanceWinners('<p> 님이 당첨 되셨습니다. </p>')).toEqual({ ok: false, rule: 'NO_WINNERS' })
     expect(parseAttendanceWinners('<p> 가상하나님, 님, 가상둘님이 당첨 되셨습니다. </p>')).toEqual({ ok: false, rule: 'EMPTY_NICKNAME' })
+    expect(parseAttendanceWinners('<p> 가상하나님, &nbsp;님, 가상둘님이 당첨 되셨습니다. </p>')).toEqual({ ok: false, rule: 'EMPTY_NICKNAME' })
     expect(parseAttendanceWinners('')).toEqual({ ok: false, rule: 'NO_CLOSING_PHRASE' })
   })
 })
