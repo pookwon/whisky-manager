@@ -4,6 +4,8 @@ import { createBoardSearchCoverageQuery, type BoardSearchCoverageQuery } from '.
 import { createBoardSearchLastRunQuery, type BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
 import { createBoardSearchRepository, type BoardSearchRepository } from './collection-db/boardSearchRepository.js'
 import { createArticleProbeRepository, type ArticleProbeRepository } from './collection-db/articleProbeRepository.js'
+import { createAttendanceRepository, type AttendanceRepository } from './collection-db/attendanceRepository.js'
+import { createAttendanceStatusQuery, type AttendanceStatusQuery } from './collection-db/attendanceStatusQuery.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
 import { createMemberCollectionStatusQuery, type MemberCollectionStatusQuery } from './collection-db/memberStatusQuery.js'
@@ -37,6 +39,10 @@ export type OptionalCollectionContext =
       readonly boardSearchLastRuns: BoardSearchLastRunQuery
       /** The gap's ids, read one by one once the search backfill is done. */
       readonly articleProbeRepository: ArticleProbeRepository
+      /** The attendance rounds and their awards. */
+      readonly attendanceRepository: AttendanceRepository
+      /** Reading of the attendance collection for the screen. */
+      readonly attendanceStatus: AttendanceStatusQuery
       close(): Promise<void>
     }
   | {
@@ -143,6 +149,8 @@ export async function openOptionalCollectionContext(
       boardSearchCoverage: createBoardSearchCoverageQuery(connection.db),
       boardSearchLastRuns: createBoardSearchLastRunQuery(connection.db),
       articleProbeRepository: createArticleProbeRepository(connection.db, repository),
+      attendanceRepository: createAttendanceRepository(connection.db),
+      attendanceStatus: createAttendanceStatusQuery(connection.db),
       close: connection.close,
     }
   } catch (error) {

@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { parseCafeArticleListText } from '../../../src/shared/cafeArticleList.js'
 import { parseCafeMemberListText } from '../../../src/shared/cafeMemberList.js'
 import { parseCafeBoardSearchListText } from '../../../src/shared/cafeBoardSearchList.js'
@@ -18,6 +18,8 @@ import { createBoardSearchRepository } from '../../../src/desktop/collection-db/
 import { createMemberRepository } from '../../../src/desktop/collection-db/memberRepository.js'
 import { createMemberResyncRepository } from '../../../src/desktop/collection-db/memberResyncRepository.js'
 import { createMemberCollectionStatusQuery } from '../../../src/desktop/collection-db/memberStatusQuery.js'
+import { createAttendanceRepository } from '../../../src/desktop/collection-db/attendanceRepository.js'
+import { createAttendanceStatusQuery } from '../../../src/desktop/collection-db/attendanceStatusQuery.js'
 import { openOptionalCollectionContext } from '../../../src/desktop/collectionContext.js'
 import { createCollectionStatusQuery } from '../../../src/desktop/collection-db/statusQuery.js'
 import { members } from '../../../src/desktop/collection-db/memberSchema.js'
@@ -34,8 +36,8 @@ const memberPage = parseCafeMemberListText(
   readFileSync(fileURLToPath(new URL('../../fixtures/cafe-member-list-sample.json', import.meta.url)), 'utf8'),
 )
 
-const COLLECTION_TABLES = ['article_probe', 'board_search_state', 'member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
-const COLLECTION_TYPES = ['article_probe_outcome', 'collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
+const COLLECTION_TABLES = ['attendance_awards', 'attendance_posts', 'article_probe', 'board_search_state', 'member_resync_state', 'members', 'member_runs', 'member_feed_state', 'posts', 'boards', 'feed_state', 'runs']
+const COLLECTION_TYPES = ['article_probe_outcome', 'attendance_kind', 'attendance_post_status', 'collection_feed_kind', 'collection_run_kind', 'collection_run_status', 'member_run_kind']
 
 let pool: Pool
 let connection: CollectionDatabaseConnection
@@ -1153,6 +1155,109 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       const walk = running.recentRuns.find((run) => run.status === 'running')
       expect(walk?.cursorPostedAtMs).not.toBeNull()
       expect(walk?.cursorPostedAtMs).toBeDefined()
+    })
+  })
+
+  describe('attendance rounds and awards', () => {
+    const repo = () => createAttendanceRepository(connection.db)
+    const status = () => createAttendanceStatusQuery(connection.db)
+    const readAt = new Date('2026-11-11T00:00:00.000Z')
+    const round = {
+      postId: '963460',
+      kind: 'post' as const,
+      period: { startDay: '2026-11-01', endDay: '2026-11-10' },
+      title: '[게시글 개근] 11월 1일 ~ 11월 10일',
+      postedAt: new Date('2026-11-10T22:03:22.440Z'),
+    }
+
+    const countAwards = async (postId: string): Promise<number> =>
+      Number((await pool.query<{ count: string }>('select count(*)::text as count from attendance_awards where post_id = $1', [postId])).rows[0]?.count ?? 0)
+
+    beforeEach(async () => {
+      await pool.query('truncate table attendance_posts, attendance_awards cascade')
+    })
+
+    it('stores a round and its awards in order', async () => {
+      await repo().saveRecorded(round, ['가상하나', '두 번째 회원', '선생님'], readAt)
+      const awards = await pool.query<{ position: number; nickname: string }>(
+        'select position, nickname from attendance_awards where post_id = $1 order by position',
+        ['963460'],
+      )
+      expect(awards.rows).toEqual([
+        { position: 1, nickname: '가상하나' },
+        { position: 2, nickname: '두 번째 회원' },
+        { position: 3, nickname: '선생님' },
+      ])
+      const post = await pool.query<{ status: string; winner_count: number }>(
+        'select status, winner_count from attendance_posts where post_id = $1',
+        ['963460'],
+      )
+      expect(post.rows[0]).toEqual({ status: 'recorded', winner_count: 3 })
+      expect(await repo().recordedPostIds()).toEqual(new Set(['963460']))
+    })
+
+    it('replaces rather than adds when the same post is saved again', async () => {
+      await repo().saveRecorded(round, ['가상하나', '두 번째 회원', '선생님'], readAt)
+      await repo().saveRecorded(round, ['가상하나', '선생님'], readAt)
+      expect(await countAwards('963460')).toBe(2)
+      const post = await pool.query<{ winner_count: number }>('select winner_count from attendance_posts where post_id = $1', ['963460'])
+      expect(post.rows[0]?.winner_count).toBe(2)
+    })
+
+    it('keeps no award for a refused post, and does not call it recorded', async () => {
+      await repo().saveRecorded(round, ['가상하나'], readAt)
+      await repo().saveRefused({ ...round, period: null }, 'PERIOD_UNREADABLE', readAt)
+      expect(await countAwards('963460')).toBe(0)
+      const post = await pool.query<{ status: string; refusal_rule: string | null; winner_count: number | null }>(
+        'select status, refusal_rule, winner_count from attendance_posts where post_id = $1',
+        ['963460'],
+      )
+      expect(post.rows[0]).toEqual({ status: 'refused', refusal_rule: 'PERIOD_UNREADABLE', winner_count: null })
+      expect(await repo().recordedPostIds()).toEqual(new Set())
+    })
+
+    it('stores eight thousand awards for one round', async () => {
+      const names = Array.from({ length: 8000 }, (_, i) => `회원${i}`)
+      await repo().saveRecorded({ ...round, postId: '963459', kind: 'visit' }, names, readAt)
+      expect(await countAwards('963459')).toBe(8000)
+      const last = await pool.query<{ nickname: string }>(
+        'select nickname from attendance_awards where post_id = $1 and position = 8000',
+        ['963459'],
+      )
+      expect(last.rows[0]?.nickname).toBe('회원7999')
+    })
+
+    it('reports each kind, the refused posts and the last read', async () => {
+      await repo().saveRecorded(
+        { ...round, postId: 'comment-1', kind: 'comment', period: { startDay: '2026-11-01', endDay: '2026-11-10' } },
+        ['가상하나', '선생님'],
+        readAt,
+      )
+      await repo().saveRecorded(
+        { ...round, postId: 'visit-old', kind: 'visit', period: { startDay: '2021-03-01', endDay: '2021-03-11' } },
+        ['가상하나', '두 번째 회원', '선생님'],
+        readAt,
+      )
+      await repo().saveRecorded(
+        { ...round, postId: 'visit-new', kind: 'visit', period: { startDay: '2026-11-01', endDay: '2026-11-10' } },
+        ['선생님'],
+        readAt,
+      )
+      await repo().saveRefused(
+        { ...round, postId: '412345', kind: 'comment', period: null, title: '[댓글 개근] 이번 회차 안내' },
+        'PERIOD_UNREADABLE',
+        readAt,
+      )
+
+      expect(await status().read()).toEqual({
+        kinds: [
+          { kind: 'comment', roundCount: 1, awardCount: 2, earliest: { startDay: '2026-11-01', endDay: '2026-11-10' }, latest: { startDay: '2026-11-01', endDay: '2026-11-10' } },
+          { kind: 'post', roundCount: 0, awardCount: 0, earliest: null, latest: null },
+          { kind: 'visit', roundCount: 2, awardCount: 4, earliest: { startDay: '2021-03-01', endDay: '2021-03-11' }, latest: { startDay: '2026-11-01', endDay: '2026-11-10' } },
+        ],
+        refused: [{ postId: '412345', title: '[댓글 개근] 이번 회차 안내', rule: 'PERIOD_UNREADABLE' }],
+        lastReadAtMs: readAt.getTime(),
+      })
     })
   })
 })

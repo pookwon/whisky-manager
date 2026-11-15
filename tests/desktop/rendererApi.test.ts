@@ -21,6 +21,8 @@ import { EMPTY_ID_GAP_REPORT } from '../../src/desktop/collection-db/idGapReport
 import type { BoardSearchCoverageQuery } from '../../src/desktop/collection-db/boardSearchCoverageQuery.js'
 import type { BoardSearchLastRunQuery } from '../../src/desktop/collection-db/boardSearchLastRunQuery.js'
 import type { ArticleProbeJob, ArticleProbeRepository, ArticleProbeWindowDays } from '../../src/desktop/collection-db/articleProbeRepository.js'
+import type { AttendanceRepository } from '../../src/desktop/collection-db/attendanceRepository.js'
+import type { AttendanceStatusQuery } from '../../src/desktop/collection-db/attendanceStatusQuery.js'
 import type { BoardSearchRepository } from '../../src/desktop/collection-db/boardSearchRepository.js'
 import type { CollectionRepository, StoredFeedState } from '../../src/desktop/collection-db/repository.js'
 import type { MemberFeedState, MemberRepository } from '../../src/desktop/collection-db/memberRepository.js'
@@ -295,6 +297,8 @@ function build(nowMs = MON_10_00, bridge: BridgeOverrides = {}, collection: Coll
               readLastRun: async () => null,
               createJob: articleProbeCreateJob,
             } as unknown as ArticleProbeRepository,
+            attendanceRepository: {} as unknown as AttendanceRepository,
+            attendanceStatus: {} as unknown as AttendanceStatusQuery,
             memberStatus: {
               read: () =>
                 Promise.resolve({
