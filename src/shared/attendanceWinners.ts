@@ -1,0 +1,51 @@
+import { decodeHtmlEntities } from './htmlEntities.js'
+
+/**
+ * Reads the winners an attendance post names. The cafe writes the list as one
+ * run of plain text that ends with a fixed closing phrase, so splitting on tags
+ * and then on the separator is enough — no DOM is needed. The parser never
+ * guesses: a body it cannot be sure of is refused with the rule that caught it,
+ * and an attendance post with a real list of winners is the only shape it reads.
+ */
+
+const CLOSING_PHRASE = '님이 당첨 되셨습니다'
+const NICKNAME_SEPARATOR = '님, '
+
+export type AttendanceWinnersRule = 'NO_CLOSING_PHRASE' | 'NO_WINNERS' | 'EMPTY_NICKNAME'
+export type AttendanceWinners =
+  | { readonly ok: true; readonly nicknames: readonly string[] }
+  | { readonly ok: false; readonly rule: AttendanceWinnersRule }
+
+export function parseAttendanceWinners(contentHtml: string): AttendanceWinners {
+  const list = lastTextRunWithClosingPhrase(contentHtml)
+  if (list === null) {
+    return { ok: false, rule: 'NO_CLOSING_PHRASE' }
+  }
+
+  const beforePhrase = collapseWhitespace(list.slice(0, list.indexOf(CLOSING_PHRASE)))
+  if (beforePhrase.length === 0) {
+    return { ok: false, rule: 'NO_WINNERS' }
+  }
+
+  const trimmed = beforePhrase.split(NICKNAME_SEPARATOR).map((piece) => piece.trim())
+  if (trimmed.some((piece) => piece.length === 0)) {
+    return { ok: false, rule: 'EMPTY_NICKNAME' }
+  }
+
+  return { ok: true, nicknames: trimmed.map(decodeHtmlEntities) }
+}
+
+function lastTextRunWithClosingPhrase(contentHtml: string): string | null {
+  const runs = contentHtml.split(/<[^>]*>/)
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index]
+    if (run !== undefined && run.includes(CLOSING_PHRASE)) {
+      return run
+    }
+  }
+  return null
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
