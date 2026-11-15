@@ -9,6 +9,7 @@ export type Route =
   | { readonly kind: 'collection'; readonly panel: CollectionPanel }
   | { readonly kind: 'members' }
   | { readonly kind: 'aiJoinCheck' }
+  | { readonly kind: 'attendance' }
   | { readonly kind: 'commonSettings' }
   | { readonly kind: 'log' }
 
