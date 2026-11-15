@@ -3,6 +3,7 @@ import {
   PROTOCOL_VERSION,
   TIMEOUTS,
   isAppMessage,
+  isCollectArticleBodyRequest,
   isCollectArticleRequest,
   isCollectBoardPageRequest,
   isCollectBoardSearchPageRequest,
@@ -274,7 +275,43 @@ describe('COLLECT_ARTICLE', () => {
   })
 
   it('bumps the protocol, since an older extension cannot answer it', () => {
-    expect(PROTOCOL_VERSION).toBe(14)
+    expect(PROTOCOL_VERSION).toBe(15)
+  })
+})
+
+describe('COLLECT_ARTICLE_BODY', () => {
+  const request = { type: 'COLLECT_ARTICLE_BODY', requestId: 'r', cafeId: '14538121', postId: '963460' } as const
+
+  it('accepts one article body of this cafe', () => {
+    expect(isCollectArticleBodyRequest(request)).toBe(true)
+    expect(isAppMessage(request)).toBe(true)
+  })
+
+  it.each([
+    ['another cafe', { cafeId: '1' }],
+    ['id zero', { postId: '0' }],
+    ['a padded id', { postId: '0963460' }],
+    ['a non-digit id', { postId: '96346a' }],
+    ['a numeric id', { postId: 963460 }],
+    ['no request id', { requestId: undefined }],
+  ])('refuses %s', (_label, change) => {
+    expect(isCollectArticleBodyRequest({ ...request, ...change })).toBe(false)
+    expect(isAppMessage({ ...request, ...change })).toBe(false)
+  })
+
+  it('accepts an answer that carries a body or the cafe\'s reason for none', () => {
+    expect(isExtensionMessage({ type: 'ARTICLE_BODY_COLLECTED', requestId: 'r', result: { kind: 'article', postId: '963460', title: null, postedAt: 1794348202440, contentHtml: '<p>hi</p>' } })).toBe(true)
+    expect(isExtensionMessage({ type: 'ARTICLE_BODY_COLLECTED', requestId: 'r', result: { kind: 'absent', status: 404, code: '4003' } })).toBe(true)
+  })
+
+  it.each([
+    ['no result', { result: null }],
+    ['an article without its html', { result: { kind: 'article', postId: '963460', title: null, postedAt: 1794348202440 } }],
+    ['an article without its time', { result: { kind: 'article', postId: '963460', title: null, contentHtml: '<p>hi</p>' } }],
+    ['an absence without its code', { result: { kind: 'absent', status: 404 } }],
+    ['an unknown kind', { result: { kind: 'maybe' } }],
+  ])('refuses an answer with %s', (_label, change) => {
+    expect(isExtensionMessage({ type: 'ARTICLE_BODY_COLLECTED', requestId: 'r', ...change })).toBe(false)
   })
 })
 

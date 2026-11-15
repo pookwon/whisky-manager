@@ -6,9 +6,10 @@ import type { CollectedMemberPage } from './cafeMemberList.js'
 import { CAFE_BOARD_SEARCH, isBoardSearchPage } from './cafeBoardSearchEndpoint.js'
 import { isArticleId } from './cafeArticleEndpoint.js'
 import type { CafeArticleRead } from './cafeArticleRead.js'
+import type { CafeArticleBodyRead } from './cafeArticleBody.js'
 import { isJoinDay, type StudioJoinPage } from './studioJoinList.js'
 
-export const PROTOCOL_VERSION = 14
+export const PROTOCOL_VERSION = 15
 
 /**
  * No call may wait forever. Every value bounds the gap between messages, not
@@ -25,6 +26,7 @@ export const TIMEOUTS = {
   boardPageMs: 20_000,
   memberPageMs: 20_000,
   articleMs: 20_000,
+  articleBodyMs: 20_000,
   extensionReplyMs: 20_000,
 } as const
 
@@ -73,6 +75,14 @@ export interface CollectBoardSearchPageRequest {
 /** One article of this cafe, by id; answered with ARTICLE_COLLECTED. */
 export interface CollectArticleRequest {
   readonly type: 'COLLECT_ARTICLE'
+  readonly requestId: string
+  readonly cafeId: typeof CAFE_ARTICLE_LIST.cafeId
+  readonly postId: string
+}
+
+/** One article's body of this cafe, by id; answered with ARTICLE_BODY_COLLECTED. */
+export interface CollectArticleBodyRequest {
+  readonly type: 'COLLECT_ARTICLE_BODY'
   readonly requestId: string
   readonly cafeId: typeof CAFE_ARTICLE_LIST.cafeId
   readonly postId: string
@@ -137,6 +147,8 @@ export type AppMessage =
   | CollectBoardSearchPageRequest
   /** One article by id; the extension reads it and judges nothing. */
   | CollectArticleRequest
+  /** One article's body by id; the extension reads it and judges nothing. */
+  | CollectArticleBodyRequest
   /** Diagnostic only. See `isProbeTarget` for the hosts this may reach. */
   | { type: 'PROBE'; requestId: string; url: string }
   | { type: 'ABORT'; requestId: string }
@@ -170,6 +182,7 @@ export type ExtensionMessage =
   | { type: 'BOARD_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedArticlePage }
   | { type: 'MEMBER_PAGE_COLLECTED'; requestId: string; page: number; result: CollectedMemberPage }
   | { type: 'ARTICLE_COLLECTED'; requestId: string; result: CafeArticleRead }
+  | { type: 'ARTICLE_BODY_COLLECTED'; requestId: string; result: CafeArticleBodyRead }
   | { type: 'STUDIO_IDENTITY'; requestId: string; verified: boolean }
   | { type: 'STUDIO_JOIN_PAGE_COLLECTED'; requestId: string; page: number; result: StudioJoinPage }
   | { type: 'STUDIO_IDENTITY_OPENED'; requestId: string }
@@ -229,6 +242,7 @@ const APP_MESSAGE_TYPES = new Set<string>([
   'OPEN_STUDIO_IDENTITY',
   'COLLECT_BOARD_SEARCH_PAGE',
   'COLLECT_ARTICLE',
+  'COLLECT_ARTICLE_BODY',
   'PROBE',
   'ABORT',
   'RELOAD',
@@ -246,6 +260,7 @@ const EXTENSION_MESSAGE_TYPES = new Set<string>([
   'STUDIO_JOIN_PAGE_COLLECTED',
   'STUDIO_IDENTITY_OPENED',
   'ARTICLE_COLLECTED',
+  'ARTICLE_BODY_COLLECTED',
   'EXECUTED',
   'PROBE_RESULT',
   'ERROR',
@@ -264,6 +279,7 @@ export function isAppMessage(value: unknown): value is AppMessage {
   if (type === 'COLLECT_STUDIO_JOIN_PAGE') return isCollectStudioJoinPageRequest(value)
   if (type === 'COLLECT_BOARD_SEARCH_PAGE') return isCollectBoardSearchPageRequest(value)
   if (type === 'COLLECT_ARTICLE') return isCollectArticleRequest(value)
+  if (type === 'COLLECT_ARTICLE_BODY') return isCollectArticleBodyRequest(value)
   return type !== null && APP_MESSAGE_TYPES.has(type)
 }
 
@@ -287,6 +303,7 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   if (type === 'MEMBER_PAGE_COLLECTED') return isMemberPageCollected(value)
   if (type === 'STUDIO_JOIN_PAGE_COLLECTED') return isStudioJoinPageCollected(value)
   if (type === 'ARTICLE_COLLECTED') return isArticleCollected(value)
+  if (type === 'ARTICLE_BODY_COLLECTED') return isArticleBodyCollected(value)
   return type !== null && EXTENSION_MESSAGE_TYPES.has(type)
 }
 
@@ -431,4 +448,29 @@ function isArticleCollected(value: unknown): value is Extract<ExtensionMessage, 
   if (result.kind === 'absent') return typeof result.status === 'number' && typeof result.code === 'string'
   if (result.kind !== 'article' || typeof result.isNotice !== 'boolean' || typeof result.post !== 'object' || result.post === null) return false
   return typeof (result.post as { postId?: unknown }).postId === 'string'
+}
+
+/** Runtime guard for one article body of this cafe, by an id the endpoint accepts. */
+export function isCollectArticleBodyRequest(value: unknown): value is CollectArticleBodyRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as Partial<CollectArticleBodyRequest>
+  return (
+    message.type === 'COLLECT_ARTICLE_BODY' &&
+    typeof message.requestId === 'string' &&
+    message.cafeId === CAFE_ARTICLE_LIST.cafeId &&
+    typeof message.postId === 'string' &&
+    isArticleId(message.postId)
+  )
+}
+
+function isArticleBodyCollected(value: unknown): value is Extract<ExtensionMessage, { type: 'ARTICLE_BODY_COLLECTED' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const message = value as { type?: unknown; requestId?: unknown; result?: unknown }
+  if (message.type !== 'ARTICLE_BODY_COLLECTED' || typeof message.requestId !== 'string' || typeof message.result !== 'object' || message.result === null) {
+    return false
+  }
+  const result = message.result as { kind?: unknown; postId?: unknown; contentHtml?: unknown; postedAt?: unknown; status?: unknown; code?: unknown }
+  if (result.kind === 'absent') return typeof result.status === 'number' && typeof result.code === 'string'
+  if (result.kind !== 'article') return false
+  return typeof result.postId === 'string' && typeof result.contentHtml === 'string' && typeof result.postedAt === 'number'
 }

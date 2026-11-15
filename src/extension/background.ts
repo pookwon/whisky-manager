@@ -7,6 +7,7 @@ import { createCafeClient, type HttpRequest, type HttpResponse } from './cafeCli
 import { createBoardPageReader } from './boardPageReader.js'
 import { createBoardSearchPageReader } from './boardSearchPageReader.js'
 import { createArticleReader } from './articleReader.js'
+import { createArticleBodyReader } from './articleBodyReader.js'
 import { createDispatcher, type CollectionProgress } from './dispatch.js'
 import { createMemberPageReader } from './memberPageReader.js'
 import { createStudioReader } from './studioReader.js'
@@ -145,6 +146,7 @@ const articleCafe = createArticleClient({ http: request, beforeCommentPost: asyn
 const boardPageReader = createBoardPageReader({ http: request })
 const boardSearchPageReader = createBoardSearchPageReader({ http: request })
 const articleReader = createArticleReader({ http: request })
+const articleBodyReader = createArticleBodyReader({ http: request })
 const memberPageReader = createMemberPageReader({ http: request })
 const studioReader = createStudioReader({ http: request })
 
@@ -179,6 +181,7 @@ const dispatch = createDispatcher({
   boardPageReader,
   boardSearchPageReader,
   articleReader,
+  articleBodyReader,
   memberPageReader,
   studioReader,
   openStudioPage: async () => {

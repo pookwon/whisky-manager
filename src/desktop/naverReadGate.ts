@@ -3,10 +3,15 @@ import type { ExtensionTransport } from './ws/server.js'
 
 type InterimListener = (message: ExtensionMessage) => void
 
-type PageRead = Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' | 'COLLECT_BOARD_SEARCH_PAGE' | 'COLLECT_ARTICLE' }>
+type PageRead = Extract<AppMessage, { type: 'COLLECT_BOARD_PAGE' | 'COLLECT_BOARD_SEARCH_PAGE' | 'COLLECT_ARTICLE' | 'COLLECT_ARTICLE_BODY' }>
 
 function isPageRead(message: AppMessage): message is PageRead {
-  return message.type === 'COLLECT_BOARD_PAGE' || message.type === 'COLLECT_BOARD_SEARCH_PAGE' || message.type === 'COLLECT_ARTICLE'
+  return (
+    message.type === 'COLLECT_BOARD_PAGE' ||
+    message.type === 'COLLECT_BOARD_SEARCH_PAGE' ||
+    message.type === 'COLLECT_ARTICLE' ||
+    message.type === 'COLLECT_ARTICLE_BODY'
+  )
 }
 
 interface QueuedBoardPage {

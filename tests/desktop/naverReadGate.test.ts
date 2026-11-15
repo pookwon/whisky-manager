@@ -132,4 +132,25 @@ describe('createNaverReadGate', () => {
     await article
   })
 
+  it('queues a COLLECT_ARTICLE_BODY behind an in-flight COLLECT_BOARD_PAGE, just like the page reads', async () => {
+    const { transport, sent } = deferredTransport()
+    const gate = createNaverReadGate(createCollectGate(transport))
+
+    const page = gate.request(board('board-1', 1), TIMEOUT_MS)
+    await settleMicrotasks()
+    const body = gate.request({ type: 'COLLECT_ARTICLE_BODY', requestId: 'body-1', cafeId: '14538121', postId: '963460' }, TIMEOUT_MS)
+    await settleMicrotasks()
+    // The body read must not reach the inner transport until the page read settles.
+    expect(sent).toHaveLength(1)
+
+    sent[0]!.settle({ type: 'BOARD_PAGE_COLLECTED', requestId: 'board-1', page: 1, result: { items: [], pageInfo: { lastNavigationPageNumber: 1, visibleNextButton: false, totalArticleCount: 0 }, pageIdentity: 'empty' } })
+    await page
+    await settleMicrotasks()
+    expect(sent).toHaveLength(2)
+    expect(sent[1]!.message.type).toBe('COLLECT_ARTICLE_BODY')
+
+    sent[1]!.settle({ type: 'ARTICLE_BODY_COLLECTED', requestId: 'body-1', result: { kind: 'absent', status: 404, code: '4003' } })
+    await body
+  })
+
 })
