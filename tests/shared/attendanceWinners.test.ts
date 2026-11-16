@@ -21,10 +21,22 @@ describe('parseAttendanceWinners', () => {
     expect(parseAttendanceWinners(html)).toEqual({ ok: true, nicknames: names })
   })
 
-  it('reads a non-breaking space inside a nickname as U+00A0', () => {
+  it('reads a non-breaking space as a plain space, wherever it stands', () => {
     expect(parseAttendanceWinners('<p> 가상&nbsp;하나님, 가상둘님이 당첨 되셨습니다. </p>')).toEqual({
       ok: true,
-      nicknames: ['가상 하나', '가상둘'],
+      nicknames: ['가상 하나', '가상둘'],
+    })
+    expect(parseAttendanceWinners('<p>가상하나님,&nbsp;가상둘님이 당첨 되셨습니다.</p>')).toEqual({
+      ok: true,
+      nicknames: ['가상하나', '가상둘'],
+    })
+    expect(parseAttendanceWinners('<p>가상하나님,&#160;가상둘님,&#xA0;가상셋님이&NBSP;당첨&nbsp;되셨습니다.</p>')).toEqual({
+      ok: true,
+      nicknames: ['가상하나', '가상둘', '가상셋'],
+    })
+    expect(parseAttendanceWinners('<p>가상하나님, 가상둘님이 당첨 되셨습니다.</p>')).toEqual({
+      ok: true,
+      nicknames: ['가상하나', '가상둘'],
     })
   })
 
