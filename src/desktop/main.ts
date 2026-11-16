@@ -74,6 +74,13 @@ let tray: Tray | null = null
 let window: BrowserWindow | null = null
 let updates: UpdateRuntime | null = null
 
+/**
+ * Set once a quit has begun. A quit chosen from the preparing tray arrives while
+ * there is no context to shut down yet; startup must not carry on into a
+ * window and a running loop that nothing would ever stop.
+ */
+let isQuitting = false
+
 /** Set when this launch rewrote the staged extension; spent on the first reload it asks for. */
 let extensionReloadArmed = false
 
@@ -121,6 +128,17 @@ function updateTrayItems(): Electron.MenuItemConstructorOptions[] {
     return [{ type: 'separator' }, { label: TEXT.tray.updateWaiting, enabled: false }]
   }
   return []
+}
+
+/** The tray while the app is still opening its storage: it says so, and can still quit. */
+function showPreparingTray(): void {
+  tray?.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: TEXT.tray.preparing, enabled: false },
+      { type: 'separator' },
+      { label: TEXT.tray.quit, role: 'quit' },
+    ]),
+  )
 }
 
 function refreshTray(ctx: AppContext): void {
@@ -271,12 +289,13 @@ function reportFatalStartupError(error: unknown): void {
   app.quit()
 }
 
-function reportCollectionUnavailable(code: CollectionUnavailableCode): void {
-  // The code is deliberately safe to expose. Driver messages may contain a
-  // hostname or user name and never reach logs or the renderer.
-  console.error('[collection] unavailable:', code)
+function reportCollectionUnavailable(code: CollectionUnavailableCode, detail?: string): void {
+  // The code and the SQLSTATE beside it are deliberately safe to expose. Driver
+  // messages may contain a hostname or user name and never reach logs or the renderer.
+  const line = detail === undefined ? code : `${code} ${detail}`
+  console.error('[collection] unavailable:', line)
   try {
-    writeFileSync(join(app.getPath('userData'), 'collection-status.log'), `${code}\n`)
+    writeFileSync(join(app.getPath('userData'), 'collection-status.log'), `${line}\n`)
   } catch {
     // Collection remains unavailable; failure to write its diagnostic must not
     // take down the existing SQLite-backed greeting automation.
@@ -308,6 +327,16 @@ void app.whenReady().then(async () => {
     }
   }
 
+  // Opening the collection database can wait on another machine's migration for
+  // up to its lock timeout. The tray goes up first so a launch is visibly alive
+  // the whole time, rather than an app with no icon that invites a second click.
+  // `@2x` sits beside it under the same name minus the suffix, which is the
+  // naming convention nativeImage uses to pick the sharper asset on a
+  // high-DPI display on its own.
+  tray = new Tray(nativeImage.createFromPath(join(app.getAppPath(), 'assets', 'tray-icon.png')))
+  tray.setToolTip(TEXT.app.title)
+  showPreparingTray()
+
   const profile = app.isPackaged ? 'production' : 'debug'
   const sessionLogPath = join(app.getPath('userData'), 'sessions.log')
   context = await createAppContext({
@@ -338,6 +367,10 @@ void app.whenReady().then(async () => {
       }
     },
   })
+  if (isQuitting) {
+    void context.shutdown()
+    return
+  }
 
   const appContext = context
   const updateRuntime = createUpdateRuntime({
@@ -419,11 +452,6 @@ void app.whenReady().then(async () => {
     }),
   )
 
-  // `@2x` sits beside it under the same name minus the suffix, which is the
-  // naming convention nativeImage uses to pick the sharper asset on a
-  // high-DPI display on its own.
-  tray = new Tray(nativeImage.createFromPath(join(app.getAppPath(), 'assets', 'tray-icon.png')))
-  tray.setToolTip(TEXT.app.title)
   refreshTray(context)
   showWindow()
   updateRuntime.start()
@@ -433,8 +461,13 @@ void app.whenReady().then(async () => {
 app.on('window-all-closed', () => {})
 
 // A second launch means the operator wants the window of the app already running.
-app.on('second-instance', showWindow)
+// Until startup finishes there is no IPC behind a window, and startup opens the
+// window itself once it does.
+app.on('second-instance', () => {
+  if (context !== null) showWindow()
+})
 
 app.on('before-quit', () => {
+  isQuitting = true
   void context?.shutdown()
 })

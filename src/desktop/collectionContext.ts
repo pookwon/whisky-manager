@@ -54,6 +54,8 @@ export type OptionalCollectionContext =
   | {
       readonly kind: 'unavailable'
       readonly code: CollectionUnavailableCode
+      /** A SQLSTATE or error class, safe to log: never a message, URL or user name. */
+      readonly detail?: string
       retry(): Promise<OptionalCollectionContext>
       close(): Promise<void>
     }
@@ -69,7 +71,7 @@ export type CollectionDatabaseUrlSource = () => string | null
 const noOpClose = async (): Promise<void> => undefined
 
 class CollectionContextError extends Error {
-  constructor(readonly code: CollectionUnavailableCode) {
+  constructor(readonly code: CollectionUnavailableCode, readonly detail?: string) {
     super(code)
     this.name = 'CollectionContextError'
   }
@@ -119,8 +121,9 @@ async function bringSchemaUpToDate(databaseUrl: string, packaged: PackagedMigrat
       journal: packaged.journal,
     })
   } catch (error) {
-    console.error('[collection] migration failed:', describeMigrationFailure(error))
-    throw new CollectionContextError('COLLECTION_MIGRATION_FAILED')
+    // The installed Windows build has no console, so the reason travels with
+    // the code to the status log rather than being printed here alone.
+    throw new CollectionContextError('COLLECTION_MIGRATION_FAILED', describeMigrationFailure(error))
   }
 }
 
@@ -198,8 +201,10 @@ export async function openOptionalCollectionContext(
   } catch (error) {
     await connection?.close()
     const code = classifyCollectionContextError(error)
+    const detail = error instanceof CollectionContextError ? error.detail : undefined
     return {
       kind: 'unavailable', code, close: noOpClose,
+      ...(detail === undefined ? {} : { detail }),
       retry: () => openOptionalCollectionContext(databaseUrlSource, migrationsFolder),
     }
   }

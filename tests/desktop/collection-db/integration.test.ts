@@ -1313,6 +1313,19 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       }
     })
 
+    it('names the SQLSTATE of a migration that fails, and leaves the history where it was', async () => {
+      await cleanCollectionObjects()
+      await migrate(drizzle(pool), { migrationsFolder: olderMigrationsFolder(journal.length - 1) })
+      // The last packaged migration creates this type; holding it already makes that migration fail.
+      await pool.query(`create type attendance_kind as enum ('comment')`)
+      const before = await appliedMigrations()
+
+      const context = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
+      expect(context).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_MIGRATION_FAILED', detail: '42710' })
+      await context.close()
+      expect(await appliedMigrations()).toEqual(before)
+    })
+
     it('builds an empty database once even when two instances start together', async () => {
       await cleanCollectionObjects()
 

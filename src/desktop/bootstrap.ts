@@ -103,8 +103,11 @@ export interface AppContextOptions {
   readonly bridgePort: number
   /** Fired when the loop stops itself; the shell should show the new state. */
   readonly onHalt?: (reason: 'NOT_LOGGED_IN' | 'LOGIN_CHECK_FAILED') => void
-  /** Safe status code only; DATABASE_URL and driver errors never cross this callback. */
-  readonly onCollectionUnavailable?: (code: CollectionUnavailableCode) => void
+  /**
+   * Safe status code, plus a SQLSTATE or error class when there is one;
+   * DATABASE_URL and driver messages never cross this callback.
+   */
+  readonly onCollectionUnavailable?: (code: CollectionUnavailableCode, detail?: string) => void
   /** An extension finished its handshake; the shell may now have something to tell it. */
   readonly onExtensionConnected?: () => void
   /**
@@ -209,7 +212,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     () => resolveCollectionDatabaseUrl(process.env, options.collectionConfigPath),
     options.collectionMigrationsFolder,
   )
-  if (collection.kind === 'unavailable') options.onCollectionUnavailable?.(collection.code)
+  if (collection.kind === 'unavailable') options.onCollectionUnavailable?.(collection.code, collection.detail)
 
   let token = settings.get('pairingToken')
   if (token === undefined) {

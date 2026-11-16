@@ -704,6 +704,7 @@ export const TEXT = {
    * spells out on its own.
    */
   tray: {
+    preparing: '시작하는 중…',
     openWindow: '창 열기',
     startAutomation: '자동화 시작',
     stopAutomation: '자동화 중지',
