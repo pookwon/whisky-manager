@@ -1,6 +1,7 @@
 import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../shared/automations/catalog.js'
 import type {
   AppMessage,
+  CollectArticleBodyRequest,
   CollectArticleRequest,
   CollectBoardPageRequest,
   CollectBoardSearchPageRequest,
@@ -13,6 +14,7 @@ import type { CommentAuthor } from '../shared/types.js'
 import type { BoardPageReadResult } from './boardPageReader.js'
 import type { BoardSearchPageReadResult } from './boardSearchPageReader.js'
 import type { ArticleReadResult } from './articleReader.js'
+import type { ArticleBodyReadResult } from './articleBodyReader.js'
 import type { Reply } from './bridgeClient.js'
 import type { CafeClient, ExecuteResult } from './cafeClient.js'
 import type { MemberPageReadResult } from './memberPageReader.js'
@@ -33,6 +35,7 @@ export interface DispatcherDeps {
   readonly boardPageReader: { read(request: CollectBoardPageRequest): Promise<BoardPageReadResult> }
   readonly boardSearchPageReader: { read(request: CollectBoardSearchPageRequest): Promise<BoardSearchPageReadResult> }
   readonly articleReader: { read(request: CollectArticleRequest): Promise<ArticleReadResult> }
+  readonly articleBodyReader: { read(request: CollectArticleBodyRequest): Promise<ArticleBodyReadResult> }
   readonly memberPageReader: { read(request: CollectMemberPageRequest): Promise<MemberPageReadResult> }
   readonly studioReader: {
     checkIdentity(): Promise<StudioRead<boolean>>
@@ -141,6 +144,18 @@ export function createDispatcher(deps: DispatcherDeps) {
           return
         }
         reply({ type: 'ARTICLE_COLLECTED', requestId: message.requestId, result: result.result })
+        return
+      }
+
+      case 'COLLECT_ARTICLE_BODY': {
+        const result = await deps.articleBodyReader.read(message)
+        if (!result.ok) {
+          // Stable and body-free, like the article read: a body is the writer's own.
+          // The detail names only the parser rule a body broke and where.
+          reply({ type: 'ERROR', requestId: message.requestId, code: result.code, message: result.detail ?? result.code })
+          return
+        }
+        reply({ type: 'ARTICLE_BODY_COLLECTED', requestId: message.requestId, result: result.result })
         return
       }
 

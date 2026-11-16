@@ -23,6 +23,8 @@ import type { ExtensionRecoveryResult, ExtensionSetupResult } from './extensionS
 import type { StartupPreview } from './preview.js'
 import type { WarmCheck } from './sessionWarmer.js'
 import type { UpdateState } from '../shared/updateStatus.js'
+import type { AttendanceProgress, AttendanceStartResult } from './attendanceCollection.js'
+import type { AttendanceStatus } from './collection-db/attendanceStatusQuery.js'
 
 // Re-exported so the renderer reads every answer this surface gives from the
 // one module, as it does for the collection results below.
@@ -31,6 +33,8 @@ export type { LogEntry, LogSource } from './recentLog.js'
 export type { MemberResyncView } from './memberResyncView.js'
 export type { BoardSearchView } from './boardSearchView.js'
 export type { ArticleProbeView } from './articleProbeView.js'
+export type { AttendanceProgress, AttendanceStartResult } from './attendanceCollection.js'
+export type { AttendanceStatus } from './collection-db/attendanceStatusQuery.js'
 
 /** Socket is connected, reconnection is in progress, or truly offline. */
 export type BridgeStatus = 'CONNECTED' | 'RECONNECTING' | 'OFFLINE'
@@ -53,6 +57,9 @@ export const IPC_CHANNELS = {
   setMemberResyncAuto: 'wm:setMemberResyncAuto',
   getBoardSearchStatus: 'wm:getBoardSearchStatus',
   getArticleProbeStatus: 'wm:getArticleProbeStatus',
+  startAttendanceCollection: 'wm:startAttendanceCollection',
+  stopAttendanceCollection: 'wm:stopAttendanceCollection',
+  getAttendanceView: 'wm:getAttendanceView',
   listAwaiting: 'wm:listAwaiting',
   approve: 'wm:approve',
   reject: 'wm:reject',
@@ -205,6 +212,17 @@ export type ArticleProbeStatusView =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'unavailable'; readonly code: CollectionUnavailableCode }
   | { readonly kind: 'ready'; readonly view: ArticleProbeView }
+
+/**
+ * What one poll of the attendance screen reads. The walk's progress is always
+ * there — a walk runs whether or not the database is configured — while the
+ * recorded status is null when there is no collection database to read it from.
+ */
+export interface AttendanceView {
+  readonly progress: AttendanceProgress
+  /** Null when the collection database is not configured. */
+  readonly status: AttendanceStatus | null
+}
 
 /**
  * Collection storage is optional, so its screen has three answers rather than
@@ -381,6 +399,12 @@ export interface RendererApi {
   getBoardSearchStatus(): Promise<BoardSearchStatusView>
   /** Where reading the gap's ids stands; `disabled` without a collection database. */
   getArticleProbeStatus(): Promise<ArticleProbeStatusView>
+  /** Starts one attendance walk over the member board; the result says whether it began. */
+  startAttendanceCollection(): Promise<AttendanceStartResult>
+  /** Asks an attendance walk in flight to end between requests. */
+  stopAttendanceCollection(): Promise<void>
+  /** The walk's progress with the recorded status; the status is null without a collection database. */
+  getAttendanceView(): Promise<AttendanceView>
   getCollectionSchedule(): Promise<CollectionScheduleView>
   /** The log screen's timeline, newest first, already capped. */
   getRecentLog(): Promise<readonly LogEntry[]>

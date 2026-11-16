@@ -18,6 +18,7 @@ import { CollectionSettings } from './views/CollectionSettings.js'
 import { CollectionStatus } from './views/CollectionStatus.js'
 import { CommonSettings } from './views/CommonSettings.js'
 import { AiJoinCheck } from './views/members/AiJoinCheck.js'
+import { AttendanceRecords } from './views/members/AttendanceRecords.js'
 import { MemberCollection } from './views/members/MemberCollection.js'
 import { RecentLog } from './views/RecentLog.js'
 import { Dashboard } from './views/Dashboard.js'
@@ -239,6 +240,14 @@ export function App(): React.JSX.Element {
             >
               <span>{TEXT.nav.aiJoinCheck}</span>
             </button>
+            <button
+              type="button"
+              className="nav-item nav-item-sub"
+              aria-current={route.kind === 'attendance' ? 'page' : undefined}
+              onClick={() => setRoute({ kind: 'attendance' })}
+            >
+              <span>{TEXT.nav.attendance}</span>
+            </button>
           </div>
         </section>
 
@@ -274,6 +283,7 @@ export function App(): React.JSX.Element {
         {route.kind === 'collection' && route.panel === 'settings' && <CollectionSettings />}
         {route.kind === 'members' && <MemberCollection />}
         {route.kind === 'aiJoinCheck' && <AiJoinCheck />}
+        {route.kind === 'attendance' && <AttendanceRecords />}
         {route.kind === 'commonSettings' && <CommonSettings />}
         {route.kind === 'log' && <RecentLog />}
         {route.kind === 'automation' && route.panel === 'approvals' && (

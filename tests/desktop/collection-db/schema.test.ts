@@ -100,3 +100,25 @@ describe('article probe migration', () => {
     expect(sqlText).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER COLUMN/)
   })
 })
+
+describe('attendance award migration', () => {
+  const sqlText = migrationNumbered('0011')
+
+  it('adds the round and award tables, keyed and kinded', () => {
+    expect(sqlText).toContain('CREATE TABLE "attendance_posts"')
+    expect(sqlText).toContain('CREATE TABLE "attendance_awards"')
+    expect(sqlText).toContain('"attendance_awards_pkey" PRIMARY KEY("post_id","position")')
+    expect(sqlText).toContain(`CREATE TYPE "public"."attendance_kind" AS ENUM('comment', 'post', 'visit')`)
+    expect(sqlText).toContain(`CREATE TYPE "public"."attendance_post_status" AS ENUM('recorded', 'refused')`)
+    expect(sqlText).toContain('REFERENCES "public"."attendance_posts"')
+  })
+
+  it('holds a recorded row to its period, winner count and rule together', () => {
+    expect(sqlText).toContain('CONSTRAINT "attendance_posts_recorded" CHECK')
+    expect(sqlText).toContain('CONSTRAINT "attendance_posts_period_order" CHECK')
+  })
+
+  it('only adds: an operator migrates a live database by hand', () => {
+    expect(sqlText).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER COLUMN/)
+  })
+})

@@ -201,3 +201,4 @@ export const collectionSchema = {
 // back and the two files stay free of a load-time cycle.
 export * from './memberSchema.js'
 export * from './memberResyncSchema.js'
+export * from './attendanceSchema.js'

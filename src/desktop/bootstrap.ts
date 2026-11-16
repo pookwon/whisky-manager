@@ -58,6 +58,9 @@ import { createBoardSearchRunner, type BoardSearchRunner } from './boardSearchRu
 import { createBoardSearchPageFetcher } from './boardSearchPageFetcher.js'
 import { createArticleProbeRunner, type ArticleProbeRunner } from './articleProbeRunner.js'
 import { createArticleFetcher } from './articleFetcher.js'
+import { createArticleBodyFetcher } from './articleBodyFetcher.js'
+import { createAttendanceCollection, ATTENDANCE_BOARD_MENU_ID, type AttendanceCollection } from './attendanceCollection.js'
+import { CollectionPageError } from './collectionPageError.js'
 import { safeMemberErrorFields } from './memberErrorLog.js'
 import { createMemberCollectionJob } from './collectionJob.js'
 import { createCollectionPipeline, type CollectionPipeline } from './collectionPipeline.js'
@@ -157,6 +160,8 @@ export interface AppContext {
   readonly boardSearchRunner: BoardSearchRunner
   /** The gap's ids read one by one after the search backfill, one block at a time. */
   readonly articleProbeRunner: ArticleProbeRunner
+  /** The attendance walk over the member board; the renderer starts and stops it. */
+  readonly attendanceCollection: AttendanceCollection
   /** The article walks in order; the renderer starts and stops collection through it. */
   readonly collectionPipeline: CollectionPipeline
   /** Re-read after the schedule is saved, so a change takes effect without a restart. */
@@ -651,6 +656,29 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     onError: (error) => diagnostics.error('article-probe', error),
   })
 
+  // The attendance walk over the member board takes the same lock and read gate
+  // as the article walks: one browser session, one walk at a time. It lists the
+  // board, then reads each attendance post's body it has not already recorded.
+  const attendanceCollection = createAttendanceCollection({
+    repository: () => (collection.kind === 'ready' ? collection.attendanceRepository : null),
+    listFetcher: createBoardPageFetcher(transport, () => randomUUID(), ATTENDANCE_BOARD_MENU_ID),
+    bodyFetcher: createArticleBodyFetcher(transport, () => randomUUID()),
+    isConnected: () => transport.isConnected(),
+    lock: collectionLock,
+    isSessionBusy: isAnySessionInFlight,
+    pacing: () => readCollectionPacing(settings),
+    random: systemRandom,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => systemClock.now(),
+    onError: (error) => {
+      // Only a code or the error's class name: a failing save's own message can
+      // quote the nickname rows it was inserting, as the member walk's can.
+      if (error instanceof CollectionPageError) diagnostics.error('attendance', error.code)
+      else if (error instanceof Error) diagnostics.error('attendance', error.name)
+      else diagnostics.error('attendance', 'non-Error thrown')
+    },
+  })
+
   // The three article walks go one after another: the list, then the search of
   // each board it could not finish, then the period's id holes.
   const collectionPipeline = createCollectionPipeline({
@@ -830,6 +858,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
     memberResyncRunner,
     boardSearchRunner,
     articleProbeRunner,
+    attendanceCollection,
     collectionPipeline,
     collectionLoop,
     automation,
@@ -903,6 +932,7 @@ export async function createAppContext(options: AppContextOptions): Promise<AppC
       collectionPipeline.stop()
       memberCollectionRunner.stop()
       memberResyncRunner.stop()
+      attendanceCollection.stop()
       warmer.stop()
       await bridge.close()
       await collection.close()

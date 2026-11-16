@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PREFIX_REMINDER_AUTOMATION_ID, WELCOME_AUTOMATION_ID } from '../../src/shared/automations/catalog.js'
 import { CAFE_ARTICLE_LIST } from '../../src/shared/cafeArticleFixture.js'
 import { CAFE_MEMBER_LIST } from '../../src/shared/cafeMemberFixture.js'
-import type { AppMessage, CollectArticleRequest, CollectBoardSearchPageRequest, ExtensionMessage, SourceRef } from '../../src/shared/protocol.js'
+import type { AppMessage, CollectArticleBodyRequest, CollectArticleRequest, CollectBoardSearchPageRequest, ExtensionMessage, SourceRef } from '../../src/shared/protocol.js'
 import { createDispatcher, type DispatcherDeps } from '../../src/extension/dispatch.js'
 import type { ExecuteResult } from '../../src/extension/cafeClient.js'
 
@@ -41,6 +41,7 @@ function setup(overrides: Partial<DispatcherDeps> = {}) {
     boardPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'BOARD_PAGE_HTTP_ERROR' as const }) },
     boardSearchPageReader: { read: async () => ({ ok: false as const, code: 'BOARD_SEARCH_BAD_REQUEST' as const }) },
     articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_BAD_REQUEST' as const }) },
+    articleBodyReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_BODY_BAD_REQUEST' as const }) },
     memberPageReader: { read: () => Promise.resolve({ ok: false as const, code: 'MEMBER_PAGE_FORBIDDEN' as const }) },
     studioReader: {
       checkIdentity: () => Promise.resolve({ ok: true as const, value: true }),
@@ -243,6 +244,22 @@ describe('the rest of the instructions', () => {
     const refused = setup({ articleReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_PARSE_ERROR' as const, detail: 'INVALID_ARTICLE: result.article.writer must be an object' }) } })
     await refused.run(articleRequest)
     expect(refused.replies[0]).toEqual({ type: 'ERROR', requestId: 'ra1', code: 'ARTICLE_PARSE_ERROR', message: 'INVALID_ARTICLE: result.article.writer must be an object' })
+  })
+
+  it('answers an article body read with ARTICLE_BODY_COLLECTED, a failed one with its bare code, and a refused one with its rule', async () => {
+    const bodyRequest: CollectArticleBodyRequest = { type: 'COLLECT_ARTICLE_BODY', requestId: 'rb1', cafeId: '14538121', postId: '963460' }
+    const absent = { kind: 'absent' as const, status: 404, code: '4003' }
+    const answered = setup({ articleBodyReader: { read: async () => ({ ok: true as const, result: absent }) } })
+    await answered.run(bodyRequest)
+    expect(answered.replies[0]).toEqual({ type: 'ARTICLE_BODY_COLLECTED', requestId: 'rb1', result: absent })
+
+    const failed = setup({ articleBodyReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_BODY_HTTP_ERROR' as const }) } })
+    await failed.run(bodyRequest)
+    expect(failed.replies[0]).toEqual({ type: 'ERROR', requestId: 'rb1', code: 'ARTICLE_BODY_HTTP_ERROR', message: 'ARTICLE_BODY_HTTP_ERROR' })
+
+    const refused = setup({ articleBodyReader: { read: async () => ({ ok: false as const, code: 'ARTICLE_BODY_PARSE_ERROR' as const, detail: 'INVALID_ARTICLE: result.article.contentHtml must be a string' }) } })
+    await refused.run(bodyRequest)
+    expect(refused.replies[0]).toEqual({ type: 'ERROR', requestId: 'rb1', code: 'ARTICLE_BODY_PARSE_ERROR', message: 'INVALID_ARTICLE: result.article.contentHtml must be a string' })
   })
 
   it('hands a probe to the probe itself and ignores an abort', async () => {
