@@ -10,6 +10,10 @@ import { decodeHtmlEntities } from './htmlEntities.js'
 
 const CLOSING_PHRASE = '님이 당첨 되셨습니다'
 const NICKNAME_SEPARATOR = '님, '
+// The shared decoder knows only the entities the management API sends; the
+// cafe editor also writes non-breaking spaces into post bodies.
+const NON_BREAKING_SPACE_ENTITY = '&nbsp;'
+const NON_BREAKING_SPACE = ' '
 
 export type AttendanceWinnersRule = 'NO_CLOSING_PHRASE' | 'NO_WINNERS' | 'EMPTY_NICKNAME'
 export type AttendanceWinners =
@@ -30,7 +34,7 @@ export function parseAttendanceWinners(contentHtml: string): AttendanceWinners {
   // Decode before measuring: a nickname written as an entity alone — `&nbsp;`
   // decodes to U+00A0, which `trim` removes — is empty once decoded, and checking
   // the raw text would let it through as a blank winner.
-  const nicknames = beforePhrase.split(NICKNAME_SEPARATOR).map((piece) => decodeHtmlEntities(piece).trim())
+  const nicknames = beforePhrase.split(NICKNAME_SEPARATOR).map((piece) => decodeNickname(piece).trim())
   if (nicknames.some((nickname) => nickname.length === 0)) {
     return { ok: false, rule: 'EMPTY_NICKNAME' }
   }
@@ -47,6 +51,10 @@ function lastTextRunWithClosingPhrase(contentHtml: string): string | null {
     }
   }
   return null
+}
+
+function decodeNickname(piece: string): string {
+  return decodeHtmlEntities(piece.replaceAll(NON_BREAKING_SPACE_ENTITY, NON_BREAKING_SPACE))
 }
 
 function collapseWhitespace(value: string): string {

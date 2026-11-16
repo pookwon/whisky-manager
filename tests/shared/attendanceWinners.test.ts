@@ -21,6 +21,13 @@ describe('parseAttendanceWinners', () => {
     expect(parseAttendanceWinners(html)).toEqual({ ok: true, nicknames: names })
   })
 
+  it('reads a non-breaking space inside a nickname as U+00A0', () => {
+    expect(parseAttendanceWinners('<p> 가상&nbsp;하나님, 가상둘님이 당첨 되셨습니다. </p>')).toEqual({
+      ok: true,
+      nicknames: ['가상 하나', '가상둘'],
+    })
+  })
+
   it('refuses a body it cannot be sure of', () => {
     expect(parseAttendanceWinners('<p> 이번 회차는 당첨자가 없습니다. </p>')).toEqual({ ok: false, rule: 'NO_CLOSING_PHRASE' })
     expect(parseAttendanceWinners('<p> 님이 당첨 되셨습니다. </p>')).toEqual({ ok: false, rule: 'NO_WINNERS' })
