@@ -201,6 +201,7 @@ export const TEXT = {
       COLLECTION_SCHEMA_MISSING: '수집용 테이블이 아직 만들어지지 않았습니다.',
       COLLECTION_SCHEMA_MISMATCH: '저장소의 스키마가 이 버전과 다릅니다.',
       COLLECTION_MIGRATION_FILES_MISSING: '설치본에 수집용 마이그레이션이 없습니다.',
+      COLLECTION_MIGRATION_FAILED: '수집용 스키마를 이 버전에 맞게 고치지 못했습니다. 쌓인 데이터는 그대로입니다.',
     },
     /** Which lists a period is read from. */
     scope: {

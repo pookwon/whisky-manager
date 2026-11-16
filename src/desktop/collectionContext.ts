@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { createBoardSearchCoverageQuery, type BoardSearchCoverageQuery } from './collection-db/boardSearchCoverageQuery.js'
 import { createBoardSearchLastRunQuery, type BoardSearchLastRunQuery } from './collection-db/boardSearchLastRunQuery.js'
@@ -6,6 +5,12 @@ import { createBoardSearchRepository, type BoardSearchRepository } from './colle
 import { createArticleProbeRepository, type ArticleProbeRepository } from './collection-db/articleProbeRepository.js'
 import { openCollectionDatabase, type CollectionDatabaseConnection } from './collection-db/client.js'
 import { createMemberRepository, type MemberRepository } from './collection-db/memberRepository.js'
+import { decideCollectionSchemaState, type CollectionMigrationStamp, type CollectionSchemaState } from './collection-db/migrationState.js'
+import {
+  applyPendingCollectionMigrations,
+  describeMigrationFailure,
+  readCollectionDatabaseFacts,
+} from './collection-db/pendingMigrations.js'
 import { createMemberCollectionStatusQuery, type MemberCollectionStatusQuery } from './collection-db/memberStatusQuery.js'
 import { createMemberResyncRepository, type MemberResyncRepository } from './collection-db/memberResyncRepository.js'
 import { createCollectionRepository, type CollectionRepository } from './collection-db/repository.js'
@@ -17,6 +22,7 @@ export type CollectionUnavailableCode =
   | 'COLLECTION_SCHEMA_MISSING'
   | 'COLLECTION_SCHEMA_MISMATCH'
   | 'COLLECTION_MIGRATION_FILES_MISSING'
+  | 'COLLECTION_MIGRATION_FAILED'
 
 export type OptionalCollectionContext =
   | { readonly kind: 'disabled'; close(): Promise<void> }
@@ -73,23 +79,63 @@ export function classifyCollectionContextError(error: unknown): CollectionUnavai
   return 'COLLECTION_CONNECTION_FAILED'
 }
 
-function expectedMigration(migrationsFolder: string | undefined): { hash: string; createdAt: number } {
+interface PackagedMigrations {
+  readonly folder: string
+  readonly journal: readonly CollectionMigrationStamp[]
+}
+
+function packagedMigrations(migrationsFolder: string | undefined): PackagedMigrations {
   if (migrationsFolder === undefined) {
     throw new CollectionContextError('COLLECTION_MIGRATION_FILES_MISSING')
   }
   try {
-    const migrations = readMigrationFiles({ migrationsFolder })
-    const latest = migrations.at(-1)
-    if (latest === undefined) throw new Error('empty migration journal')
-    return { hash: latest.hash, createdAt: latest.folderMillis }
+    const journal = readMigrationFiles({ migrationsFolder })
+      .map((migration) => ({ hash: migration.hash, createdAt: migration.folderMillis }))
+    if (journal.length === 0) throw new Error('empty migration journal')
+    return { folder: migrationsFolder, journal }
   } catch {
     throw new CollectionContextError('COLLECTION_MIGRATION_FILES_MISSING')
   }
 }
 
+async function readSchemaState(
+  connection: CollectionDatabaseConnection,
+  packaged: PackagedMigrations,
+): Promise<CollectionSchemaState> {
+  return decideCollectionSchemaState(packaged.journal, await readCollectionDatabaseFacts(connection.db))
+}
+
+async function bringSchemaUpToDate(databaseUrl: string, packaged: PackagedMigrations): Promise<void> {
+  try {
+    await applyPendingCollectionMigrations({
+      databaseUrl,
+      migrationsFolder: packaged.folder,
+      journal: packaged.journal,
+    })
+  } catch (error) {
+    console.error('[collection] migration failed:', describeMigrationFailure(error))
+    throw new CollectionContextError('COLLECTION_MIGRATION_FAILED')
+  }
+}
+
 /**
  * Collection storage is optional while the existing app remains SQLite-only.
- * This verifies the exact packaged migration and never invokes migrate.
+ *
+ * The schema is brought forward only along the packaged journal. This database
+ * can hold months of collected posts that no run will gather again, so an app
+ * meeting a schema it does not recognise — a newer app's migration, or a
+ * shipped migration that was regenerated — says so and stays out rather than
+ * altering it. A database merely behind this build is another matter: the
+ * remaining migrations are exactly the ones this build was tested against, and
+ * an installed Windows machine has no pnpm or source checkout to run
+ * `pnpm db:collection:migrate` from, so the app applies them itself.
+ *
+ * An empty database — no migration history and no tables — gets the whole
+ * journal, so a fresh `createdb` on a new machine needs nothing else. One that
+ * holds tables but no history is refused as missing its schema: it is either a
+ * restore that left the history out or another application's database, and
+ * building collection tables into either would only make the next restore
+ * collide with them.
  */
 export async function openOptionalCollectionContext(
   databaseUrlSource: CollectionDatabaseUrlSource,
@@ -98,9 +144,9 @@ export async function openOptionalCollectionContext(
   const databaseUrl = databaseUrlSource()
   if (databaseUrl === null) return { kind: 'disabled', close: noOpClose }
 
-  let expected: { hash: string; createdAt: number }
+  let packaged: PackagedMigrations
   try {
-    expected = expectedMigration(migrationsFolder)
+    packaged = packagedMigrations(migrationsFolder)
   } catch (error) {
     const code = classifyCollectionContextError(error)
     return {
@@ -112,19 +158,15 @@ export async function openOptionalCollectionContext(
   let connection: CollectionDatabaseConnection | null = null
   try {
     connection = openCollectionDatabase({ databaseUrl })
-    const migration = await connection.db.execute<{ hash: string; created_at: string }>(
-      sql`select hash, created_at::text from drizzle.__drizzle_migrations order by created_at desc limit 1`,
-    )
-    // Checked, never applied. This database can hold months of collected posts
-    // that no run will gather again, so an app meeting a schema it does not
-    // recognise says so and stays out rather than altering it — which also
-    // means regenerating a shipped migration invalidates every database
-    // already carrying it.
-    const latest = migration.rows[0]
-    if (latest === undefined) throw new CollectionContextError('COLLECTION_SCHEMA_MISSING')
-    if (latest.hash !== expected.hash || Number(latest.created_at) !== expected.createdAt) {
-      throw new CollectionContextError('COLLECTION_SCHEMA_MISMATCH')
+    let state = await readSchemaState(connection, packaged)
+    if (state === 'behind' || state === 'empty') {
+      await bringSchemaUpToDate(databaseUrl, packaged)
+      // Read again rather than trusting the apply: another instance holding
+      // the lock may have been a newer app that moved the schema past ours.
+      state = await readSchemaState(connection, packaged)
     }
+    if (state === 'occupied') throw new CollectionContextError('COLLECTION_SCHEMA_MISSING')
+    if (state !== 'current') throw new CollectionContextError('COLLECTION_SCHEMA_MISMATCH')
     const repository = createCollectionRepository(connection.db)
     // A crash between startRun and finishRun leaves a run in `running`, and the
     // per-feed single-running-run constraint would then reject every new run.

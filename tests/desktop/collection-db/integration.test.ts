@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseCafeArticleListText } from '../../../src/shared/cafeArticleList.js'
@@ -1153,6 +1156,98 @@ integration('collection PostgreSQL integration (opt-in)', () => {
       const walk = running.recentRuns.find((run) => run.status === 'running')
       expect(walk?.cursorPostedAtMs).not.toBeNull()
       expect(walk?.cursorPostedAtMs).toBeDefined()
+    })
+  })
+
+  // Last in the file: each of these drops every collection object and rebuilds
+  // the schema from an older point, as an installed app meets it.
+  describe('schema upgrades at app start', () => {
+    const journal = readMigrationFiles({ migrationsFolder })
+    const temporaryFolders: string[] = []
+
+    /** The packaged folder as an older build shipped it: only the first `count` migrations. */
+    function olderMigrationsFolder(count: number): string {
+      const folder = mkdtempSync(join(tmpdir(), 'collection-migrations-'))
+      temporaryFolders.push(folder)
+      const packagedJournal = JSON.parse(readFileSync(join(migrationsFolder, 'meta', '_journal.json'), 'utf8')) as {
+        entries: { tag: string }[]
+      }
+      const entries = packagedJournal.entries.slice(0, count)
+      mkdirSync(join(folder, 'meta'))
+      writeFileSync(join(folder, 'meta', '_journal.json'), JSON.stringify({ ...packagedJournal, entries }))
+      for (const entry of entries) copyFileSync(join(migrationsFolder, `${entry.tag}.sql`), join(folder, `${entry.tag}.sql`))
+      return folder
+    }
+
+    async function appliedMigrations(): Promise<{ hash: string; created_at: string }[]> {
+      const result = await pool.query<{ hash: string; created_at: string }>(
+        'select hash, created_at::text from drizzle.__drizzle_migrations order by created_at',
+      )
+      return result.rows
+    }
+
+    afterAll(() => {
+      for (const folder of temporaryFolders) rmSync(folder, { recursive: true, force: true })
+    })
+
+    it('applies the migrations a database is missing and keeps what it held', async () => {
+      await cleanCollectionObjects()
+      await migrate(drizzle(pool), { migrationsFolder: olderMigrationsFolder(journal.length - 2) })
+      await pool.query(`insert into boards (board_id, name, first_seen_at, last_seen_at) values ('77', 'kept', now(), now())`)
+
+      const context = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
+      try {
+        expect(context.kind).toBe('ready')
+        const applied = await appliedMigrations()
+        expect(applied).toHaveLength(journal.length)
+        expect(applied.at(-1)).toEqual({ hash: journal.at(-1)?.hash, created_at: String(journal.at(-1)?.folderMillis) })
+        const kept = await pool.query<{ name: string }>(`select name from boards where board_id = '77'`)
+        expect(kept.rows).toEqual([{ name: 'kept' }])
+      } finally {
+        await context.close()
+      }
+    })
+
+    it('builds an empty database once even when two instances start together', async () => {
+      await cleanCollectionObjects()
+
+      const [first, second] = await Promise.all([
+        openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder),
+        openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder),
+      ])
+      try {
+        expect(first.kind).toBe('ready')
+        expect(second.kind).toBe('ready')
+        expect((await appliedMigrations()).map((row) => row.hash)).toEqual(journal.map((migration) => migration.hash))
+      } finally {
+        await first.close()
+        await second.close()
+      }
+    })
+
+    it('refuses tables restored without their history, and creates nothing beside them', async () => {
+      await cleanCollectionObjects()
+      await migrate(drizzle(pool), { migrationsFolder })
+      await pool.query('drop schema drizzle cascade')
+
+      const context = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
+      expect(context).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_SCHEMA_MISSING' })
+      await context.close()
+      const drizzleSchema = await pool.query(`select 1 from pg_namespace where nspname = 'drizzle'`)
+      expect(drizzleSchema.rows).toHaveLength(0)
+    })
+
+    it('refuses a database whose latest migration this build does not know, and changes nothing', async () => {
+      await cleanCollectionObjects()
+      await migrate(drizzle(pool), { migrationsFolder: olderMigrationsFolder(journal.length - 2) })
+      const newer = String((journal.at(-1)?.folderMillis ?? 0) + 1)
+      await pool.query(`insert into drizzle.__drizzle_migrations (hash, created_at) values ('from-a-newer-app', $1)`, [newer])
+      const before = await appliedMigrations()
+
+      const context = await openOptionalCollectionContext(() => testDatabaseUrl as string, migrationsFolder)
+      expect(context).toMatchObject({ kind: 'unavailable', code: 'COLLECTION_SCHEMA_MISMATCH' })
+      await context.close()
+      expect(await appliedMigrations()).toEqual(before)
     })
   })
 })
